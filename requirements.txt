@@ -1,0 +1,9 @@
+numpy
+pandas
+pyyaml >= 5.1
+sqlalchemy
+# daf_base cannot be installed, and dax_apdb depends on daf_base
+# git+https://github.com/lsst/daf_base@main#egg=lsst-daf-base
+# git+https://github.com/lsst/dax_apdb@main#egg=lsst-dax-apdb
+git+https://github.com/lsst/felis@main#egg=lsst-felis
+git+https://github.com/lsst/utils@main#egg=lsst-utils
