@@ -1,0 +1,7 @@
+astropy
+pyyaml >= 5.1
+sqlalchemy
+lsst-dax-apdb @ git+https://github.com/lsst/dax_apdb@main
+lsst-utils @ git+https://github.com/lsst/utils@main
+lsst-resources[s3] @ git+https://github.com/lsst/resources@main
+lsst-felis @ git+https://github.com/lsst/felis@main

@@ -1,0 +1,72 @@
+# This file is part of dax_ppdb
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+from __future__ import annotations
+
+__all__ = ["main"]
+
+import argparse
+
+from lsst.dax.apdb.cli.logging_cli import LoggingCli
+
+from .. import scripts
+from . import options
+
+_longLogFmt = "%(asctime)s %(levelname)s %(name)s - %(message)s"
+
+
+def main() -> None:
+    """Commands for managing APDB-to-PPDB replication."""
+    parser = argparse.ArgumentParser(description="PPDB command line tools")
+    log_cli = LoggingCli(parser)
+
+    subparsers = parser.add_subparsers(title="available subcommands", required=True)
+    _list_chunks_apdb_subcommand(subparsers)
+    _list_chunks_ppdb_subcommand(subparsers)
+    _run_subcommand(subparsers)
+
+    args = parser.parse_args()
+    log_cli.process_args(args)
+    kwargs = vars(args)
+    method = kwargs.pop("method")
+    method(**kwargs)
+
+
+def _list_chunks_apdb_subcommand(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "list-chunks-apdb", help="Print full list of replic chunks existing on APDB side."
+    )
+    parser.add_argument("apdb_config", help="Path to the APDB configuration.")
+    parser.set_defaults(method=scripts.replication_list_chunks_apdb)
+
+
+def _list_chunks_ppdb_subcommand(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("list-chunks-ppdb", help="List full set of replica chunks in PPDB.")
+    parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
+    parser.set_defaults(method=scripts.replication_list_chunks_ppdb)
+
+
+def _run_subcommand(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("run", help="Run replication from APDB to PPDB.")
+    parser.add_argument("apdb_config", help="Path to the APDB configuration.")
+    parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
+    options.replication_options(parser)
+    parser.set_defaults(method=scripts.replication_run)
