@@ -235,12 +235,12 @@ class PpdbSql(Ppdb):
             schema_model.Column(
                 name="apdb_replica_chunk",
                 id=f"#{table_name}.apdb_replica_chunk",
-                datatype=felis.datamodel.DataType.LONG,
+                datatype=felis.datamodel.DataType.long,
             ),
             schema_model.Column(
                 name="last_update_time",
                 id=f"#{table_name}.last_update_time",
-                datatype=felis.datamodel.DataType.TIMESTAMP,
+                datatype=felis.datamodel.DataType.timestamp,
                 nullable=False,
             ),
             schema_model.Column(
@@ -252,7 +252,7 @@ class PpdbSql(Ppdb):
             schema_model.Column(
                 name="replica_time",
                 id=f"#{table_name}.replica_time",
-                datatype=felis.datamodel.DataType.TIMESTAMP,
+                datatype=felis.datamodel.DataType.timestamp,
                 nullable=False,
             ),
         ]
