@@ -1,0 +1,327 @@
+---
+name: "ApdbSchema"
+"@id": "#apdbSchema"
+version: "0.1.1"
+tables:
+- name: metadata
+  "@id": "#metadata"
+  description: Table containing various metadata key/value pairs for APDB.
+  columns:
+  - name: name
+    "@id": "#metadata.name"
+    datatype: text
+    length: 1024
+    nullable: false
+    description: Name or key for a metadata item.
+  - name: value
+    "@id": "#metadata.value"
+    datatype: text
+    length: 65535
+    nullable: false
+    description: Content of the metadata item in string representation.
+  primaryKey: "#metadata.name"
+- name: DiaObject
+  "@id": "#DiaObject"
+  description: The DiaObject table contains descriptions of the astronomical objects
+    detected on one or more difference images.
+  columns:
+  - name: diaObjectId
+    "@id": "#DiaObject.diaObjectId"
+    datatype: long
+    nullable: false
+    description: Unique id.
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;src
+  - name: validityStart
+    "@id": "#DiaObject.validityStart"
+    datatype: timestamp
+    length: 6
+    nullable: false
+    description: Time when validity of this diaObject starts.
+    mysql:datatype: DATETIME
+  - name: validityEnd
+    "@id": "#DiaObject.validityEnd"
+    datatype: timestamp
+    length: 6
+    nullable: true
+    description: Time when validity of this diaObject ends.
+    mysql:datatype: DATETIME
+  - name: ra
+    "@id": "#DiaObject.ra"
+    datatype: double
+    nullable: false
+    description: RA-coordinate of the position of the object at time radecTai.
+    mysql:datatype: DOUBLE
+    fits:tunit: deg
+    ivoa:ucd: pos.eq.ra
+  - name: dec
+    "@id": "#DiaObject.dec"
+    datatype: double
+    nullable: false
+    description: Dec-coordinate of the position of the object at time radecTai.
+    mysql:datatype: DOUBLE
+    fits:tunit: deg
+    ivoa:ucd: pos.eq.dec
+  - name: parallax
+    "@id": "#DiaObject.parallax"
+    datatype: float
+    description: Parallax.
+    mysql:datatype: FLOAT
+  - name: lastNonForcedSource
+    "@id": "#DiaObject.lastNonForcedSource"
+    datatype: timestamp
+    length: 6
+    nullable: false
+    description: Last time when non-forced DIASource was seen for this object.
+    mysql:datatype: DATETIME
+  - name: nDiaSources
+    "@id": "#DiaObject.nDiaSources"
+    datatype: int
+    nullable: false
+    description: Total number of DiaSources associated with this DiaObject.
+  primaryKey:
+  - "#DiaObject.diaObjectId"
+  - "#DiaObject.validityStart"
+  indexes:
+  - name: IDX_DiaObject_validityStart
+    "@id": "#IDX_DiaObject_validityStart"
+    columns:
+    - "#DiaObject.validityStart"
+- name: SSObject
+  "@id": "#SSObject"
+  description: The SSObject table contains description of the Solar System (moving)
+    Objects.
+  columns:
+  - name: ssObjectId
+    "@id": "#SSObject.ssObjectId"
+    datatype: long
+    nullable: false
+    description: Unique identifier.
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;src
+  - name: arc
+    "@id": "#SSObject.arc"
+    datatype: float
+    description: Arc of observation.
+    mysql:datatype: FLOAT
+    fits:tunit: day
+  - name: flags
+    "@id": "#SSObject.flags"
+    datatype: long
+    nullable: false
+    description: Flags, bitwise OR tbd.
+    value: 0
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.code
+  primaryKey: "#SSObject.ssObjectId"
+- name: DiaSource
+  "@id": "#DiaSource"
+  description: Table to store 'difference image sources'; - sources detected at
+    SNR >=5 on difference images.
+  columns:
+  - name: diaSourceId
+    "@id": "#DiaSource.diaSourceId"
+    datatype: long
+    nullable: false
+    description: Unique id.
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;obs.image
+  - name: ccdVisitId
+    "@id": "#DiaSource.ccdVisitId"
+    datatype: long
+    nullable: false
+    description: Id of the ccdVisit where this diaSource was measured. Note that we
+      are allowing a diaSource to belong to multiple amplifiers, but it may not span
+      multiple ccds.
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;obs.image
+  - name: diaObjectId
+    "@id": "#DiaSource.diaObjectId"
+    datatype: long
+    nullable: true
+    description: Id of the diaObject this source was associated with, if any. If not,
+      it is set to NULL (each diaSource will be associated with either a diaObject
+      or ssObject).
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;src
+  - name: ssObjectId
+    "@id": "#DiaSource.ssObjectId"
+    datatype: long
+    nullable: true
+    description: Id of the ssObject this source was associated with, if any. If not,
+      it is set to NULL (each diaSource will be associated with either a diaObject
+      or ssObject).
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;src
+  - name: parentDiaSourceId
+    "@id": "#DiaSource.parentDiaSourceId"
+    datatype: long
+    description: Id of the parent diaSource this diaSource has been deblended from,
+      if any.
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;src
+  - name: ra
+    "@id": "#DiaSource.ra"
+    datatype: double
+    nullable: false
+    description: RA-coordinate of the center of this diaSource.
+    mysql:datatype: DOUBLE
+    fits:tunit: deg
+    ivoa:ucd: pos.eq.ra
+  - name: dec
+    "@id": "#DiaSource.dec"
+    datatype: double
+    nullable: false
+    description: " Decl-coordinate of the center of this diaSource."
+    mysql:datatype: DOUBLE
+    fits:tunit: deg
+    ivoa:ucd: pos.eq.dec
+  - name: ssObjectReassocTime
+    "@id": "#DiaSource.ssObjectReassocTime"
+    datatype: timestamp
+    length: 6
+    description: Time when this diaSource was reassociated from diaObject to ssObject
+      (if such reassociation happens, otherwise NULL).
+    mysql:datatype: DATETIME
+  - name: midpointMjdTai
+    "@id": "#DiaSource.midpointMjdTai"
+    datatype: double
+    nullable: false
+    description: Effective mid-exposure time for this diaSource.
+    mysql:datatype: DOUBLE
+    fits:tunit: d
+    ivoa:ucd: time.epoch
+  - name: flags
+    "@id": "#DiaSource.flags"
+    datatype: long
+    nullable: false
+    description: Flags, bitwise OR tbd.
+    value: 0
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.code
+  primaryKey: "#DiaSource.diaSourceId"
+  indexes:
+  - name: IDX_DiaSource_ccdVisitId
+    "@id": "#IDX_DiaSource_ccdVisitId"
+    columns:
+    - "#DiaSource.ccdVisitId"
+  - name: IDX_DiaSource_diaObjectId
+    "@id": "#IDX_DiaSource_diaObjectId"
+    columns:
+    - "#DiaSource.diaObjectId"
+  - name: IDX_DiaSource_ssObjectId
+    "@id": "#IDX_DiaSource_ssObjectId"
+    columns:
+    - "#DiaSource.ssObjectId"
+- name: DiaForcedSource
+  "@id": "#DiaForcedSource"
+  description: Forced-photometry source measurement on an individual difference Exposure
+    based on a Multifit shape model derived from a deep detection.
+  columns:
+  - name: diaObjectId
+    "@id": "#DiaForcedSource.diaObjectId"
+    datatype: long
+    nullable: false
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;src
+  - name: ccdVisitId
+    "@id": "#DiaForcedSource.ccdVisitId"
+    datatype: long
+    nullable: false
+    description: Id of the visit where this forcedSource was measured. Note that we
+      are allowing a forcedSource to belong to multiple amplifiers, but it may not
+      span multiple ccds.
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;obs.image
+  - name: midpointMjdTai
+    "@id": "#DiaForcedSource.midpointMjdTai"
+    datatype: double
+    nullable: false
+    description: Effective mid-exposure time for this diaForcedSource
+    ivoa:ucd: time.epoch
+    fits:tunit: d
+  - name: flags
+    "@id": "#DiaForcedSource.flags"
+    datatype: long
+    nullable: false
+    description: Flags, bitwise OR tbd
+    value: 0
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.code
+  primaryKey:
+  - "#DiaForcedSource.diaObjectId"
+  - "#DiaForcedSource.ccdVisitId"
+  indexes:
+  - name: IDX_DiaForcedSource_ccdVisitId
+    "@id": "#IDX_DiaForcedSource_ccdVisitId"
+    columns:
+    - "#DiaForcedSource.ccdVisitId"
+- name: DiaObject_To_Object_Match
+  "@id": "#DiaObject_To_Object_Match"
+  description: The table stores mapping of diaObjects to the nearby objects.
+  columns:
+  - name: diaObjectId
+    "@id": "#DiaObject_To_Object_Match.diaObjectId"
+    datatype: long
+    nullable: false
+    description: Id of diaObject.
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;src
+  - name: objectId
+    "@id": "#DiaObject_To_Object_Match.objectId"
+    datatype: long
+    nullable: false
+    description: Id of a nearby object.
+    mysql:datatype: BIGINT
+    ivoa:ucd: meta.id;src
+  - name: dist
+    "@id": "#DiaObject_To_Object_Match.dist"
+    datatype: float
+    description: The distance between the diaObject and the object.
+    mysql:datatype: FLOAT
+    fits:tunit: arcsec
+  indexes:
+  - name: IDX_DiaObjectToObjectMatch_diaObjectId
+    "@id": "#IDX_DiaObjectToObjectMatch_diaObjectId"
+    columns:
+    - "#DiaObject_To_Object_Match.diaObjectId"
+  - name: IDX_DiaObjectToObjectMatch_objectId
+    "@id": "#IDX_DiaObjectToObjectMatch_objectId"
+    columns:
+    - "#DiaObject_To_Object_Match.objectId"
+- name: DiaObjectLast
+  "@id": "#DiaObjectLast"
+  columns:
+  - name: diaObjectId
+    "@id": "#DiaObjectLast.diaObjectId"
+    datatype: long
+    nullable: false
+    description: Unique id.
+    ivoa:ucd: meta.id;src
+  - name: ra
+    "@id": "#DiaObjectLast.ra"
+    datatype: double
+    nullable: false
+    description: RA-coordinate of the position of the object at time radecTai.
+    ivoa:ucd: pos.eq.ra
+    fits:tunit: deg
+  - name: dec
+    "@id": "#DiaObjectLast.dec"
+    datatype: double
+    nullable: false
+    description: Decl-coordinate of the position of the object at time radecTai.
+    ivoa:ucd: pos.eq.dec
+    fits:tunit: deg
+  - name: lastNonForcedSource
+    "@id": "#DiaObjectLast.lastNonForcedSource"
+    datatype: timestamp
+    length: 6
+    nullable: false
+    description: Last time when non-forced DIASource was seen for this object.
+    mysql:datatype: DATETIME
+  - name: nDiaSources
+    "@id": "#DiaObjectLast.nDiaSources"
+    datatype: int
+    nullable: false
+    description: Total number of DiaSources associated with this DiaObject.
+  primaryKey: "#DiaObjectLast.diaObjectId"
