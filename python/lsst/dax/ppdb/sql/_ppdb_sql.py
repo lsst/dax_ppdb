@@ -31,13 +31,18 @@ from contextlib import closing, suppress
 from typing import Any
 
 import astropy.time
+import felis.datamodel
 import sqlalchemy
 import yaml
-from felis.datamodel import Schema, SchemaVersion
-from felis.metadata import MetaDataBuilder
-from lsst.dax.apdb import ApdbMetadata, ApdbTableData, IncompatibleVersionError, ReplicaChunk, VersionTuple
-from lsst.dax.apdb.sql.apdbMetadataSql import ApdbMetadataSql
-from lsst.dax.apdb.sql.apdbSqlSchema import GUID
+from lsst.dax.apdb import (
+    ApdbMetadata,
+    ApdbTableData,
+    IncompatibleVersionError,
+    ReplicaChunk,
+    VersionTuple,
+    schema_model,
+)
+from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from lsst.resources import ResourcePath
 from lsst.utils.iteration import chunk_iterable
 from sqlalchemy import sql
@@ -127,13 +132,13 @@ class PpdbSql(Ppdb):
     def init_database(
         cls,
         db_url: str,
-        schema_name: str | None,
-        schema_file: str | None,
-        felis_schema: str | None,
-        use_connection_pool: bool,
-        isolation_level: str | None,
-        connection_timeout: float | None,
-        drop: bool,
+        schema_file: str | None = None,
+        schema_name: str | None = None,
+        felis_schema: str | None = None,
+        use_connection_pool: bool = True,
+        isolation_level: str | None = None,
+        connection_timeout: float | None = None,
+        drop: bool = False,
     ) -> PpdbConfig:
         """Initialize PPDB database.
 
@@ -216,39 +221,75 @@ class PpdbSql(Ppdb):
             table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)
         ]
         schema_dict["tables"] = filtered_tables
-        schema = Schema.model_validate(schema_dict)
+        dm_schema = felis.datamodel.Schema.model_validate(schema_dict)
+        schema = schema_model.Schema.from_felis(dm_schema)
 
-        # Replace schema name with a configured one, this helps in case we
-        # want to use default schema on database side.
+        # Replace schema name with a configured one, just in case it may be
+        # used by someone.
         if schema_name:
             schema.name = schema_name
-            metadata = MetaDataBuilder(schema).build()
-        else:
-            builder = MetaDataBuilder(schema, apply_schema_to_metadata=False, apply_schema_to_tables=False)
-            metadata = builder.build()
+
+        # Add replica chunk table.
+        table_name = "PpdbReplicaChunk"
+        columns = [
+            schema_model.Column(
+                name="apdb_replica_chunk",
+                id=f"#{table_name}.apdb_replica_chunk",
+                datatype=felis.datamodel.DataType.LONG,
+            ),
+            schema_model.Column(
+                name="last_update_time",
+                id=f"#{table_name}.last_update_time",
+                datatype=felis.datamodel.DataType.TIMESTAMP,
+                nullable=False,
+            ),
+            schema_model.Column(
+                name="unique_id",
+                id=f"#{table_name}.unique_id",
+                datatype=schema_model.ExtraDataTypes.UUID,
+                nullable=False,
+            ),
+            schema_model.Column(
+                name="replica_time",
+                id=f"#{table_name}.replica_time",
+                datatype=felis.datamodel.DataType.TIMESTAMP,
+                nullable=False,
+            ),
+        ]
+        indices = [
+            schema_model.Index(
+                name="PpdbInsertId_idx_last_update_time",
+                id="#PpdbInsertId_idx_last_update_time",
+                columns=[columns[1]],
+            ),
+            schema_model.Index(
+                name="PpdbInsertId_idx_replica_time",
+                id="#PpdbInsertId_idx_replica_time",
+                columns=[columns[3]],
+            ),
+        ]
 
         # Add table for replication support.
-        sqlalchemy.schema.Table(
-            "PpdbReplicaChunk",
-            metadata,
-            sqlalchemy.schema.Column(
-                "apdb_replica_chunk", sqlalchemy.BigInteger, primary_key=True, autoincrement=False
-            ),
-            sqlalchemy.schema.Column("last_update_time", sqlalchemy.types.TIMESTAMP, nullable=False),
-            sqlalchemy.schema.Column("unique_id", GUID, nullable=False),
-            sqlalchemy.schema.Column("replica_time", sqlalchemy.types.TIMESTAMP, nullable=False),
-            sqlalchemy.schema.Index("PpdbInsertId_idx_last_update_time", "last_update_time"),
-            sqlalchemy.schema.Index("PpdbInsertId_idx_replica_time", "replica_time"),
-            schema=schema_name,
+        chunks_table = schema_model.Table(
+            name=table_name,
+            id=f"#{table_name}",
+            columns=columns,
+            primary_key=[columns[0]],
+            indexes=indices,
+            constraints=[],
         )
+        schema.tables.append(chunks_table)
 
-        if isinstance(schema.version, str):
-            version = VersionTuple.fromString(schema.version)
-        elif isinstance(schema.version, SchemaVersion):
+        if schema.version is not None:
             version = VersionTuple.fromString(schema.version.current)
         else:
             # Missing schema version is identical to 0.1.0
             version = VersionTuple(0, 1, 0)
+
+        metadata = sqlalchemy.schema.MetaData(schema=schema_name)
+
+        converter = ModelToSql(metadata=metadata)
+        converter.make_tables(schema.tables)
 
         return metadata, version
 
@@ -322,7 +363,7 @@ class PpdbSql(Ppdb):
             kw["poolclass"] = NullPool
         if config.isolation_level is not None:
             kw.update(isolation_level=config.isolation_level)
-        elif config.db_url.startswith("sqlite"):  # type: ignore
+        elif config.db_url.startswith("sqlite"):
             # Use READ_UNCOMMITTED as default value for sqlite.
             kw.update(isolation_level="READ_UNCOMMITTED")
         if config.connection_timeout is not None:
