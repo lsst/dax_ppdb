@@ -26,7 +26,8 @@ __all__ = ["replication_run"]
 import logging
 from typing import TYPE_CHECKING
 
-from lsst.dax.apdb import ApdbReplica
+from lsst.dax.apdb import ApdbReplica, monitor
+from lsst.dax.apdb.timer import Timer
 
 from ..ppdb import Ppdb
 
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from ..ppdb import PpdbReplicaChunk
 
 _LOG = logging.getLogger(__name__)
+
+_MON = monitor.MonAgent(__name__)
 
 
 def replication_run(
@@ -96,11 +99,17 @@ def _merge_ids(
 
 def _replicate_one(apdb: ApdbReplica, ppdb: Ppdb, replica_chunk: ReplicaChunk, update: bool) -> None:
 
-    dia_objects = apdb.getDiaObjectsChunks([replica_chunk.id])
+    with Timer("get_chunks_time", _MON, tags={"table": "DiaObject"}) as timer:
+        dia_objects = apdb.getDiaObjectsChunks([replica_chunk.id])
+        timer.add_values(row_count=len(dia_objects.rows()))
     _LOG.info("Selected %s DiaObjects for replication", len(dia_objects.rows()))
-    dia_sources = apdb.getDiaSourcesChunks([replica_chunk.id])
+    with Timer("get_chunks_time", _MON, tags={"table": "DiaSource"}) as timer:
+        dia_sources = apdb.getDiaSourcesChunks([replica_chunk.id])
+        timer.add_values(row_count=len(dia_objects.rows()))
     _LOG.info("Selected %s DiaSources for replication", len(dia_sources.rows()))
-    dia_forced_sources = apdb.getDiaForcedSourcesChunks([replica_chunk.id])
+    with Timer("get_chunks_time", _MON, tags={"table": "DiaForcedSource"}) as timer:
+        dia_forced_sources = apdb.getDiaForcedSourcesChunks([replica_chunk.id])
+        timer.add_values(row_count=len(dia_objects.rows()))
     _LOG.info("Selected %s DiaForcedSources for replication", len(dia_forced_sources.rows()))
 
     ppdb.store(replica_chunk, dia_objects, dia_sources, dia_forced_sources, update=update)
