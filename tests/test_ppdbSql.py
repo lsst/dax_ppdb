@@ -57,6 +57,8 @@ class ApdbSQLiteTestCase(PpdbTest, unittest.TestCase):
 class ApdbPostgresTestCase(PpdbTest, unittest.TestCase):
     """A test case for ApdbSql class using Postgres backend."""
 
+    postgresql: Any
+
     @classmethod
     def setUpClass(cls) -> None:
         # Create the postgres test server.
