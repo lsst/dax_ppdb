@@ -401,12 +401,12 @@ class PpdbSql(Ppdb):
 
         # For now there is no way to make read-only APDB instances, assume that
         # any access can do updates.
-        if not schema_version.checkCompatibility(db_schema_version, True):
+        if not schema_version.checkCompatibility(db_schema_version):
             raise IncompatibleVersionError(
                 f"Configured schema version {schema_version} "
                 f"is not compatible with database version {db_schema_version}"
             )
-        if not VERSION.checkCompatibility(db_code_version, True):
+        if not VERSION.checkCompatibility(db_code_version):
             raise IncompatibleVersionError(
                 f"Current code version {VERSION} "
                 f"is not compatible with database version {db_code_version}"
