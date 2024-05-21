@@ -23,6 +23,7 @@ from __future__ import annotations
 
 __all__ = ["PpdbSql", "PpdbSqlConfig"]
 
+import datetime
 import logging
 import os
 import sqlite3
@@ -423,7 +424,7 @@ class PpdbSql(Ppdb):
         # docstring is inherited from a base class
         return self._metadata
 
-    def get_replica_chunks(self) -> list[PpdbReplicaChunk] | None:
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
         table = self._get_table("PpdbReplicaChunk")
         query = sql.select(
@@ -432,6 +433,8 @@ class PpdbSql(Ppdb):
             table.columns["unique_id"],
             table.columns["replica_time"],
         ).order_by(table.columns["last_update_time"])
+        if start_chunk_id is not None:
+            query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)
         with self._engine.connect() as conn:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
             ids = []
@@ -480,8 +483,13 @@ class PpdbSql(Ppdb):
         self, replica_chunk: ReplicaChunk, connection: sqlalchemy.engine.Connection, update: bool
     ) -> None:
         """Insert or replace single record in PpdbReplicaChunk table"""
-        insert_dt = replica_chunk.last_update_time.tai.datetime
-        now = astropy.time.Time.now().tai.datetime
+        # `astropy.Time.datetime` returns naive datetime, even though all
+        # astropy times are in UTC. Add UTC timezone to timestampt so that
+        # database can store a correct value.
+        insert_dt = datetime.datetime.fromtimestamp(
+            replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
+        )
+        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
 
         table = self._get_table("PpdbReplicaChunk")
 
@@ -543,6 +551,7 @@ class PpdbSql(Ppdb):
                     sqlalchemy.and_(
                         sub1.columns["diaObjectId"] == sub2.columns["diaObjectId"],
                         sub1.columns["rank"] + sqlalchemy.literal(1) == sub2.columns["rank"],
+                        sub1.columns["diaObjectId"] == table.columns["diaObjectId"],
                         sub1.columns["validityStart"] == table.columns["validityStart"],
                     ),
                 )
@@ -550,7 +559,12 @@ class PpdbSql(Ppdb):
             stmt = (
                 table.update()
                 .values(validityEnd=new_end.scalar_subquery())
-                .where(table.columns["validityStart"] == None)  # noqa: E711
+                .where(
+                    sqlalchemy.and_(
+                        table.columns["diaObjectId"].in_(chunk),
+                        table.columns["validityEnd"] == None,  # noqa: E711
+                    )
+                )
             )
             result = connection.execute(stmt)
             count += result.rowcount

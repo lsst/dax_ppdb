@@ -87,3 +87,24 @@ def replication_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--update", help="Allow updates to already replicated data.", default=False, action="store_true"
     )
+    group.add_argument(
+        "--min-wait-time",
+        type=int,
+        default=300,
+        metavar="SECONDS",
+        help="Minimum time to wait for replicating a chunk after a next chunk appears, default: %(default)s.",
+    )
+    group.add_argument(
+        "--max-wait-time",
+        type=int,
+        default=900,
+        metavar="SECONDS",
+        help="Maximum time to wait for replicating a chunk if no chunk appears, default: %(default)s.",
+    )
+    group.add_argument(
+        "--check-interval",
+        type=int,
+        default=360,
+        metavar="SECONDS",
+        help="Time to wait before next check if there was no replicated chunks, default: %(default)s.",
+    )

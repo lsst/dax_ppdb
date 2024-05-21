@@ -31,7 +31,7 @@ from ..sql import PpdbSql
 def create_sql(
     db_url: str,
     schema: str | None,
-    config_path: str,
+    output_config: str,
     felis_path: str,
     felis_schema: str,
     connection_pool: bool,
@@ -47,7 +47,7 @@ def create_sql(
         SQLAlchemy connection string.
     schema : `str` or `None`
         Database schema name, `None` to use default schema.
-    config_path : `str`
+    output_config : `str`
         Name of the file to write PPDB configuration.
     felis_path : `str`
         Path to the Felis YAML file with table schema definition.
@@ -75,5 +75,5 @@ def create_sql(
     )
     config_dict = config.model_dump(exclude_unset=True, exclude_defaults=True)
     config_dict["implementation_type"] = "sql"
-    with open(config_path, "w") as config_file:
+    with open(output_config, "w") as config_file:
         yaml.dump(config_dict, config_file)

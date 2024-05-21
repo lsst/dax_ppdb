@@ -24,21 +24,15 @@ from __future__ import annotations
 __all__ = ["replication_run"]
 
 import logging
-from typing import TYPE_CHECKING
+import time
+import warnings
 
-from lsst.dax.apdb import ApdbReplica, monitor
-from lsst.dax.apdb.timer import Timer
+from lsst.dax.apdb import ApdbReplica
 
 from ..ppdb import Ppdb
-
-if TYPE_CHECKING:
-    from lsst.dax.apdb import ReplicaChunk
-
-    from ..ppdb import PpdbReplicaChunk
+from ..replicator import Replicator
 
 _LOG = logging.getLogger(__name__)
-
-_MON = monitor.MonAgent(__name__)
 
 
 def replication_run(
@@ -46,6 +40,9 @@ def replication_run(
     ppdb_config: str,
     single: bool,
     update: bool,
+    min_wait_time: int,
+    max_wait_time: int,
+    check_interval: int,
 ) -> None:
     """Execute replication process from APDB to PPDB.
 
@@ -59,57 +56,61 @@ def replication_run(
         Copy single bucket and stop.
     update : `bool`
         If `True` then allow updates to previously replicated data.
+    min_wait_time : `int`
+        Minimum time in seconds to wait for replicating a chunk after a next
+        chunk appears.
+    max_wait_time : `int`
+        Maximum time in seconds to wait for replicating a chunk if no chunk
+        appears.
+    check_interval : `int`
+        Time in seconds to wait before next check if there was no replicated
+        chunks.
     """
     apdb = ApdbReplica.from_uri(apdb_config)
     ppdb = Ppdb.from_uri(ppdb_config)
 
-    chunks = apdb.getReplicaChunks()
-    if chunks is None:
-        raise TypeError("APDB implementation does not support replication")
-    ppdb_chunks = ppdb.get_replica_chunks()
-    if ppdb_chunks is None:
-        raise TypeError("PPDB implementation does not support replication")
+    replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time)
 
-    ids = _merge_ids(chunks, ppdb_chunks)
+    wait_time = 0
+    while True:
+        if wait_time > 0:
+            _LOG.info("Waiting %s seconds before next iteration.", wait_time)
+            time.sleep(wait_time)
 
-    # Check existing PPDB ids for consistency.
-    for apdb_chunk, ppdb_chunk in ids:
-        if ppdb_chunk is not None:
-            if ppdb_chunk.unique_id != apdb_chunk.unique_id:
-                raise ValueError(f"Inconsistent values of unique ID - APDB: {apdb_chunk} PPDB: {ppdb_chunk}")
+        # Get existing chunks in APDB.
+        apdb_chunks = apdb.getReplicaChunks()
+        if apdb_chunks is None:
+            raise TypeError("APDB implementation does not support replication")
+        min_chunk_id = min((chunk.id for chunk in apdb_chunks), default=None)
+        if min_chunk_id is None:
+            # No chunks in APDB?
+            _LOG.info("No replica chunks found in APDB.")
+            if single:
+                return
+            else:
+                wait_time = check_interval
+                continue
 
-    ids_to_copy = [apdb_chunk for apdb_chunk, ppdb_chunk in ids if ppdb_chunk is None]
-    for apdb_chunk in ids_to_copy:
-        _LOG.info("Will replicate bucket %s", apdb_chunk)
-        _replicate_one(apdb, ppdb, apdb_chunk, update)
+        # Get existing chunks in PPDB.
+        ppdb_chunks = ppdb.get_replica_chunks(min_chunk_id)
+        if ppdb_chunks is None:
+            raise TypeError("PPDB implementation does not support replication")
+
+        # Check existing PPDB ids for consistency.
+        ppdb_id_map = {ppdb_chunk.id: ppdb_chunk for ppdb_chunk in ppdb_chunks}
+        for apdb_chunk in apdb_chunks:
+            if (ppdb_chunk := ppdb_id_map.get(apdb_chunk.id)) is not None:
+                if ppdb_chunk.unique_id != apdb_chunk.unique_id:
+                    # Crash if running in a single-shot mode.
+                    message = f"Inconsistent values of unique ID - APDB: {apdb_chunk} PPDB: {ppdb_chunk}"
+                    if single:
+                        raise ValueError(message)
+                    else:
+                        warnings.warn(message)
+
+        # Replicate one or many chunks.
+        chunks = replicator.copy_chunks(apdb_chunks, ppdb_chunks, 1 if single else None)
         if single:
             break
-
-
-def _merge_ids(
-    chunks: list[ReplicaChunk], ppdb_chunks: list[PpdbReplicaChunk]
-) -> list[tuple[ReplicaChunk, PpdbReplicaChunk | None]]:
-    """Make a list of pairs (apdb_chunk, ppdb_chunk), if ppdb_chunk does not
-    exist for apdb_chunk then it will be None.
-    """
-    ppdb_id_map = {ppdb_chunk.id: ppdb_chunk for ppdb_chunk in ppdb_chunks}
-    apdb_ids = sorted(chunks, key=lambda apdb_chunk: apdb_chunk.id)
-    return [(apdb_chunk, ppdb_id_map.get(apdb_chunk.id)) for apdb_chunk in apdb_ids]
-
-
-def _replicate_one(apdb: ApdbReplica, ppdb: Ppdb, replica_chunk: ReplicaChunk, update: bool) -> None:
-
-    with Timer("get_chunks_time", _MON, tags={"table": "DiaObject"}) as timer:
-        dia_objects = apdb.getDiaObjectsChunks([replica_chunk.id])
-        timer.add_values(row_count=len(dia_objects.rows()))
-    _LOG.info("Selected %s DiaObjects for replication", len(dia_objects.rows()))
-    with Timer("get_chunks_time", _MON, tags={"table": "DiaSource"}) as timer:
-        dia_sources = apdb.getDiaSourcesChunks([replica_chunk.id])
-        timer.add_values(row_count=len(dia_objects.rows()))
-    _LOG.info("Selected %s DiaSources for replication", len(dia_sources.rows()))
-    with Timer("get_chunks_time", _MON, tags={"table": "DiaForcedSource"}) as timer:
-        dia_forced_sources = apdb.getDiaForcedSourcesChunks([replica_chunk.id])
-        timer.add_values(row_count=len(dia_objects.rows()))
-    _LOG.info("Selected %s DiaForcedSources for replication", len(dia_forced_sources.rows()))
-
-    ppdb.store(replica_chunk, dia_objects, dia_sources, dia_forced_sources, update=update)
+        # IF something was copied then start new iteration immediately.
+        wait_time = 0 if chunks else check_interval

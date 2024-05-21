@@ -92,8 +92,14 @@ class Ppdb(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_replica_chunks(self) -> list[PpdbReplicaChunk] | None:
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
         """Return collection of replica chunks known to the database.
+
+        Parameters
+        ----------
+        start_chunk_id : `int`, optional
+            If specified this will be the starting chunk ID to return. If not
+            specified then all chunks areturned
 
         Returns
         -------
