@@ -95,8 +95,8 @@ class Replicator:
 
         Returns
         -------
-        count : int
-            Number of chunks replicated to PPDB.
+        count : `list` [`ReplicaChunk`]
+            Chunks that were replicated to PPDB.
         """
         existing_ppdb_ids = {ppdb_chunk.id for ppdb_chunk in ppdb_chunks}
         chunks_to_copy = sorted(
@@ -106,7 +106,7 @@ class Replicator:
         _LOG.info("Replica chunks list contains %s chunks.", len(chunks_to_copy))
 
         copied = []
-        while True:
+        while chunks_to_copy:
             apdb_chunk = chunks_to_copy.pop(0)
             if not self._can_replicate(apdb_chunk, bool(chunks_to_copy)):
                 break

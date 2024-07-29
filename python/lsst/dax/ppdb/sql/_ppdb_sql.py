@@ -41,9 +41,11 @@ from lsst.dax.apdb import (
     IncompatibleVersionError,
     ReplicaChunk,
     VersionTuple,
+    monitor,
     schema_model,
 )
 from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
+from lsst.dax.apdb.timer import Timer
 from lsst.resources import ResourcePath
 from lsst.utils.iteration import chunk_iterable
 from sqlalchemy import sql
@@ -54,6 +56,9 @@ from ..ppdb import Ppdb, PpdbReplicaChunk
 from .bulk_insert import make_inserter
 
 _LOG = logging.getLogger(__name__)
+
+_MON = monitor.MonAgent(__name__)
+
 
 VERSION = VersionTuple(0, 1, 0)
 """Version for the code defined in this module. This needs to be updated
@@ -522,53 +527,56 @@ class PpdbSql(Ppdb):
 
         table = self._get_table("DiaObject")
 
-        # We need to fill validityEnd column for the previously stored
-        # objects that have new records. Window function is used here to find
-        # records with validityEnd=NULL, order them and update validityEnd
-        # of older records from validityStart of newer records
-        idx = objects.column_names().index("diaObjectId")
-        ids = sorted(set(row[idx] for row in objects.rows()))
-        count = 0
-        for chunk in chunk_iterable(ids, 1000):
-            select_cte = sqlalchemy.cte(
-                sqlalchemy.select(
-                    table.columns["diaObjectId"],
-                    table.columns["validityStart"],
-                    table.columns["validityEnd"],
-                    sqlalchemy.func.rank()
-                    .over(
-                        partition_by=table.columns["diaObjectId"],
-                        order_by=table.columns["validityStart"],
-                    )
-                    .label("rank"),
-                ).where(table.columns["diaObjectId"].in_(chunk))
-            )
-            sub1 = select_cte.alias("s1")
-            sub2 = select_cte.alias("s2")
-            new_end = sql.select(sub2.columns["validityStart"]).select_from(
-                sub1.join(
-                    sub2,
-                    sqlalchemy.and_(
-                        sub1.columns["diaObjectId"] == sub2.columns["diaObjectId"],
-                        sub1.columns["rank"] + sqlalchemy.literal(1) == sub2.columns["rank"],
-                        sub1.columns["diaObjectId"] == table.columns["diaObjectId"],
-                        sub1.columns["validityStart"] == table.columns["validityStart"],
-                    ),
+        with Timer("update_validity_time", _MON, tags={"table": table.name}) as timer:
+            # We need to fill validityEnd column for the previously stored
+            # objects that have new records. Window function is used here to
+            # find records with validityEnd=NULL, order them and update
+            # validityEnd of older records from validityStart of newer records.
+            idx = objects.column_names().index("diaObjectId")
+            ids = sorted(set(row[idx] for row in objects.rows()))
+            count = 0
+            for chunk in chunk_iterable(ids, 1000):
+                select_cte = sqlalchemy.cte(
+                    sqlalchemy.select(
+                        table.columns["diaObjectId"],
+                        table.columns["validityStart"],
+                        table.columns["validityEnd"],
+                        sqlalchemy.func.rank()
+                        .over(
+                            partition_by=table.columns["diaObjectId"],
+                            order_by=table.columns["validityStart"],
+                        )
+                        .label("rank"),
+                    ).where(table.columns["diaObjectId"].in_(chunk))
                 )
-            )
-            stmt = (
-                table.update()
-                .values(validityEnd=new_end.scalar_subquery())
-                .where(
-                    sqlalchemy.and_(
-                        table.columns["diaObjectId"].in_(chunk),
-                        table.columns["validityEnd"] == None,  # noqa: E711
+                sub1 = select_cte.alias("s1")
+                sub2 = select_cte.alias("s2")
+                new_end = sql.select(sub2.columns["validityStart"]).select_from(
+                    sub1.join(
+                        sub2,
+                        sqlalchemy.and_(
+                            sub1.columns["diaObjectId"] == sub2.columns["diaObjectId"],
+                            sub1.columns["rank"] + sqlalchemy.literal(1) == sub2.columns["rank"],
+                            sub1.columns["diaObjectId"] == table.columns["diaObjectId"],
+                            sub1.columns["validityStart"] == table.columns["validityStart"],
+                        ),
                     )
                 )
-            )
-            result = connection.execute(stmt)
-            count += result.rowcount
-        _LOG.info("Updated %d rows in DiaObject table with new validityEnd values", count)
+                stmt = (
+                    table.update()
+                    .values(validityEnd=new_end.scalar_subquery())
+                    .where(
+                        sqlalchemy.and_(
+                            table.columns["diaObjectId"].in_(chunk),
+                            table.columns["validityEnd"] == None,  # noqa: E711
+                        )
+                    )
+                )
+                result = connection.execute(stmt)
+                count += result.rowcount
+
+            timer.add_values(row_count=count)
+            _LOG.info("Updated %d rows in DiaObject table with new validityEnd values", count)
 
     def _store_table_data(
         self,
@@ -579,7 +587,9 @@ class PpdbSql(Ppdb):
         chunk_size: int,
     ) -> None:
         """Store or replace DiaSources."""
-        table = self._get_table(table_name)
-        inserter = make_inserter(connection)
-        count = inserter.insert(table, table_data, chunk_size=chunk_size)
-        _LOG.info("Inserted %d rows into %s table", count, table_name)
+        with Timer("store_data_time", _MON, tags={"table": table_name}) as timer:
+            table = self._get_table(table_name)
+            inserter = make_inserter(connection)
+            count = inserter.insert(table, table_data, chunk_size=chunk_size)
+            timer.add_values(row_count=count)
+            _LOG.info("Inserted %d rows into %s table", count, table_name)
