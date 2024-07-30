@@ -25,6 +25,7 @@ __all__ = ["main"]
 
 import argparse
 
+from lsst.dax.apdb import monitor
 from lsst.dax.apdb.cli.logging_cli import LoggingCli
 
 from .. import scripts
@@ -37,6 +38,15 @@ def main() -> None:
     """Commands for managing APDB-to-PPDB replication."""
     parser = argparse.ArgumentParser(description="PPDB command line tools")
     log_cli = LoggingCli(parser)
+    parser.add_argument(
+        "--mon-logger", help="Name of the logger to output monitoring metrics.", metavar="LOGGER"
+    )
+    parser.add_argument(
+        "--mon-rules",
+        help="Comma-separated list of monitoring filter rules.",
+        default="",
+        metavar="RULE[,RULE...]",
+    )
 
     subparsers = parser.add_subparsers(title="available subcommands", required=True)
     _list_chunks_apdb_subcommand(subparsers)
@@ -46,6 +56,16 @@ def main() -> None:
     args = parser.parse_args()
     log_cli.process_args(args)
     kwargs = vars(args)
+
+    # Setup monitoring output.
+    mon_logger = kwargs.pop("mon_logger", None)
+    mon_rules = kwargs.pop("mon_rules", None)
+    if mon_logger is not None:
+        mon_handler = monitor.LoggingMonHandler(mon_logger)
+        monitor.MonService().add_handler(mon_handler)
+        if mon_rules:
+            monitor.MonService().set_filters(mon_rules.split(","))
+
     method = kwargs.pop("method")
     method(**kwargs)
 

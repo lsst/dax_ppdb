@@ -50,7 +50,7 @@ def main() -> None:
 def _create_sql_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser("create-sql", help="Create new PPDB instance in SQL database.")
     parser.add_argument("db_url", help="Database URL in SQLAlchemy format for PPDB instance.")
-    parser.add_argument("config_path", help="Name of the new configuration file for created PPDB instance.")
+    parser.add_argument("output_config", help="Name of the new configuration file for created PPDB instance.")
     options.felis_schema_options(parser)
     options.sql_db_options(parser)
     parser.add_argument(
