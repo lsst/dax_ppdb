@@ -54,6 +54,10 @@ license-files = ["COPYRIGHT", "LICENSE"]
 [tool.setuptools.dynamic]
 version = { attr = "lsst_versions.get_lsst_version" }
 
+[project.scripts]
+ppdb-replication = "lsst.dax.ppdb.cli.ppdb_replication:main"
+ppdb-cli = "lsst.dax.ppdb.cli.ppdb_cli:main"
+
 [tool.black]
 line-length = 110
 target-version = ["py311"]
