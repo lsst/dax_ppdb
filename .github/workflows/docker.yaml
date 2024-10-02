@@ -1,0 +1,33 @@
+name: Docker
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed to fetch tags, used by Python install process to
+          # figure out version number
+          fetch-depth: 0
+
+      - uses: lsst-sqre/build-and-push-to-ghcr@v1
+        id: build
+        with:
+          image: "lsst/ppdb-replication"
+          dockerfile: "docker/Dockerfile.replication"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          push: true
+
+      - run: echo Pushed ghcr.io/lsst/ppdb-replication:${{ steps.build.outputs.tag }}
