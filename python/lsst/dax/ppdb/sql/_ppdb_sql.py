@@ -60,7 +60,7 @@ _LOG = logging.getLogger(__name__)
 _MON = monitor.MonAgent(__name__)
 
 
-VERSION = VersionTuple(0, 1, 0)
+VERSION = VersionTuple(0, 1, 1)
 """Version for the code defined in this module. This needs to be updated
 (following compatibility rules) when schema produced by this code changes.
 """
@@ -118,7 +118,7 @@ class PpdbSql(Ppdb):
         self.config = config
 
         self._sa_metadata, schema_version = self._read_schema(
-            config.felis_path, config.schema_name, config.felis_schema
+            config.felis_path, config.schema_name, config.felis_schema, config.db_url
         )
 
         self._engine = self._make_engine(config)
@@ -170,7 +170,7 @@ class PpdbSql(Ppdb):
         drop : `bool`
             If `True` then drop existing tables.
         """
-        sa_metadata, schema_version = cls._read_schema(schema_file, schema_name, felis_schema)
+        sa_metadata, schema_version = cls._read_schema(schema_file, schema_name, felis_schema, db_url)
         config = PpdbSqlConfig(
             db_url=db_url,
             schema_name=schema_name,
@@ -185,7 +185,7 @@ class PpdbSql(Ppdb):
 
     @classmethod
     def _read_schema(
-        cls, schema_file: str | None, schema_name: str | None, felis_schema: str | None
+        cls, schema_file: str | None, schema_name: str | None, felis_schema: str | None, db_url: str
     ) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
         """Read felis schema definitions for PPDB.
 
@@ -199,6 +199,8 @@ class PpdbSql(Ppdb):
         felis_schema : `str`, optional
             Name of the schema in YAML file, if `None` then file has to contain
             single schema.
+        db_url : `str`
+            Database URL.
 
         Returns
         -------
@@ -296,6 +298,25 @@ class PpdbSql(Ppdb):
 
         converter = ModelToSql(metadata=metadata)
         converter.make_tables(schema.tables)
+
+        # Add an additional index to DiaObject table to speed up replication.
+        # This is a partial index (Postgres-only), we do not have support for
+        # partial indices in ModelToSql, so we have to do it using sqlalchemy.
+        url = sqlalchemy.engine.make_url(db_url)
+        if url.get_backend_name() == "postgresql":
+            table: sqlalchemy.schema.Table | None = None
+            for table in metadata.tables.values():
+                if table.name == "DiaObject":
+                    name = "IDX_DiaObject_diaObjectId_validityEnd_IS_NULL"
+                    sqlalchemy.schema.Index(
+                        name,
+                        table.columns["diaObjectId"],
+                        postgresql_where=table.columns["validityEnd"].is_(None),
+                    )
+                    break
+            else:
+                # Cannot find table, odd, but what do I know.
+                pass
 
         return metadata, version
 
@@ -547,7 +568,12 @@ class PpdbSql(Ppdb):
                             order_by=table.columns["validityStart"],
                         )
                         .label("rank"),
-                    ).where(table.columns["diaObjectId"].in_(chunk))
+                    ).where(
+                        sqlalchemy.and_(
+                            table.columns["diaObjectId"].in_(chunk),
+                            table.columns["validityEnd"] == None,  # noqa: E711
+                        )
+                    )
                 )
                 sub1 = select_cte.alias("s1")
                 sub2 = select_cte.alias("s2")
