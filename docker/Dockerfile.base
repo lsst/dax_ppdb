@@ -1,0 +1,29 @@
+FROM python:3.11.6-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Update and install OS dependencies
+RUN apt-get -y update && \
+    apt-get -y upgrade && \
+    apt-get -y install --no-install-recommends git && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install required python build dependencies
+RUN pip install --upgrade --no-cache-dir pip setuptools wheel uv
+
+# Install optional dependencies
+RUN uv pip install --no-cache-dir --system psycopg2-binary
+
+# Create the build directory
+WORKDIR /build
+COPY . /build
+
+# Install requirements
+RUN uv pip install --no-cache-dir --system -r requirements.txt
+
+# Install the package
+RUN uv pip install --no-cache-dir --system --no-deps .
+
+# Remove the build directory
+RUN rm -rf /build
