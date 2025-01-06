@@ -16,19 +16,16 @@ set -euo pipefail
 command -v ppdb-replication >/dev/null 2>&1 || { echo "ppdb-replication command not found"; exit 1; }
 echo "Found ppdb-replication command"
 
-# Function to check if an environment variable is set
-check_env_var() {
-    local var_name="$1"
-    local var_value="${!var_name}"
-    if [ -z "${var_value:-}" ]; then
-        echo "$var_name is a required environment variable"
-        exit 1
-    fi
-}
-
 # Check if the required environment variables are set
-check_env_var "PPDB_REPLICATION_APDB_CONFIG"
-check_env_var "PPDB_REPLICATION_PPDB_CONFIG"
+if [ -z "${PPDB_REPLICATION_APDB_CONFIG:-}" ]; then
+    echo "ERROR: PPDB_REPLICATION_APDB_CONFIG is a required environment variable"
+    exit 1
+fi
+
+if [ -z "${PPDB_REPLICATION_PPDB_CONFIG:-}" ]; then
+    echo "ERROR: PPDB_REPLICATION_PPDB_CONFIG is a required environment variable"
+    exit 1
+fi
 
 # Build the command from the environment variables
 _CMD="ppdb-replication"
