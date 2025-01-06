@@ -23,11 +23,29 @@ jobs:
           fetch-depth: 0
 
       - uses: lsst-sqre/build-and-push-to-ghcr@v1
-        id: build
+        id: base
+        with:
+          image: "lsst/ppdb-base"
+          dockerfile: "docker/Dockerfile.base"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          push: true
+
+      - uses: lsst-sqre/build-and-push-to-ghcr@v1
+        id: cli
+        with:
+          image: "lsst/ppdb-cli"
+          dockerfile: "docker/Dockerfile.cli"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          push: true
+          build-args: |
+            BASE_IMAGE=ghcr.io/lsst/ppdb-base:${{ steps.base.outputs.tag }}
+
+      - uses: lsst-sqre/build-and-push-to-ghcr@v1
+        id: replication
         with:
           image: "lsst/ppdb-replication"
           dockerfile: "docker/Dockerfile.replication"
           github_token: ${{ secrets.GITHUB_TOKEN }}
           push: true
-
-      - run: echo Pushed ghcr.io/lsst/ppdb-replication:${{ steps.build.outputs.tag }}
+          build-args: |
+            BASE_IMAGE=ghcr.io/lsst/ppdb-base:${{ steps.base.outputs.tag }}
