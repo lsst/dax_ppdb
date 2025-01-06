@@ -1,0 +1,4 @@
+ARG BASE_IMAGE=ghcr.io/lsst/ppdb-base:main
+FROM ${BASE_IMAGE}
+
+ENTRYPOINT ["ppdb-cli"]
