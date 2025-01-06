@@ -1,27 +1,8 @@
-FROM python:3.11.6-slim-bookworm
+ARG BASE_IMAGE=ghcr.io/lsst/ppdb-base:main
+FROM ${BASE_IMAGE}
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Update and install OS dependencies
-RUN apt-get -y update && \
-    apt-get -y upgrade && \
-    apt-get -y install --no-install-recommends git && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install required python build dependencies
-RUN pip install --upgrade --no-cache-dir pip setuptools wheel uv
-
-# Create the build directory
-WORKDIR /build
-COPY . /build
-
-# Install requirements
-RUN uv pip install --no-cache-dir --system cassandra-driver psycopg2-binary
-RUN uv pip install --no-cache-dir --system -r requirements.txt
-
-# Install the package
-RUN uv pip install --no-cache-dir --system --no-deps .
+# Install optional requirements
+RUN uv pip install --no-cache-dir --system cassandra-driver
 
 # Setup the application scripts
 WORKDIR /app
@@ -36,9 +17,6 @@ ENV SDM_SCHEMAS_DIR=/app/sdm_schemas
 # Copy the entrypoint script
 COPY docker/scripts/entrypoint-replication.sh .
 RUN chmod +x /app/entrypoint-replication.sh
-
-# Remove the build directory
-RUN rm -rf /build
 
 # Run the wrapper script for the ppdb-replication command
 CMD ["/app/entrypoint-replication.sh"]
