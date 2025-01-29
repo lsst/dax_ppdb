@@ -35,6 +35,7 @@ import astropy.time
 import felis.datamodel
 import sqlalchemy
 import yaml
+from felis.datamodel import Schema as FelisSchema
 from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,
@@ -229,7 +230,7 @@ class PpdbSql(Ppdb):
             table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)
         ]
         schema_dict["tables"] = filtered_tables
-        dm_schema = felis.datamodel.Schema.model_validate(schema_dict)
+        dm_schema: FelisSchema = felis.datamodel.Schema.model_validate(schema_dict)
         schema = schema_model.Schema.from_felis(dm_schema)
 
         # Replace schema name with a configured one, just in case it may be
