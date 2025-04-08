@@ -13,9 +13,10 @@ config.log
 version.py
 bin/
 
-# pip 
+# pip
 build/
 python/lsst_dax_ppdb.egg-info/
+python/lsst_dax_ppdb.dist-info/
 
 # Pytest
 tests/.tests
