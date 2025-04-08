@@ -28,7 +28,7 @@ import logging
 import os
 import sqlite3
 from collections.abc import MutableMapping
-from contextlib import closing, suppress
+from contextlib import closing
 from typing import Any
 
 import astropy.time
@@ -125,15 +125,11 @@ class PpdbSql(Ppdb):
         self._engine = self._make_engine(config)
         sa_metadata = sqlalchemy.MetaData(schema=config.schema_name)
 
-        meta_table: sqlalchemy.schema.Table | None = None
-        with suppress(sqlalchemy.exc.NoSuchTableError):
-            meta_table = sqlalchemy.schema.Table("metadata", sa_metadata, autoload_with=self._engine)
-
+        meta_table = sqlalchemy.schema.Table("metadata", sa_metadata, autoload_with=self._engine)
         self._metadata = ApdbMetadataSql(self._engine, meta_table)
 
         # Check schema version compatibility
-        if self._metadata.table_exists():
-            self._versionCheck(self._metadata, schema_version)
+        self._versionCheck(self._metadata, schema_version)
 
     @classmethod
     def init_database(
@@ -361,20 +357,21 @@ class PpdbSql(Ppdb):
         sa_metadata.create_all(engine)
 
         # Need metadata table to store few items in it, if table exists.
-        meta_table: sqlalchemy.schema.Table | None = None
+        meta_table: sqlalchemy.schema.Table
         for table in sa_metadata.tables.values():
             if table.name == "metadata":
                 meta_table = table
                 break
+        else:
+            raise LookupError("Metadata table does not exist.")
 
         apdb_meta = ApdbMetadataSql(engine, meta_table)
-        if apdb_meta.table_exists():
-            # Fill version numbers, overwrite if they are already there.
-            if schema_version is not None:
-                _LOG.info("Store metadata %s = %s", cls.meta_schema_version_key, schema_version)
-                apdb_meta.set(cls.meta_schema_version_key, str(schema_version), force=True)
-            _LOG.info("Store metadata %s = %s", cls.meta_code_version_key, VERSION)
-            apdb_meta.set(cls.meta_code_version_key, str(VERSION), force=True)
+        # Fill version numbers, overwrite if they are already there.
+        if schema_version is not None:
+            _LOG.info("Store metadata %s = %s", cls.meta_schema_version_key, schema_version)
+            apdb_meta.set(cls.meta_schema_version_key, str(schema_version), force=True)
+        _LOG.info("Store metadata %s = %s", cls.meta_code_version_key, VERSION)
+        apdb_meta.set(cls.meta_code_version_key, str(VERSION), force=True)
 
     @classmethod
     def _make_engine(cls, config: PpdbSqlConfig) -> sqlalchemy.engine.Engine:
@@ -411,21 +408,16 @@ class PpdbSql(Ppdb):
     def _versionCheck(self, metadata: ApdbMetadataSql, schema_version: VersionTuple) -> None:
         """Check schema version compatibility."""
 
-        def _get_version(key: str, default: VersionTuple) -> VersionTuple:
+        def _get_version(key: str) -> VersionTuple:
             """Retrieve version number from given metadata key."""
-            if metadata.table_exists():
-                version_str = metadata.get(key)
-                if version_str is None:
-                    # Should not happen with existing metadata table.
-                    raise RuntimeError(f"Version key {key!r} does not exist in metadata table.")
-                return VersionTuple.fromString(version_str)
-            return default
+            version_str = metadata.get(key)
+            if version_str is None:
+                # Should not happen with existing metadata table.
+                raise RuntimeError(f"Version key {key!r} does not exist in metadata table.")
+            return VersionTuple.fromString(version_str)
 
-        # For old databases where metadata table does not exist we assume that
-        # version of both code and schema is 0.1.0.
-        initial_version = VersionTuple(0, 1, 0)
-        db_schema_version = _get_version(self.meta_schema_version_key, initial_version)
-        db_code_version = _get_version(self.meta_code_version_key, initial_version)
+        db_schema_version = _get_version(self.meta_schema_version_key)
+        db_code_version = _get_version(self.meta_code_version_key)
 
         # For now there is no way to make read-only APDB instances, assume that
         # any access can do updates.
