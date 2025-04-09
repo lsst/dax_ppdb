@@ -29,9 +29,10 @@ import warnings
 
 from lsst.dax.apdb import ApdbReplica
 
-from ..ppdb import Ppdb
+from ..sql._chunk_exporter import ChunkExporter
+from ..sql._ppdb_sql import PpdbSqlConfig
 
-# from ..replicator import Replicator
+from ..replicator import Replicator
 
 _LOG = logging.getLogger(__name__)
 
@@ -68,9 +69,12 @@ def export_chunks_run(
         chunks.
     """
     apdb = ApdbReplica.from_uri(apdb_config)
-    ppdb = Ppdb.from_uri(ppdb_config)
 
-    # replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time)
+    _LOG.info("Loading PPDB config from %s", ppdb_config)
+    _ppdb_config = PpdbSqlConfig.from_uri(ppdb_config)
+    ppdb = ChunkExporter(_ppdb_config)
+
+    replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time)
 
     wait_time = 0
     while True:
@@ -109,12 +113,9 @@ def export_chunks_run(
                     else:
                         warnings.warn(message)
 
-        if True:
-            raise NotImplementedError("Exporting chunks from APDB to Parquet files is not implemented yet.")
-
         # Replicate one or many chunks.
-        # chunks = replicator.copy_chunks(apdb_chunks, ppdb_chunks, 1 if single else None)
-        # if single:
-        #    break
+        chunks = replicator.copy_chunks(apdb_chunks, ppdb_chunks, 1 if single else None)
+        if single:
+            break
         # IF something was copied then start new iteration immediately.
-        # wait_time = 0 if chunks else check_interval
+        wait_time = 0 if chunks else check_interval
