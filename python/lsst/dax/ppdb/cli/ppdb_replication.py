@@ -52,6 +52,7 @@ def main() -> None:
     _list_chunks_apdb_subcommand(subparsers)
     _list_chunks_ppdb_subcommand(subparsers)
     _run_subcommand(subparsers)
+    _export_chunks_subcommand(subparsers)
 
     args = parser.parse_args()
     log_cli.process_args(args)
@@ -90,3 +91,12 @@ def _run_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
     options.replication_options(parser)
     parser.set_defaults(method=scripts.replication_run)
+
+
+def _export_chunks_subcommand(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("export-chunks", help="Export data from APDB to Parquet files.")
+    parser.add_argument("apdb_config", help="Path to the APDB configuration.")
+    parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
+    options.replication_options(parser)
+    options.export_options(parser)
+    parser.set_defaults(method=scripts.export_chunks_run)

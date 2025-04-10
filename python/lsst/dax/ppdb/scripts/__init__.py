@@ -23,3 +23,4 @@ from .create_sql import create_sql
 from .replication_list_chunks_apdb import replication_list_chunks_apdb
 from .replication_list_chunks_ppdb import replication_list_chunks_ppdb
 from .replication_run import replication_run
+from .export_chunks_run import export_chunks_run
