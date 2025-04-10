@@ -23,9 +23,8 @@ import logging
 import os
 import pyarrow as pa
 import pyarrow.parquet as pq
-
+from io import BytesIO
 from datetime import datetime
-from pathlib import Path
 
 from ._ppdb_sql import PpdbSql
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
@@ -48,24 +47,17 @@ if storage is None:
 
 
 class ChunkExporter(PpdbSql):
-    """Dumps Parquet files from the APDB Cassandra database to local files and
-    then uploads them to Google Cloud Storage (GCS).
-    """
+    """Exports data from Cassandra to in-memory Parquet and uploads to GCS."""
 
     def __init__(self, *args, **kwargs):
         _LOG.info("Initializing ChunkExporter")
         super().__init__(*args, **kwargs)
-        self.local_dir = Path(os.getcwd())  # TODO: Make this configurable
-        self.local_dir.mkdir(parents=True, exist_ok=True)
-        self.compression_format = "snappy"  # TODO: Make this configurable
+        self.compression_format = "snappy"
         if storage:
             if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
-                raise RuntimeError(
-                    "Environment variable GOOGLE_APPLICATION_CREDENTIALS is not set. "
-                    "Please set it to the path of your GCP credentials file."
-                )
-            self.bucket_name = "rubin-ppdb-test-bucket-1"  # TODO: Make this configurable
-            self.folder_name = "tmp"  # TODO: Make this configurable
+                raise RuntimeError("Environment variable GOOGLE_APPLICATION_CREDENTIALS is not set.")
+            self.bucket_name = "rubin-ppdb-test-bucket-1"
+            self.folder_name = "tmp"
             self.client = storage.Client()
             self.bucket = self.client.bucket(self.bucket_name)
 
@@ -78,15 +70,21 @@ class ChunkExporter(PpdbSql):
         *,
         update: bool = False,
     ) -> None:
-        # Docstring is inherited.
         for table_name, table_data in zip(
-            ["objects", "sources", "forced_sources"], [objects, sources, forced_sources]
+            ["objects", "sources", "forced_sources"],
+            [objects, sources, forced_sources],
         ):
             _LOG.info("Processing %s", table_name)
             if len(table_data.rows()) == 0:
                 _LOG.info("Skipping %s: table is empty", table_name)
                 continue
-            arrow_table = self._convert_to_arrow(table_data)
+
+            try:
+                arrow_table = self._convert_to_arrow(table_data)
+            except Exception as e:
+                _LOG.error("Failed to convert table to Arrow: %s", e)
+                raise
+
             _LOG.info(
                 "Created Arrow Table with %d rows and %d columns",
                 arrow_table.num_rows,
@@ -94,11 +92,11 @@ class ChunkExporter(PpdbSql):
             )
             memory_usage_mb = arrow_table.nbytes / 1_048_576
             _LOG.info("Estimated memory usage: %.2f MB", memory_usage_mb)
-            filename = self._write_parquet(table_name, arrow_table, replica_chunk)
+
             if storage:
                 gcs_path = self._get_gcs_path(table_name, replica_chunk.id)
-                _LOG.info("Uploading %s to GCS path: %s", filename, gcs_path)
-                self._upload_to_gcs(str(filename), gcs_path)
+                _LOG.info("Uploading %s to GCS path: %s", table_name, gcs_path)
+                self._upload_table_to_gcs(arrow_table, gcs_path)
 
     @classmethod
     def _convert_to_arrow(cls, table_data: ApdbTableData) -> pa.Table:
@@ -112,37 +110,25 @@ class ChunkExporter(PpdbSql):
 
         _LOG.info("Converting %d rows with %d columns to Arrow Table", len(rows), len(column_names))
 
-        # Transpose list of row tuples to column-wise lists
         columns = list(zip(*rows))
         arrays = [pa.array(col) for col in columns]
         return pa.table(dict(zip(column_names, arrays)))
-
-    def _write_parquet(self, table_name: str, table: pa.Table, replica_chunk: ReplicaChunk) -> str:
-        chunk_id = replica_chunk.id
-        filename = self.local_dir / Path(f"{table_name}_{chunk_id}.parquet")
-        _LOG.info("Writing Arrow Table to %s", filename)
-        try:
-            pq.write_table(table, filename, compression=self.compression_format)
-        except Exception as e:
-            _LOG.error("Failed to write table to Parquet: %s", e)
-            raise
-        return filename
 
     def _get_gcs_path(self, table_name: str, chunk_id: int) -> str:
         today = datetime.today()
         year = today.strftime("%Y")
         month = today.strftime("%m")
         day = today.strftime("%d")
-        return (
-            f"gs://{self.bucket_name}/{self.folder_name}/{year}/{month}/{day}/"
-            f"{str(chunk_id)}/{table_name}.parquet"
-        )
+        return f"{self.folder_name}/{year}/{month}/{day}/{str(chunk_id)}/{table_name}.parquet"
 
-    def _upload_to_gcs(self, filename: str, gcs_path: str) -> None:
-        blob = self.bucket.blob(filename)
-        try:
-            blob.upload_from_filename(filename)
-        except Exception as e:
-            _LOG.error("Failed to upload file to GCS: %s", e)
-            raise
-        _LOG.info("Uploaded %s to GCS path: %s", filename, gcs_path)
+    def _upload_table_to_gcs(self, table: pa.Table, gcs_path: str) -> None:
+        with BytesIO() as buf:
+            try:
+                pq.write_table(table, buf, compression=self.compression_format)
+                buf.seek(0)
+                blob = self.bucket.blob(gcs_path)
+                blob.upload_from_file(buf, content_type="application/octet-stream")
+            except Exception as e:
+                _LOG.error("Failed to upload in-memory table to GCS: %s", e)
+                raise
+        _LOG.info("Successfully uploaded to GCS path: %s", gcs_path)
