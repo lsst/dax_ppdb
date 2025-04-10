@@ -50,16 +50,19 @@ class ChunkExporter(PpdbSql):
     """Exports data from Cassandra to in-memory Parquet and uploads to GCS."""
 
     def __init__(self, *args, **kwargs):
-        _LOG.info("Initializing ChunkExporter")
-        super().__init__(*args, **kwargs)
-        self.compression_format = "snappy"
+        _LOG.info("Initializing ChunkExporter with args: %s, kwargs: %s", args, kwargs)
         if storage:
             if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
                 raise RuntimeError("Environment variable GOOGLE_APPLICATION_CREDENTIALS is not set.")
-            self.bucket_name = "rubin-ppdb-test-bucket-1"
-            self.folder_name = "tmp"
+            self.bucket_name = kwargs.pop("bucket")
+            self.folder_name = kwargs.pop("folder")
             self.client = storage.Client()
             self.bucket = self.client.bucket(self.bucket_name)
+        if "compression_format" in kwargs:
+            self.compression_format = kwargs.pop("compression_format")
+        else:
+            self.compression_format = "snappy"
+        super().__init__(*args, **kwargs)
         self.schema_version = self._metadata.get(self.meta_schema_version_key)
 
     def store(

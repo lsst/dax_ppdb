@@ -45,6 +45,9 @@ def export_chunks_run(
     min_wait_time: int,
     max_wait_time: int,
     check_interval: int,
+    bucket: str | None = None,
+    folder: str | None = None,
+    compression_format: str | None = None,
 ) -> None:
     """Execute replication process from APDB to PPDB.
 
@@ -72,7 +75,8 @@ def export_chunks_run(
 
     _LOG.info("Loading PPDB config from %s", ppdb_config)
     _ppdb_config = PpdbSqlConfig.from_uri(ppdb_config)
-    ppdb = ChunkExporter(_ppdb_config)
+    _LOG.info("Setting up chunk exporter with bucket %s and folder %s", bucket, folder)
+    ppdb = ChunkExporter(_ppdb_config, bucket=bucket, folder=folder, compression_format=compression_format)
 
     replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time)
 

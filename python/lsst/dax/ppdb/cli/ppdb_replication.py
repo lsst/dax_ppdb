@@ -98,4 +98,5 @@ def _export_chunks_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument("apdb_config", help="Path to the APDB configuration.")
     parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
     options.replication_options(parser)
+    options.export_options(parser)
     parser.set_defaults(method=scripts.export_chunks_run)
