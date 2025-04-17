@@ -108,3 +108,41 @@ def replication_options(parser: argparse.ArgumentParser) -> None:
         metavar="SECONDS",
         help="Time to wait before next check if there was no replicated chunks, default: %(default)s.",
     )
+
+
+def export_options(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_argument_group("chunk export options")
+    group.add_argument("--directory", help="Directory for local file storage.", required=True)
+    group.add_argument(
+        "--batch-size",
+        type=int,
+        help="Number of records to write in each batch.",
+    )
+    group.add_argument(
+        "--compression-format",
+        help="Compression format for Parquet files.",
+        default="snappy",
+        choices=["snappy", "gzip", "brotli", "zstd", "lz4", "none"],
+    )
+
+
+"""
+def export_options(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_argument_group("Google Cloud Storage options")
+    group.add_argument(
+        "--bucket",
+        help="GCS bucket name.",
+        default=None,
+    )
+    group.add_argument(
+        "--folder",
+        help="GCS folder name.",
+        default=None,
+    )
+    group.add_argument(
+        "--compression-format",
+        help="Compression format for Parquet files.",
+        default="snappy",
+        choices=["snappy", "gzip", "brotli", "zstd", "lz4", "none"],
+    )
+"""
