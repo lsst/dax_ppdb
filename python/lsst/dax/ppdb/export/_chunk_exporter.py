@@ -129,20 +129,10 @@ class ChunkExporter(PpdbSql):
                     continue
 
                 try:
-                    arrow_table = self._convert_to_arrow(table_name, table_data)
+                    self._write_parquet(table_name, table_data, chunk_dir / f"{table_name}.parquet")
                 except Exception as e:
-                    _LOG.error("Failed to convert table to Arrow: %s", e)
+                    _LOG.error("Failed to write %s: %s", table_name, e)
                     raise
-
-                _LOG.info(
-                    "Created Arrow Table with %d rows and %d columns",
-                    arrow_table.num_rows,
-                    arrow_table.num_columns,
-                )
-                _LOG.debug("Estimated memory usage: %.2f MB", arrow_table.nbytes / 1_048_576)
-
-                file_path = chunk_dir / f"{table_name}.parquet"
-                parquet.write_table(arrow_table, file_path, compression=self.compression_format)
 
         except Exception as e:
             _LOG.error("Failed to store replica chunk: %s", e)
@@ -166,31 +156,51 @@ class ChunkExporter(PpdbSql):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def _convert_to_arrow(self, table_name: str, table_data: ApdbTableData) -> pyarrow.Table:
+    def _write_parquet(self, table_name: str, table_data: ApdbTableData, file_path: Path) -> None:
+        # Get the expected column types for the table
         expected_types = self.column_type_map.get(table_name)
         if expected_types is None:
             raise ValueError(f"No column type map found for table: {table_name}")
 
-        rows = list(table_data.rows())
-        input_column_names = list(table_data.column_names())
+        # Get rows and column names from the table data
+        rows = list(table_data.rows())  # This is a list of rows (records)
+        input_column_names = list(table_data.column_names())  # These are the column names (attributes)
 
         # Only keep columns present in the expected schema
         selected_column_names = [name for name in input_column_names if name in expected_types]
         if not selected_column_names:
             raise ValueError(f"No matching columns found for table: {table_name}")
 
-        # Reorder and filter the columns to match selected_column_names
-        zipped_columns = list(zip(*rows))
+        # Prepare columns (columns, not rows)
         selected_columns = [
-            col for name, col in zip(input_column_names, zipped_columns) if name in expected_types
+            [row[input_column_names.index(name)] for row in rows]  # Extract data for each column
+            for name in selected_column_names
         ]
 
-        arrays = [
-            pyarrow.array(column, type=expected_types[column_name])
-            for column, column_name in zip(selected_columns, selected_column_names)
-        ]
+        # Prepare schema
         schema = pyarrow.schema(
             [(column_name, expected_types[column_name]) for column_name in selected_column_names]
         )
 
-        return pyarrow.table(arrays, schema=schema)
+        # Handle the case where no rows are present
+        if not rows:
+            _LOG.warning("No rows found for table: %s, skipping Parquet export", table_name)
+            return
+
+        # Write in batches
+        with parquet.ParquetWriter(file_path, schema, compression=self.compression_format) as writer:
+            for i in range(0, len(rows), self.batch_size):
+                # Ensure the batch size is valid even for the last batch
+                batch_size = min(self.batch_size, len(rows) - i)
+
+                # Prepare the batch columns by slicing the data
+                batch_columns = [
+                    pyarrow.array(column[i : i + batch_size], type=expected_types[column_name])
+                    for column, column_name in zip(selected_columns, selected_column_names)
+                ]
+
+                # Create a pyarrow Table from the selected batch
+                batch_table = pyarrow.Table.from_arrays(batch_columns, schema=schema)
+                writer.write_table(batch_table)
+
+        _LOG.info("Finished writing %s to %s", table_name, file_path)

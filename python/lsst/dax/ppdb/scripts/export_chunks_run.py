@@ -26,15 +26,13 @@ __all__ = ["export_chunks_run"]
 import logging
 import time
 import warnings
-
 from pathlib import Path
 
 from lsst.dax.apdb import ApdbReplica
 
 from ..export._chunk_exporter import ChunkExporter
-from ..sql._ppdb_sql import PpdbSqlConfig
-
 from ..replicator import Replicator
+from ..sql._ppdb_sql import PpdbSqlConfig
 
 _LOG = logging.getLogger(__name__)
 
