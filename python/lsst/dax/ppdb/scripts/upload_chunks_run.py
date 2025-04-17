@@ -19,9 +19,21 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from .create_sql import create_sql
-from .replication_list_chunks_apdb import replication_list_chunks_apdb
-from .replication_list_chunks_ppdb import replication_list_chunks_ppdb
-from .replication_run import replication_run
-from .export_chunks_run import export_chunks_run
-from .upload_chunks_run import upload_chunks_run
+from ..export._chunk_uploader import ChunkUploader
+
+
+def upload_chunks_run(directory: str, bucket: str, folder: str, wait_interval: int, exit_on_empty: bool):
+    """Upload chunks to the specified bucket and folder.
+
+    Parameters
+    ----------
+    directory : `str`
+        Directory containing the chunks to upload.
+    bucket_name : `str`
+        Name of the bucket to upload the chunks to.
+    folder_name : `str`, optional
+        Name of the folder within the bucket to upload the chunks to. If not
+        provided, the chunks will be uploaded to the root of the bucket.
+    """
+    chunk_exporter = ChunkUploader(directory, bucket, folder, wait_interval, exit_on_empty)
+    chunk_exporter.run()

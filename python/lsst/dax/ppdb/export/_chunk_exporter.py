@@ -38,6 +38,8 @@ _LOG = logging.getLogger(__name__)
 
 _DEFAULT_COMPRESSION_FORMAT = "snappy"
 
+_DEFAULT_BATCH_SIZE = 1000
+
 _APDB_TABLES = ("DiaObject", "DiaSource", "DiaForcedSource")
 
 _SQLTYPE = sqlalchemy.sql.sqltypes
@@ -74,7 +76,7 @@ class ChunkExporter(PpdbSql):
         self,
         config: PpdbConfig,
         directory: Path,
-        batch_size: int = 1000,
+        batch_size: int = _DEFAULT_BATCH_SIZE,
         compression_format: str = _DEFAULT_COMPRESSION_FORMAT,
     ):
         super().__init__(config)
@@ -137,8 +139,7 @@ class ChunkExporter(PpdbSql):
                     arrow_table.num_rows,
                     arrow_table.num_columns,
                 )
-                memory_usage_mb = arrow_table.nbytes / 1_048_576
-                _LOG.debug("Estimated memory usage: %.2f MB", memory_usage_mb)
+                _LOG.debug("Estimated memory usage: %.2f MB", arrow_table.nbytes / 1_048_576)
 
                 file_path = chunk_dir / f"{table_name}.parquet"
                 parquet.write_table(arrow_table, file_path, compression=self.compression_format)
