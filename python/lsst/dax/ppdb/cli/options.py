@@ -108,3 +108,45 @@ def replication_options(parser: argparse.ArgumentParser) -> None:
         metavar="SECONDS",
         help="Time to wait before next check if there was no replicated chunks, default: %(default)s.",
     )
+    group.add_argument(
+        "--exit-on-empty",
+        help="Exit if no chunks are found.",
+        default=False,
+        action="store_true",
+    )
+
+
+def export_options(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_argument_group("chunk export options")
+    group.add_argument("--directory", help="Directory for local file storage.", required=True)
+    group.add_argument(
+        "--batch-size",
+        type=int,
+        help="Number of records to write in each batch.",
+    )
+    group.add_argument(
+        "--compression-format",
+        help="Compression format for Parquet files.",
+        default="snappy",
+        choices=["snappy", "gzip", "brotli", "zstd", "lz4", "none"],
+    )
+
+
+def upload_options(parser: argparse.ArgumentParser) -> None:
+    """Define CLI options for Google Cloud Storage upload."""
+    group = parser.add_argument_group("Google Cloud Storage upload options")
+    group.add_argument("--directory", help="Directory to scan for chunk files.", default=None, required=True)
+    group.add_argument("--bucket", help="GCS bucket name.", default=None, required=True)
+    group.add_argument("--folder", help="GCS folder name.", default=None, required=True)
+    group.add_argument(
+        "--wait-interval",
+        type=int,
+        help="Number of seconds to wait before scanning for more files.",
+        default=5,
+    )
+    group.add_argument(
+        "--exit-on-empty",
+        help="Exit if no files are found.",
+        default=False,
+        action="store_true",
+    )
