@@ -108,6 +108,12 @@ def replication_options(parser: argparse.ArgumentParser) -> None:
         metavar="SECONDS",
         help="Time to wait before next check if there was no replicated chunks, default: %(default)s.",
     )
+    group.add_argument(
+        "--exit-on-empty",
+        help="Exit if no chunks are found.",
+        default=False,
+        action="store_true",
+    )
 
 
 def export_options(parser: argparse.ArgumentParser) -> None:
