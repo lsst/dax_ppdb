@@ -41,6 +41,7 @@ def replication_run(
     min_wait_time: int,
     max_wait_time: int,
     check_interval: int,
+    exit_on_empty: bool,
 ) -> None:
     """Execute replication process from APDB to PPDB.
 
@@ -68,4 +69,4 @@ def replication_run(
     ppdb = Ppdb.from_uri(ppdb_config)
 
     replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time, check_interval)
-    replicator.run(single)
+    replicator.run(single=single, exit_on_empty=exit_on_empty)

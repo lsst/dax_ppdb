@@ -179,13 +179,15 @@ class Replicator:
         with Timer("store_chunks_time", _MON):
             self._ppdb.store(replica_chunk, dia_objects, dia_sources, dia_forced_sources, update=self._update)
 
-    def run(self, single=False) -> None:
+    def run(self, single=False, exit_on_empty=False) -> None:
         """Run the replication loop.
 
         Parameters
         ----------
         single : `bool`, optional
             If `True` then copy only one chunk and stop. Default is `False`.
+        exit_on_empty : `bool`, optional
+            If `True` then exit if no chunks are found. Default is `False`.
         """
         wait_time = 0
         while True:
@@ -201,7 +203,7 @@ class Replicator:
             if min_chunk_id is None:
                 # No chunks in APDB?
                 _LOG.info("No replica chunks found in APDB.")
-                if single:
+                if single or exit_on_empty:
                     return
                 else:
                     wait_time = self._check_interval
@@ -226,7 +228,7 @@ class Replicator:
 
             # Replicate one or many chunks.
             chunks = self.copy_chunks(apdb_chunks, ppdb_chunks, 1 if single else None)
-            if single:
+            if single or (exit_on_empty and not chunks):
                 break
             # IF something was copied then start new iteration immediately.
             wait_time = 0 if chunks else self._check_interval
