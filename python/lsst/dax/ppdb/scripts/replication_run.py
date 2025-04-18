@@ -69,48 +69,5 @@ def replication_run(
     apdb = ApdbReplica.from_uri(apdb_config)
     ppdb = Ppdb.from_uri(ppdb_config)
 
-    replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time)
-
-    wait_time = 0
-    while True:
-        if wait_time > 0:
-            _LOG.info("Waiting %s seconds before next iteration.", wait_time)
-            time.sleep(wait_time)
-
-        # Get existing chunks in APDB.
-        apdb_chunks = apdb.getReplicaChunks()
-        if apdb_chunks is None:
-            raise TypeError("APDB implementation does not support replication")
-        min_chunk_id = min((chunk.id for chunk in apdb_chunks), default=None)
-        if min_chunk_id is None:
-            # No chunks in APDB?
-            _LOG.info("No replica chunks found in APDB.")
-            if single:
-                return
-            else:
-                wait_time = check_interval
-                continue
-
-        # Get existing chunks in PPDB.
-        ppdb_chunks = ppdb.get_replica_chunks(min_chunk_id)
-        if ppdb_chunks is None:
-            raise TypeError("PPDB implementation does not support replication")
-
-        # Check existing PPDB ids for consistency.
-        ppdb_id_map = {ppdb_chunk.id: ppdb_chunk for ppdb_chunk in ppdb_chunks}
-        for apdb_chunk in apdb_chunks:
-            if (ppdb_chunk := ppdb_id_map.get(apdb_chunk.id)) is not None:
-                if ppdb_chunk.unique_id != apdb_chunk.unique_id:
-                    # Crash if running in a single-shot mode.
-                    message = f"Inconsistent values of unique ID - APDB: {apdb_chunk} PPDB: {ppdb_chunk}"
-                    if single:
-                        raise ValueError(message)
-                    else:
-                        warnings.warn(message)
-
-        # Replicate one or many chunks.
-        chunks = replicator.copy_chunks(apdb_chunks, ppdb_chunks, 1 if single else None)
-        if single:
-            break
-        # IF something was copied then start new iteration immediately.
-        wait_time = 0 if chunks else check_interval
+    replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time, check_interval)
+    replicator.run(single)
