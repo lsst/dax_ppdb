@@ -24,8 +24,6 @@ from __future__ import annotations
 __all__ = ["replication_run"]
 
 import logging
-import time
-import warnings
 
 from lsst.dax.apdb import ApdbReplica
 
