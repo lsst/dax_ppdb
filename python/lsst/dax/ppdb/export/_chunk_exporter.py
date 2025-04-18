@@ -118,24 +118,22 @@ class ChunkExporter(PpdbSql):
         # Docstring is inherited.
         try:
             chunk_dir = self._make_path(replica_chunk.id)
-            _LOG.debug("Temporary directory for chunk %s: %s", replica_chunk.id, chunk_dir)
+            _LOG.debug("Created directory for chunk %s: %s", replica_chunk.id, chunk_dir)
             for table_name, table_data in zip(
                 _APDB_TABLES,
                 [objects, sources, forced_sources],
             ):
                 _LOG.info("Processing %s", table_name)
                 if len(table_data.rows()) == 0:
-                    _LOG.info("Skipping %s: table is empty", table_name)
+                    _LOG.warning("Skipping %s for chunk %s: table is empty", table_name, replica_chunk.id)
                     continue
-
                 try:
                     self._write_parquet(table_name, table_data, chunk_dir / f"{table_name}.parquet")
-                except Exception as e:
-                    _LOG.error("Failed to write %s: %s", table_name, e)
+                except Exception:
+                    _LOG.exception("Failed to write %s", table_name)
                     raise
-
-        except Exception as e:
-            _LOG.error("Failed to store replica chunk: %s", e)
+        except Exception:
+            _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
             raise
 
         # Mark the chunk as ready for upload by creating a ".ready" file.
@@ -149,7 +147,7 @@ class ChunkExporter(PpdbSql):
         ready_file = directory / ".ready"
         if not ready_file.exists():
             ready_file.touch()
-            _LOG.info("Marked chunk %s as ready", directory)
+            _LOG.debug("Marked chunk %s as ready", directory)
 
     def _make_path(self, chunk_id: int) -> Path:
         path = Path(self.directory, datetime.today().strftime("%Y/%m/%d"), str(chunk_id))
@@ -172,8 +170,9 @@ class ChunkExporter(PpdbSql):
             raise ValueError(f"No matching columns found for table: {table_name}")
 
         # Prepare columns (columns, not rows)
+        column_indices = {name: input_column_names.index(name) for name in selected_column_names}
         selected_columns = [
-            [row[input_column_names.index(name)] for row in rows]  # Extract data for each column
+            [row[column_indices[name]] for row in rows]
             for name in selected_column_names
         ]
 
@@ -194,13 +193,18 @@ class ChunkExporter(PpdbSql):
                 batch_size = min(self.batch_size, len(rows) - i)
 
                 # Prepare the batch columns by slicing the data
-                batch_columns = [
-                    pyarrow.array(column[i : i + batch_size], type=expected_types[column_name])
-                    for column, column_name in zip(selected_columns, selected_column_names)
-                ]
+                try:
+                    batch_columns = [
+                        pyarrow.array(column[i : i + batch_size], type=expected_types[column_name])
+                        for column, column_name in zip(selected_columns, selected_column_names)
+                    ]
 
-                # Create a pyarrow Table from the selected batch
-                batch_table = pyarrow.Table.from_arrays(batch_columns, schema=schema)
-                writer.write_table(batch_table)
+                    # Create a pyarrow Table from the selected batch
+                    batch_table = pyarrow.Table.from_arrays(batch_columns, schema=schema)
+                    writer.write_table(batch_table)
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to create Arrow arrays for table {table_name}, batch {i}-{i+batch_size}: {e}"
+                    )
 
         _LOG.info("Finished writing %s to %s", table_name, file_path)

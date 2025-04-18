@@ -22,8 +22,10 @@
 import logging
 import os
 import posixpath
+import shutil
+import traceback
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from google.cloud import storage
@@ -47,6 +49,8 @@ class ChunkUploader:
         The folder name in the GCS bucket where files will be uploaded.
     wait_interval : `int`
         The time in seconds to wait between scans of the local directory.
+    exit_on_empty : `bool`
+        If `True`, the uploader will exit if no files are found during a scan.
     """
 
     def __init__(
@@ -74,15 +78,22 @@ class ChunkUploader:
         self.bucket = self.client.bucket(self.bucket_name)
 
     def run(self):
+        """Start the uploader to scan for files and upload them."""
         while True:
             _LOG.info("Checking for new chunks to upload...")
-
             ready_files = list(Path(self.directory).rglob(".ready"))
             if ready_files:
                 _LOG.info("Found %d ready files", len(ready_files))
                 for ready_file in ready_files:
-                    self._process_chunk(ready_file)
-                    ready_file.unlink()
+                    if ready_file.exists() and ready_file.is_file():
+                        try:
+                            self._process_chunk(ready_file.parent)
+                            ready_file.unlink()  # Do this in case directory can't be deleted
+                            _LOG.debug("Deleting chunk directory %s", ready_file.parent)
+                            shutil.rmtree(ready_file.parent)
+                        except Exception:
+                            _LOG.exception("Failed to process chunk %s", ready_file.parent)
+                            self._set_failed(ready_file.parent)
             else:
                 _LOG.info("No ready files found.")
                 if self.exit_on_empty:
@@ -92,8 +103,7 @@ class ChunkUploader:
             _LOG.info("Sleeping for %d seconds", self.wait_interval)
             time.sleep(self.wait_interval)
 
-    def _process_chunk(self, ready_file: Path):
-        chunk_dir = ready_file.parent
+    def _process_chunk(self, chunk_dir: Path):
         parquet_files = list(chunk_dir.glob("*.parquet"))
 
         if not parquet_files:
@@ -104,46 +114,59 @@ class ChunkUploader:
         base_gcs_path = posixpath.join(self.folder_name, str(relative_chunk_path))
         gcs_paths = {file: posixpath.join(base_gcs_path, file.name) for file in parquet_files}
         try:
-            self._upload_files(gcs_paths)
-            self._set_ready(base_gcs_path)
+            self._upload_files(gcs_paths)  # Upload files to GCS
+            self._set_ready(base_gcs_path)  # Mark the chunk as ready for ingest
         except Exception as e:
-            _LOG.error("Upload failed: %s", e)
-            self._delete_objects(gcs_paths.values())
-            self._set_failed(chunk_dir)
+            _LOG.exception("Upload to cloud storage failed")
+            self._delete_objects(gcs_paths.values())  # Delete the files in GCS
+            self._set_failed(chunk_dir, e)  # Mark the chunk as failed
 
     def _upload_files(self, gcs_paths: dict[str, str]) -> None:
         with ThreadPoolExecutor() as executor:
-            executor.map(self._upload_single_file, gcs_paths.items())
+            futures = [
+                executor.submit(self._upload_single_file, file, path) for file, path in gcs_paths.items()
+            ]
+            _LOG.debug("Uploading %d files to GCS", len(futures))
+            for future in as_completed(futures):
+                try:
+                    future.result()  # Trigger exception if any
+                except Exception:
+                    _LOG.exception("Error uploading file")
+                    raise
 
-    def _upload_single_file(self, file_path_gcs_tuple):
-        file_path, gcs_path = file_path_gcs_tuple
+    def _upload_single_file(self, file_path: Path, gcs_path: str) -> None:
         blob = self.bucket.blob(gcs_path)
         try:
             blob.upload_from_filename(file_path)
             _LOG.info("Uploaded %s to %s", file_path, gcs_path)
-        except Exception as e:
-            _LOG.error("Failed to upload %s: %s", file_path, e)
+        except Exception:
+            _LOG.exception("Failed to upload %s", file_path)
             raise
 
     def _set_ready(self, chunk_dir: Path) -> None:
-        ready_file_path = f"{chunk_dir}/.ready"
+        relative_chunk_path = Path(chunk_dir).relative_to(self.directory)
+        ready_file_path = posixpath.join(self.folder_name, str(relative_chunk_path), ".ready")
         blob = self.bucket.blob(ready_file_path)
         try:
             blob.upload_from_string("")
             _LOG.info("Created .ready file at GCS path: %s", ready_file_path)
-        except Exception as e:
-            _LOG.error("Failed to create .ready file: %s", e)
+        except Exception:
+            _LOG.exception("Failed to create .ready file")
             raise
 
-    def _set_failed(self, chunk_dir: Path) -> None:
-        (chunk_dir / ".failed").touch()
-        _LOG.info("Marked chunk %s upload as failed", chunk_dir)
+    def _set_failed(self, chunk_dir: Path, exc: Exception = None) -> None:
+        try:
+            with open(chunk_dir / ".error", "w") as f:
+                f.write(traceback.format_exc() if exc else "Upload failed")
+        except Exception:
+            _LOG.exception("Failed to write .error file for chunk %s", chunk_dir)
+        _LOG.info("Marked chunk %s upload as failed.", chunk_dir)
 
     def _delete_objects(self, gcs_paths: list[str]) -> None:
         for gcs_path in gcs_paths:
             blob = self.bucket.blob(gcs_path)
             try:
                 blob.delete()
-                _LOG.info("Deleted GCS path %s", gcs_path)
-            except Exception as e:
-                _LOG.error("Failed to delete %s: %s", gcs_path, e)
+                _LOG.debug("Deleted GCS path %s", gcs_path)
+            except Exception:
+                _LOG.exception("Failed to delete %s", gcs_path)
