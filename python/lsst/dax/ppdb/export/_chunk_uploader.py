@@ -143,9 +143,8 @@ class ChunkUploader:
             _LOG.exception("Failed to upload %s", file_path)
             raise
 
-    def _set_ready(self, chunk_dir: Path) -> None:
-        relative_chunk_path = Path(chunk_dir).relative_to(self.directory)
-        ready_file_path = posixpath.join(self.folder_name, str(relative_chunk_path), ".ready")
+    def _set_ready(self, gcs_path: Path) -> None:
+        ready_file_path = posixpath.join(gcs_path, ".ready")
         blob = self.bucket.blob(ready_file_path)
         try:
             blob.upload_from_string("")
