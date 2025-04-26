@@ -4,6 +4,8 @@ from googleapiclient.discovery import build
 import os
 import logging
 
+logging.basicConfig(level=logging.INFO)
+
 
 # Helper function to require environment variables
 def require_env(var_name):
@@ -37,6 +39,7 @@ def trigger_stage_chunk(cloud_event):
     # Extract parent directory path
     input_path = f"gs://{bucket}/" + os.path.dirname(name)
 
+    # Authenticate and create a Dataflow client
     credentials, _ = google.auth.default()
     dataflow = build("dataflow", "v1b3", credentials=credentials)
 
@@ -64,6 +67,10 @@ def trigger_stage_chunk(cloud_event):
         .flexTemplates()
         .launch(projectId=PROJECT_ID, location=REGION, body=launch_body)
     )
-    response = request.execute()
+    try:
+        response = request.execute()
+    except Exception:
+        logging.exception("Failed to launch Dataflow job")
+        raise
 
     logging.info(f"Dataflow launch response: {response}")
