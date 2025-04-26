@@ -17,8 +17,7 @@ def require_env(var_name):
 PROJECT_ID = require_env("PROJECT_ID")
 DATAFLOW_TEMPLATE_PATH = require_env("DATAFLOW_TEMPLATE_PATH")
 REGION = require_env("REGION")
-SERVICE_ACCOUNT = require_env("SERVICE_ACCOUNT")
-SERVICE_ACCOUNT_EMAIL = f"{SERVICE_ACCOUNT}@{PROJECT_ID}.iam.gserviceaccount.com"
+SERVICE_ACCOUNT_EMAIL = require_env("SERVICE_ACCOUNT_EMAIL")
 DATASET_ID = require_env("DATASET_ID")
 TEMP_LOCATION = require_env("TEMP_LOCATION")
 
@@ -41,7 +40,9 @@ def trigger_stage_chunk(cloud_event):
     credentials, _ = google.auth.default()
     dataflow = build("dataflow", "v1b3", credentials=credentials)
 
-    job_name = f"stage-chunk-{os.path.basename(name).replace('.ready', '')}"
+    # Generate a job name from the chunk ID
+    chunk_id = os.path.basename(os.path.dirname(name))
+    job_name = f"stage-chunk-{chunk_id}"
 
     launch_body = {
         "launchParameter": {
