@@ -19,20 +19,24 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import json
 import logging
 import os
 import posixpath
 import shutil
-import traceback
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from google.cloud import storage
+import google.auth
+from google.cloud import pubsub_v1, storage
 
 __all__ = ["ChunkUploader"]
 
 _LOG = logging.getLogger(__name__)
+
+_PUBSUB_TOPIC_NAME = "stage-chunk-topic"
 
 
 class ChunkUploader:
@@ -74,10 +78,20 @@ class ChunkUploader:
         if not credentials_path or not os.path.exists(credentials_path):
             raise RuntimeError("Invalid GOOGLE_APPLICATION_CREDENTIALS path.")
 
+        # Setup Google authentication
+        try:
+            self.credentials, self.project_id = google.auth.default()
+            if not self.project_id:
+                raise RuntimeError("Project ID could not be determined from the credentials.")
+        except Exception as e:
+            raise RuntimeError("Failed to setup Google credentials.") from e
+
         self.client = storage.Client()
         self.bucket = self.client.bucket(self.bucket_name)
 
-    def run(self):
+        self.topic_name = _PUBSUB_TOPIC_NAME
+
+    def run(self) -> None:
         """Start the uploader to scan for files and upload them."""
         while True:
             _LOG.info("Checking for new chunks to upload...")
@@ -103,7 +117,7 @@ class ChunkUploader:
             _LOG.info("Sleeping for %d seconds", self.wait_interval)
             time.sleep(self.wait_interval)
 
-    def _process_chunk(self, chunk_dir: Path):
+    def _process_chunk(self, chunk_dir: Path) -> None:
         parquet_files = list(chunk_dir.glob("*.parquet"))
 
         if not parquet_files:
@@ -115,13 +129,13 @@ class ChunkUploader:
         gcs_paths = {file: posixpath.join(base_gcs_path, file.name) for file in parquet_files}
         try:
             self._upload_files(gcs_paths)  # Upload files to GCS
-            self._set_ready(base_gcs_path)  # Mark the chunk as ready for ingest
+            self._post_to_stage_chunk_topic(self.bucket_name, base_gcs_path, str(chunk_dir.name))
         except Exception as e:
             _LOG.exception("Upload to cloud storage failed")
-            self._delete_objects(gcs_paths.values())  # Delete the files in GCS
+            self._delete_objects(list(gcs_paths.values()))  # Delete the files in GCS
             self._set_failed(chunk_dir, e)  # Mark the chunk as failed
 
-    def _upload_files(self, gcs_paths: dict[str, str]) -> None:
+    def _upload_files(self, gcs_paths: dict[Path, str]) -> None:
         with ThreadPoolExecutor() as executor:
             futures = [
                 executor.submit(self._upload_single_file, file, path) for file, path in gcs_paths.items()
@@ -143,17 +157,7 @@ class ChunkUploader:
             _LOG.exception("Failed to upload %s", file_path)
             raise
 
-    def _set_ready(self, gcs_path: Path) -> None:
-        ready_file_path = posixpath.join(gcs_path, ".ready")
-        blob = self.bucket.blob(ready_file_path)
-        try:
-            blob.upload_from_string("")
-            _LOG.info("Created .ready file at GCS path: %s", ready_file_path)
-        except Exception:
-            _LOG.exception("Failed to create .ready file")
-            raise
-
-    def _set_failed(self, chunk_dir: Path, exc: Exception = None) -> None:
+    def _set_failed(self, chunk_dir: Path, exc: Exception | None = None) -> None:
         try:
             with open(chunk_dir / ".error", "w") as f:
                 f.write(traceback.format_exc() if exc else "Upload failed")
@@ -169,3 +173,33 @@ class ChunkUploader:
                 _LOG.debug("Deleted GCS path %s", gcs_path)
             except Exception:
                 _LOG.exception("Failed to delete %s", gcs_path)
+
+    def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_path: str, chunk_id: str) -> None:
+        """
+        Publish a message to the 'stage-chunk-topic' Pub/Sub topic.
+
+        Parameters
+        ----------
+        topic_name : str
+            The name of the Pub/Sub topic (e.g., 'stage-chunk-topic').
+        bucket_name : str
+            The name of the GCS bucket.
+        chunk_path : str
+            The path to the chunk in the bucket.
+        chunk_id : str
+            The unique ID of the chunk.
+        """
+        publisher = pubsub_v1.PublisherClient()
+        topic_path = publisher.topic_path(self.project_id, self.topic_name)
+
+        # Construct the message payload
+        message = {"bucket": bucket_name, "name": chunk_path}
+
+        try:
+            # Publish the message
+            future = publisher.publish(topic_path, json.dumps(message).encode("utf-8"))
+            future.result()  # Wait for the publish to complete
+            _LOG.info("Published message to topic %s: %s", self.topic_name, message)
+        except Exception:
+            _LOG.exception("Failed to publish message to topic %s: %s", self.topic_name, message)
+            raise

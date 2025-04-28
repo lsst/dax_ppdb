@@ -1,6 +1,28 @@
-import functions_framework
+# This file is part of dax_ppdb
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import google.auth
 from googleapiclient.discovery import build
+import base64
+import json
 import os
 import logging
 
@@ -8,7 +30,19 @@ logging.basicConfig(level=logging.INFO)
 
 
 # Helper function to require environment variables
-def require_env(var_name):
+def require_env(var_name: str) -> str:
+    """Require an environment variable to be set.
+
+    Parameters
+    ----------
+    var_name : `str`
+        The name of the environment variable to check.
+
+    Returns
+    -------
+    str
+        The value of the environment variable.
+    """
     value = os.getenv(var_name)
     if not value:
         raise EnvironmentError(f"Missing required environment variable: {var_name}")
@@ -24,27 +58,24 @@ DATASET_ID = require_env("DATASET_ID")
 TEMP_LOCATION = require_env("TEMP_LOCATION")
 
 
-@functions_framework.cloud_event
-def trigger_stage_chunk(cloud_event):
-    """Triggered by a finalized object in GCS."""
-    data = cloud_event.data
+def trigger_stage_chunk(event, context):
+    """Triggered by a Pub/Sub message."""
+    try:
+        message = base64.b64decode(event["data"]).decode("utf-8")
+        data = json.loads(message)
+    except Exception:
+        logging.exception("Failed to decode Pub/Sub message")
+        raise
 
     bucket = data.get("bucket")
-    name = data.get("name")  # object path inside bucket
+    name = data.get("name")
 
-    if not name.endswith(".ready"):
-        logging.info(f"Ignoring non-.ready file: {name}")
-        return  # Ignore anything that's not a .ready file
+    input_path = f"gs://{bucket}/" + name
 
-    # Extract parent directory path
-    input_path = f"gs://{bucket}/" + os.path.dirname(name)
-
-    # Authenticate and create a Dataflow client
     credentials, _ = google.auth.default()
     dataflow = build("dataflow", "v1b3", credentials=credentials)
 
-    # Generate a job name from the chunk ID
-    chunk_id = os.path.basename(os.path.dirname(name))
+    chunk_id = os.path.basename(name)
     job_name = f"stage-chunk-{chunk_id}"
 
     launch_body = {
@@ -55,7 +86,10 @@ def trigger_stage_chunk(cloud_event):
                 "input_path": input_path,
                 "dataset_id": DATASET_ID,
             },
-            "environment": {"serviceAccountEmail": SERVICE_ACCOUNT_EMAIL, "tempLocation": TEMP_LOCATION},
+            "environment": {
+                "serviceAccountEmail": SERVICE_ACCOUNT_EMAIL,
+                "tempLocation": TEMP_LOCATION,
+            },
         }
     }
 
