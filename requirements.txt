@@ -1,4 +1,7 @@
 astropy
+google-auth
+google-cloud-storage
+google-cloud-pubsub
 pyyaml >= 5.1
 sqlalchemy
 lsst-dax-apdb @ git+https://github.com/lsst/dax_apdb@main
