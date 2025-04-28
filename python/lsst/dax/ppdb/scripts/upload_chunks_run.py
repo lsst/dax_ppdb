@@ -22,7 +22,9 @@
 from ..export._chunk_uploader import ChunkUploader
 
 
-def upload_chunks_run(directory: str, bucket: str, folder: str, wait_interval: int, exit_on_empty: bool):
+def upload_chunks_run(
+    directory: str, bucket: str, folder: str, wait_interval: int, exit_on_empty: bool
+) -> None:
     """Upload chunks to the specified bucket and folder.
 
     Parameters

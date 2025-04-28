@@ -179,7 +179,7 @@ class Replicator:
         with Timer("store_chunks_time", _MON):
             self._ppdb.store(replica_chunk, dia_objects, dia_sources, dia_forced_sources, update=self._update)
 
-    def run(self, single=False, exit_on_empty=False) -> None:
+    def run(self, single: bool = False, exit_on_empty: bool = False) -> None:
         """Run the replication loop.
 
         Parameters
