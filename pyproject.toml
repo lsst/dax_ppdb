@@ -40,7 +40,12 @@ test = [
     "pytest >= 3.2",
     "pytest-openfiles >= 0.5.0"
 ]
-gcs = ["google-cloud-storage"]
+gcp = [
+    "google-auth",
+    "google-cloud-storage",
+    "google-cloud-bigquery",
+    "google-cloud-pubsub"
+]
 
 [tool.setuptools.packages.find]
 where = ["python"]
