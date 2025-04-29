@@ -7,7 +7,7 @@ if [ -z "$GOOGLE_APPLICATION_CREDENTIALS+x" ]; then
   exit 1
 fi
 
-if [ -z "$PROJECT_ID+x" ]; then
+if [ -z "$GCP_PROJECT+x" ]; then
   echo "PROJECT_ID is not set. Please set it to your Google Cloud project ID."
   exit 1
 fi
@@ -45,5 +45,5 @@ gcloud functions deploy trigger_stage_chunk \
   --entry-point=trigger_stage_chunk \
   --service-account=${SERVICE_ACCOUNT_EMAIL} \
   --trigger-topic=stage-chunk-topic \
-  --set-env-vars "PROJECT_ID=${PROJECT_ID},REGION=${REGION},SERVICE_ACCOUNT_EMAIL=${SERVICE_ACCOUNT_EMAIL},DATASET_ID=${DATASET_ID},TEMP_LOCATION=${TEMP_LOCATION},DATAFLOW_TEMPLATE_PATH=${DATAFLOW_TEMPLATE_PATH}" \
+  --set-env-vars "PROJECT_ID=${GCP_PROJECT},REGION=${REGION},SERVICE_ACCOUNT_EMAIL=${SERVICE_ACCOUNT_EMAIL},DATASET_ID=${DATASET_ID},TEMP_LOCATION=${TEMP_LOCATION},DATAFLOW_TEMPLATE_PATH=${DATAFLOW_TEMPLATE_PATH}" \
   --gen2

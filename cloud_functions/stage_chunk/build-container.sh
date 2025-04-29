@@ -7,9 +7,9 @@ if [ -z "$GOOGLE_APPLICATION_CREDENTIALS+x" ]; then
   exit 1
 fi
 
-if [ -z "$PROJECT_ID+x" ]; then
+if [ -z "$GCP_PROJECT+x" ]; then
   echo "PROJECT_ID is not set. Please set it to your Google Cloud project ID."
   exit 1
 fi
 
-gcloud builds submit --tag "gcr.io/${PROJECT_ID}/stage-chunk-image" .
+gcloud builds submit --tag "gcr.io/${GCP_PROJECT}/stage-chunk-image" .

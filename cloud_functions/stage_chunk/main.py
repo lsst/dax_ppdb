@@ -44,7 +44,7 @@ def require_env(var_name: str) -> str:
 
 
 # Read required environment variables
-PROJECT_ID = require_env("PROJECT_ID")
+PROJECT_ID = require_env("GCP_PROJECT")
 DATAFLOW_TEMPLATE_PATH = require_env("DATAFLOW_TEMPLATE_PATH")
 REGION = require_env("REGION")
 SERVICE_ACCOUNT_EMAIL = require_env("SERVICE_ACCOUNT_EMAIL")

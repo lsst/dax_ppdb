@@ -7,20 +7,20 @@ if [ -z "$GOOGLE_APPLICATION_CREDENTIALS+x" ]; then
   exit 1
 fi
 
-if [ -z "$PROJECT_ID+x" ]; then
+if [ -z "$GCP_PROJECT+x" ]; then
   echo "PROJECT_ID is not set. Please set it to your Google Cloud project ID."
   exit 1
 fi
 
-if [ -z "$BUCKET+x" ]; then
+if [ -z "$GCS_BUCKET+x" ]; then
   echo "BUCKET is not set. Please set it to your Google Cloud Storage bucket name."
   exit 1
 fi
 
 echo "Creating Dataflow Flex Template..."
-gcloud dataflow flex-template build "gs://${BUCKET}/templates/stage_chunk_flex_template.json" \
-  --image "gcr.io/${PROJECT_ID}/stage-chunk-image" \
+gcloud dataflow flex-template build "gs://${GCS_BUCKET}/templates/stage_chunk_flex_template.json" \
+  --image "gcr.io/${GCP_PROJECT}/stage-chunk-image" \
   --sdk-language "PYTHON" \
   --metadata-file "metadata.json"
 
-echo "Flex Template created and pushed to gs://${BUCKET}/templates/stage_chunk_flex_template.json"
+echo "Flex Template created and pushed to gs://${GCS_BUCKET}/templates/stage_chunk_flex_template.json"
