@@ -54,6 +54,8 @@ class ChunkUploader:
         The folder name in the GCS bucket where files will be uploaded.
     wait_interval : `int`
         The time in seconds to wait between scans of the local directory.
+    upload_interval : `int`
+        The time in seconds to wait between uploads of files.
     exit_on_empty : `bool`
         If `True`, the uploader will exit if no files are found during a scan.
     """
@@ -64,12 +66,14 @@ class ChunkUploader:
         bucket_name: str,
         folder_name: str,
         wait_interval: int,
+        upload_interval: int,
         exit_on_empty: bool,
     ):
         self.bucket_name = bucket_name
         self.folder_name = folder_name
         self.directory = directory
         self.wait_interval = wait_interval
+        self.upload_interval = upload_interval
         self.exit_on_empty = exit_on_empty
 
         # Environment check
@@ -111,14 +115,20 @@ class ChunkUploader:
                             ready_file.unlink()  # Remove the ".ready" file after processing
                     else:
                         _LOG.warning("Ready file %s does not exist or is not a file", ready_file)
+                    _LOG.info("Done processing hunk %s", ready_file.parent)
+
+                    if self.upload_interval > 0:
+                        _LOG.info("Sleeping for %d seconds before next upload", self.upload_interval)
+                        time.sleep(self.upload_interval)
             else:
                 _LOG.info("No ready files found.")
                 if self.exit_on_empty:
                     _LOG.info("Exiting as no files were found.")
                     break
 
-            _LOG.info("Sleeping for %d seconds", self.wait_interval)
-            time.sleep(self.wait_interval)
+            if self.wait_interval > 0:
+                _LOG.info("Sleeping for %d seconds before next scan", self.wait_interval)
+                time.sleep(self.wait_interval)
 
     def _process_chunk(self, chunk_dir: Path) -> None:
         parquet_files = list(chunk_dir.glob("*.parquet"))
