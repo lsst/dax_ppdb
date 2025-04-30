@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -128,7 +129,11 @@ class ChunkUploader:
         base_gcs_path = posixpath.join(self.folder_name, str(relative_chunk_path))
         gcs_paths = {file: posixpath.join(base_gcs_path, file.name) for file in parquet_files}
         try:
-            self._upload_files(gcs_paths)  # Upload files to GCS
+            self._upload_files(gcs_paths)  # Upload parquet files to GCS
+            manifest = self._generate_manifest(chunk_dir)  # Generate manifest file
+            _LOG.info("Generated manifest: %s", manifest)
+            manifest_path = posixpath.join(base_gcs_path, "manifest.json")
+            self._upload_manifest(manifest, manifest_path)  # Upload manifest to GCS
             self._post_to_stage_chunk_topic(self.bucket_name, base_gcs_path, str(chunk_dir.name))
         except Exception as e:
             _LOG.exception("Upload to cloud storage failed")
@@ -157,6 +162,15 @@ class ChunkUploader:
             _LOG.exception("Failed to upload %s", file_path)
             raise
 
+    def _upload_manifest(self, manifest: dict[str, str], gcs_path: str) -> None:
+        blob = self.bucket.blob(gcs_path)
+        try:
+            blob.upload_from_string(json.dumps(manifest), content_type="application/json")
+            _LOG.info("Uploaded manifest to %s", gcs_path)
+        except Exception:
+            _LOG.exception("Failed to upload manifest")
+            raise
+
     def _set_failed(self, chunk_dir: Path, exc: Exception | None = None) -> None:
         try:
             with open(chunk_dir / ".error", "w") as f:
@@ -173,6 +187,28 @@ class ChunkUploader:
                 _LOG.debug("Deleted GCS path %s", gcs_path)
             except Exception:
                 _LOG.exception("Failed to delete %s", gcs_path)
+
+    def _generate_manifest(self, chunk_dir: Path) -> dict[str, str]:
+        """
+        Generate a manifest file for the chunk.
+
+        Parameters
+        ----------
+        chunk_dir : `Path`
+            The directory containing the chunk files.
+
+        Returns
+        -------
+        dict
+            The manifest data.
+        """
+        manifest = {
+            "chunk_id": str(chunk_dir.name),
+            "schema_version": str(chunk_dir.parent.name).removeprefix("v").replace("_", "."),
+            "table_files": {file.stem: str(file.name) for file in chunk_dir.glob("*.parquet")},
+            "ingest_time": datetime.now(tz=timezone.utc).isoformat(),
+        }
+        return manifest
 
     def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_path: str, chunk_id: str) -> None:
         """
