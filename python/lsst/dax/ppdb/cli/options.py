@@ -142,8 +142,15 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
         "--wait-interval",
         type=int,
         help="Number of seconds to wait before scanning for more files.",
-        default=5,
+        default=30,
     )
+    group.add_argument(
+        "--upload-interval",
+        type=int,
+        help="Number of seconds to wait before uploading more files.",
+        default=0,
+    )
+    group.add_argument
     group.add_argument(
         "--exit-on-empty",
         help="Exit if no files are found.",
