@@ -24,7 +24,7 @@ import json
 import logging
 import os
 import posixpath
-from datetime import datetime
+from datetime import datetime, timezone
 
 import google.auth
 from google.api_core.exceptions import GoogleAPICallError
@@ -44,7 +44,7 @@ def require_env(var_name: str) -> str:
 
 
 # Read required environment variables
-PROJECT_ID = require_env("GCP_PROJECT")
+PROJECT_ID = require_env("PROJECT_ID")
 DATAFLOW_TEMPLATE_PATH = require_env("DATAFLOW_TEMPLATE_PATH")
 REGION = require_env("REGION")
 SERVICE_ACCOUNT_EMAIL = require_env("SERVICE_ACCOUNT_EMAIL")
@@ -76,16 +76,13 @@ def trigger_stage_chunk(event, context):
         except KeyError as e:
             raise ValueError(f"Missing expected key in Pub/Sub message: {e}")
 
-        if not bucket or not name:
-            raise ValueError("Missing 'bucket' or 'name' in Pub/Sub message")
-
         input_path = f"gs://{bucket}/{name}"
 
         credentials, _ = google.auth.default()
         dataflow = build("dataflow", "v1b3", credentials=credentials)
 
         chunk_id = posixpath.basename(name)
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d%H%M%S")
         job_name = f"stage-chunk-{chunk_id}-{timestamp}"
 
         launch_body = {
