@@ -23,8 +23,9 @@ import apache_beam
 from apache_beam.io.parquetio import ReadFromParquet
 from apache_beam.io.gcp.bigquery import WriteToBigQuery, BigQueryDisposition
 from apache_beam.options.pipeline_options import PipelineOptions, GoogleCloudOptions, SetupOptions
-from apache_beam.io.filesystems import FileSystems
+from google.cloud import storage
 import argparse
+import json
 import logging
 
 
@@ -79,7 +80,7 @@ def read_parquet(pipeline: apache_beam.Pipeline, input_path: str, name: str):
     name : `str`
         The name of the Parquet file to read (without extension).
     """
-    return pipeline | f"Read{name}" >> ReadFromParquet(f"{input_path}/{name}.parquet")
+    return pipeline | f"Read{name}" >> ReadFromParquet(f"{input_path}/{name}")
 
 
 def write_to_bigquery(
@@ -113,6 +114,36 @@ def write_to_bigquery(
     )
 
 
+def read_manifest_from_gcs(input_path: str) -> dict:
+    """
+    Read the manifest.json file from GCS and return it as a Python dictionary.
+
+    Parameters
+    ----------
+    input_path : str
+        The GCS path to the directory containing the manifest.json file.
+
+    Returns
+    -------
+    dict
+        The contents of the manifest.json file as a Python dictionary.
+    """
+    # Parse the bucket name and object path from the input_path
+    if not input_path.endswith("/"):
+        input_path += "/"
+    bucket_name, object_path = input_path[5:].split("/", 1)
+    manifest_path = f"{object_path}manifest.json"
+
+    # Initialize the GCS client
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(manifest_path)
+
+    # Download and parse the manifest file
+    manifest_content = blob.download_as_text()
+    return json.loads(manifest_content)
+
+
 def run(argv=None):
     """Run the pipeline."""
     options = PipelineOptions(argv)
@@ -130,25 +161,22 @@ def run(argv=None):
     dataset_id = custom_options.dataset_id
     input_path = custom_options.input_path
 
-    # Validate available input files
-    table_names = ["DiaObject", "DiaSource", "DiaForcedSource"]
-    available_tables = []
+    try:
+        manifest = read_manifest_from_gcs(input_path)
+        logging.info(f"Manifest content: {json.dumps(manifest, indent=2)}")
+    except Exception:
+        logging.exception("Failed to read manifest.json from GCS")
+        raise
 
-    for table in table_names:
-        file_path = f"{input_path}/{table}.parquet"
-        match_result = FileSystems.match([file_path])
-        if match_result and match_result[0].metadata_list:
-            available_tables.append(table)
+    if not manifest.get("table_files"):
+        raise ValueError("Manifest is missing 'table_files' key or it is empty.")
 
-    if not available_tables:
-        raise ValueError(f"No valid input Parquet files found at: {input_path}")
-
-    logging.info(f"Found Parquet files for tables: {', '.join(available_tables)}")
+    logging.info(f"Loading table files: {manifest['table_files']}")
 
     with apache_beam.Pipeline(options=options) as p:
-        for table in available_tables:
-            data = read_parquet(p, input_path, table)
-            write_to_bigquery(data, project_id, dataset_id, table, temp_location)
+        for table_name, table_file in manifest["table_files"].items():
+            data = read_parquet(p, input_path, table_file)
+            write_to_bigquery(data, project_id, dataset_id, table_name, temp_location)
 
 
 if __name__ == "__main__":
