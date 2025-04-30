@@ -23,6 +23,7 @@ import apache_beam
 from apache_beam.io.parquetio import ReadFromParquet
 from apache_beam.io.gcp.bigquery import WriteToBigQuery, BigQueryDisposition
 from apache_beam.options.pipeline_options import PipelineOptions, GoogleCloudOptions, SetupOptions
+from apache_beam.io.filesystems import FileSystems
 import argparse
 import logging
 
@@ -81,7 +82,9 @@ def read_parquet(pipeline: apache_beam.Pipeline, input_path: str, name: str):
     return pipeline | f"Read{name}" >> ReadFromParquet(f"{input_path}/{name}.parquet")
 
 
-def write_to_bigquery(pcoll, project_id, dataset_id, table_name, temp_location):
+def write_to_bigquery(
+    pcoll: apache_beam.PCollection, project_id: str, dataset_id: str, table_name: str, temp_location: str
+):
     """Write PCollection to BigQuery.
 
     Parameters
@@ -119,19 +122,33 @@ def run(argv=None):
     options.view_as(SetupOptions).save_main_session = True
 
     temp_location = gcp_options.temp_location
+    if not temp_location:
+        raise ValueError("GCP temp_location must be set in pipeline options.")
+
     project_id = gcp_options.project
 
     dataset_id = custom_options.dataset_id
     input_path = custom_options.input_path
 
-    with apache_beam.Pipeline(options=options) as p:
-        diaobject = read_parquet(p, input_path, "DiaObject")
-        diasource = read_parquet(p, input_path, "DiaSource")
-        diaforcedsource = read_parquet(p, input_path, "DiaForcedSource")
+    # Validate available input files
+    table_names = ["DiaObject", "DiaSource", "DiaForcedSource"]
+    available_tables = []
 
-        write_to_bigquery(diaobject, project_id, dataset_id, "DiaObject", temp_location)
-        write_to_bigquery(diasource, project_id, dataset_id, "DiaSource", temp_location)
-        write_to_bigquery(diaforcedsource, project_id, dataset_id, "DiaForcedSource", temp_location)
+    for table in table_names:
+        file_path = f"{input_path}/{table}.parquet"
+        match_result = FileSystems.match([file_path])
+        if match_result and match_result[0].metadata_list:
+            available_tables.append(table)
+
+    if not available_tables:
+        raise ValueError(f"No valid input Parquet files found at: {input_path}")
+
+    logging.info(f"Found Parquet files for tables: {', '.join(available_tables)}")
+
+    with apache_beam.Pipeline(options=options) as p:
+        for table in available_tables:
+            data = read_parquet(p, input_path, table)
+            write_to_bigquery(data, project_id, dataset_id, table, temp_location)
 
 
 if __name__ == "__main__":
