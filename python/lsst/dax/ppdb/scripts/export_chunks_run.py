@@ -23,7 +23,6 @@ from __future__ import annotations
 
 __all__ = ["export_chunks_run"]
 
-import logging
 from pathlib import Path
 
 from lsst.dax.apdb import ApdbReplica
@@ -31,8 +30,6 @@ from lsst.dax.apdb import ApdbReplica
 from ..export._chunk_exporter import ChunkExporter
 from ..replicator import Replicator
 from ..sql._ppdb_sql import PpdbSqlConfig
-
-_LOG = logging.getLogger(__name__)
 
 
 def export_chunks_run(
@@ -79,10 +76,14 @@ def export_chunks_run(
         Exit if no chunks are found.
     """
     apdb = ApdbReplica.from_uri(apdb_config)
-    _ppdb_config = PpdbSqlConfig.from_uri(ppdb_config)
+    ppdb_sql_config = PpdbSqlConfig.from_uri(ppdb_config)
 
     ppdb = ChunkExporter(
-        _ppdb_config, Path(directory), batch_size=batch_size, compression_format=compression_format
+        ppdb_sql_config,
+        apdb._schema.schemaVersion(),  # type: ignore[attr-defined]
+        Path(directory),
+        batch_size=batch_size,
+        compression_format=compression_format,
     )
 
     replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time, check_interval)
