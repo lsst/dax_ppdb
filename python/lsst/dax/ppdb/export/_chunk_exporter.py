@@ -27,6 +27,7 @@ from pathlib import Path
 import pyarrow
 import sqlalchemy
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
+from lsst.dax.apdb.versionTuple import VersionTuple
 from pyarrow import parquet
 
 from ..config import PpdbConfig
@@ -75,17 +76,18 @@ class ChunkExporter(PpdbSql):
     def __init__(
         self,
         config: PpdbConfig,
+        schema_version: VersionTuple,
         directory: Path,
         batch_size: int = _DEFAULT_BATCH_SIZE,
         compression_format: str = _DEFAULT_COMPRESSION_FORMAT,
     ):
         super().__init__(config)
+        self.schema_version = schema_version
         self.directory = directory
         self.directory.mkdir(parents=True, exist_ok=True)
         _LOG.info("Directory for chunk export: %s", self.directory)
         self.batch_size = batch_size
         self.compression_format = compression_format
-        self.schema_version = self._metadata.get(self.meta_schema_version_key)
         self.column_type_map = self._make_column_type_map(self._sa_metadata)
 
     @classmethod
@@ -150,7 +152,12 @@ class ChunkExporter(PpdbSql):
             _LOG.debug("Marked chunk %s as ready", directory)
 
     def _make_path(self, chunk_id: int) -> Path:
-        path = Path(self.directory, datetime.today().strftime("%Y/%m/%d"), str(chunk_id))
+        path = Path(
+            self.directory,
+            datetime.today().strftime("%Y/%m/%d"),
+            "v" + str(self.schema_version).replace(".", "_"),
+            str(chunk_id),
+        )
         path.mkdir(parents=True, exist_ok=True)
         return path
 
