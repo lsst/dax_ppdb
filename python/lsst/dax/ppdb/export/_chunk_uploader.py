@@ -19,16 +19,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from datetime import datetime, timezone
 import json
 import logging
 import os
 import posixpath
-import shutil
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import google.auth
 from google.cloud import pubsub_v1, storage
@@ -103,12 +103,14 @@ class ChunkUploader:
                     if ready_file.exists() and ready_file.is_file():
                         try:
                             self._process_chunk(ready_file.parent)
-                            ready_file.unlink()  # Do this in case directory can't be deleted
-                            _LOG.debug("Deleting chunk directory %s", ready_file.parent)
-                            shutil.rmtree(ready_file.parent)
+                            self._mark_uploaded(ready_file.parent)
                         except Exception:
                             _LOG.exception("Failed to process chunk %s", ready_file.parent)
-                            self._set_failed(ready_file.parent)
+                            self._mark_failed(ready_file.parent)
+                        finally:
+                            ready_file.unlink()  # Remove the ".ready" file after processing
+                    else:
+                        _LOG.warning("Ready file %s does not exist or is not a file", ready_file)
             else:
                 _LOG.info("No ready files found.")
                 if self.exit_on_empty:
@@ -134,11 +136,11 @@ class ChunkUploader:
             _LOG.info("Generated manifest: %s", manifest)
             manifest_path = posixpath.join(base_gcs_path, "manifest.json")
             self._upload_manifest(manifest, manifest_path)  # Upload manifest to GCS
-            self._post_to_stage_chunk_topic(self.bucket_name, base_gcs_path, str(chunk_dir.name))
+            self._post_to_stage_chunk_topic(self.bucket_name, base_gcs_path)
         except Exception as e:
             _LOG.exception("Upload to cloud storage failed")
             self._delete_objects(list(gcs_paths.values()))  # Delete the files in GCS
-            self._set_failed(chunk_dir, e)  # Mark the chunk as failed
+            self._mark_failed(chunk_dir, e)  # Mark the chunk as failed
 
     def _upload_files(self, gcs_paths: dict[Path, str]) -> None:
         with ThreadPoolExecutor() as executor:
@@ -171,13 +173,20 @@ class ChunkUploader:
             _LOG.exception("Failed to upload manifest")
             raise
 
-    def _set_failed(self, chunk_dir: Path, exc: Exception | None = None) -> None:
+    def _mark_failed(self, chunk_dir: Path, exc: Exception | None = None) -> None:
         try:
             with open(chunk_dir / ".error", "w") as f:
                 f.write(traceback.format_exc() if exc else "Upload failed")
         except Exception:
             _LOG.exception("Failed to write .error file for chunk %s", chunk_dir)
         _LOG.info("Marked chunk %s upload as failed.", chunk_dir)
+
+    def _mark_uploaded(self, chunk_dir: Path) -> None:
+        """Mark the chunk as uploaded by creating a ".uploaded" file."""
+        uploaded_file = chunk_dir / ".uploaded"
+        if not uploaded_file.exists():
+            uploaded_file.touch()
+            _LOG.debug("Marked chunk %s as uploaded", chunk_dir)
 
     def _delete_objects(self, gcs_paths: list[str]) -> None:
         for gcs_path in gcs_paths:
@@ -188,7 +197,7 @@ class ChunkUploader:
             except Exception:
                 _LOG.exception("Failed to delete %s", gcs_path)
 
-    def _generate_manifest(self, chunk_dir: Path) -> dict[str, str]:
+    def _generate_manifest(self, chunk_dir: Path) -> dict[str, Any]:
         """
         Generate a manifest file for the chunk.
 
@@ -210,7 +219,7 @@ class ChunkUploader:
         }
         return manifest
 
-    def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_path: str, chunk_id: str) -> None:
+    def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_path: str) -> None:
         """
         Publish a message to the 'stage-chunk-topic' Pub/Sub topic.
 
