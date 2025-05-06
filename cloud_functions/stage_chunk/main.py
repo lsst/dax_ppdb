@@ -31,8 +31,6 @@ from google.api_core.exceptions import GoogleAPICallError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-logging.basicConfig(level=logging.INFO)
-
 
 # Helper function to require environment variables
 def require_env(var_name: str) -> str:
@@ -50,6 +48,9 @@ REGION = require_env("REGION")
 SERVICE_ACCOUNT_EMAIL = require_env("SERVICE_ACCOUNT_EMAIL")
 DATASET_ID = require_env("DATASET_ID")
 TEMP_LOCATION = require_env("TEMP_LOCATION")
+
+_credentials, _ = google.auth.default()
+_dataflow_client = build("dataflow", "v1b3", credentials=_credentials)
 
 
 def trigger_stage_chunk(event, context):
@@ -69,50 +70,68 @@ def trigger_stage_chunk(event, context):
     try:
         message = base64.b64decode(event["data"]).decode("utf-8")
         data = json.loads(message)
+    except Exception:
+        logging.exception("Malformed or missing Pub/Sub data payload")
+        return
 
-        try:
-            bucket = data["bucket"]
-            name = data["name"]
-        except KeyError as e:
-            raise ValueError(f"Missing expected key in Pub/Sub message: {e}")
+    try:
+        bucket = data["bucket"]
+        name = data["name"]
+    except KeyError:
+        logging.exception("Missing required key in Pub/Sub message")
+        return
 
-        input_path = f"gs://{bucket}/{name}"
+    input_path = f"gs://{bucket}/{name}"
+    chunk_id = posixpath.basename(name)
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d%H%M%S")
+    job_name = f"stage-chunk-{chunk_id}-{timestamp}"
 
-        credentials, _ = google.auth.default()
-        dataflow = build("dataflow", "v1b3", credentials=credentials)
-
-        chunk_id = posixpath.basename(name)
-        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d%H%M%S")
-        job_name = f"stage-chunk-{chunk_id}-{timestamp}"
-
-        launch_body = {
-            "launchParameter": {
-                "jobName": job_name,
-                "containerSpecGcsPath": DATAFLOW_TEMPLATE_PATH,
-                "parameters": {"input_path": input_path, "dataset_id": DATASET_ID},
-                "environment": {
-                    "serviceAccountEmail": SERVICE_ACCOUNT_EMAIL,
-                    "tempLocation": TEMP_LOCATION,
-                },
-            }
+    launch_body = {
+        "launchParameter": {
+            "jobName": job_name,
+            "containerSpecGcsPath": DATAFLOW_TEMPLATE_PATH,
+            "parameters": {"input_path": input_path, "dataset_id": DATASET_ID},
+            "environment": {
+                "serviceAccountEmail": SERVICE_ACCOUNT_EMAIL,
+                "tempLocation": TEMP_LOCATION,
+            },
         }
+    }
 
-        logging.info(f"Launching Dataflow job {job_name} for input path {input_path}")
-        logging.info(f"Triggered by event ID: {context.event_id}")
-        logging.info(f"Dataflow launch body: {json.dumps(launch_body, indent=2)}")
+    logging.info(f"Launching Dataflow job {job_name} for input path {input_path}")
+    logging.info(f"Triggered by event ID: {context.event_id}")
+    logging.info(f"Dataflow launch body: {json.dumps(launch_body, indent=2)}")
 
+    try:
         request = (
-            dataflow.projects()
+            _dataflow_client.projects()
             .locations()
             .flexTemplates()
             .launch(projectId=PROJECT_ID, location=REGION, body=launch_body)
         )
         response = request.execute()
-        logging.info(f"Dataflow launch response: {response}")
 
-    except (GoogleAPICallError, HttpError):
-        logging.exception("GCP API error while launching stage-chunk job")
-        raise
+        if "job" not in response:
+            logging.error("Dataflow API response missing 'job' field: %s", response)
+            return
+
+        job_id = response.get("job", {}).get("id", "unknown")
+        logging.info(f"Dataflow job launched: {job_id}")
+
+    except HttpError as e:
+        if e.resp.status in [429, 500, 503]:
+            logging.warning("Retryable HTTP error (%s): %s", e.resp.status, e)
+            raise  # Will trigger retry
+        else:
+            logging.error("Non-retryable HTTP error: %s", e)
+            return  # Acknowledge message
+
+    except GoogleAPICallError:
+        logging.exception("Retryable GCP API error")
+        raise  # Will trigger retry
+
     except Exception:
-        logging.exception("Unexpected error triggering stage-chunk job")
-        raise
+        logging.exception("Unexpected error during job submission")
+        return  # Acknowledge message
+
+    return
