@@ -92,7 +92,7 @@ class ChunkExporter(PpdbSql):
 
     @classmethod
     def _make_column_type_map(cls, metadata: sqlalchemy.MetaData) -> dict[str, dict[str, pyarrow.DataType]]:
-        """Create a mapping of column names to SQLAlchemy types."""
+        """Create a mapping of column names to Arrow types."""
         column_type_map = {}
         for table in metadata.tables.values():
             column_types = {}
