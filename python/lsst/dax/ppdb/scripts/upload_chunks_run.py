@@ -23,7 +23,13 @@ from ..export._chunk_uploader import ChunkUploader
 
 
 def upload_chunks_run(
-    directory: str, bucket: str, folder: str, wait_interval: int, upload_interval: int, exit_on_empty: bool
+    directory: str,
+    bucket: str,
+    folder: str,
+    wait_interval: int,
+    upload_interval: int,
+    exit_on_empty: bool,
+    delete_chunks: bool,
 ) -> None:
     """Upload chunks to the specified bucket and folder.
 
@@ -37,5 +43,7 @@ def upload_chunks_run(
         Name of the folder within the bucket to upload the chunks to. If not
         provided, the chunks will be uploaded to the root of the bucket.
     """
-    chunk_exporter = ChunkUploader(directory, bucket, folder, wait_interval, upload_interval, exit_on_empty)
+    chunk_exporter = ChunkUploader(
+        directory, bucket, folder, wait_interval, upload_interval, exit_on_empty, delete_chunks
+    )
     chunk_exporter.run()

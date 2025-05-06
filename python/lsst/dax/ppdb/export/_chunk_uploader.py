@@ -41,23 +41,27 @@ _PUBSUB_TOPIC_NAME = "stage-chunk-topic"
 
 
 class ChunkUploader:
-    """Scans a local directory tree for parquet files that are ready to be
-    uploaded to Google Cloud Storage (GCS).
+    """Scans a local directory tree for chunks that are ready to be uploaded
+    and copies their parquet files to the specified GCS bucket and folder.
 
     Parameters
     ----------
     directory : `str`
         The local directory to scan for parquet files.
     bucket_name : `str`
-        The name of the GCS bucket to upload files to.
+        The name of the GCS bucket for uploads.
     folder_name : `str`
-        The folder name in the GCS bucket where files will be uploaded.
+        The folder name in the GCS bucket for uploads.
     wait_interval : `int`
         The time in seconds to wait between scans of the local directory.
     upload_interval : `int`
         The time in seconds to wait between uploads of files.
     exit_on_empty : `bool`
         If `True`, the uploader will exit if no files are found during a scan.
+    delete_chunks : `bool`
+        If `True`, the files in the chunk directory will be deleted after
+        upload. The directory is left so that the marker file ".uploaded" can
+        be created and used to indicate that the chunk has been processed.
     """
 
     def __init__(
@@ -65,9 +69,10 @@ class ChunkUploader:
         directory: str,
         bucket_name: str,
         folder_name: str,
-        wait_interval: int,
-        upload_interval: int,
-        exit_on_empty: bool,
+        wait_interval: int = 30,
+        upload_interval: int = 0,
+        exit_on_empty: bool = False,
+        delete_chunks: bool = False,
     ):
         self.bucket_name = bucket_name
         self.folder_name = folder_name
@@ -75,6 +80,7 @@ class ChunkUploader:
         self.wait_interval = wait_interval
         self.upload_interval = upload_interval
         self.exit_on_empty = exit_on_empty
+        self.delete_chunks = delete_chunks
 
         # Environment check
         if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
@@ -106,16 +112,18 @@ class ChunkUploader:
                 for ready_file in ready_files:
                     if ready_file.exists() and ready_file.is_file():
                         try:
-                            self._process_chunk(ready_file.parent)
-                            self._mark_uploaded(ready_file.parent)
+                            chunk_dir = ready_file.parent
+                            _LOG.info("Processing chunk %s", chunk_dir.name)
+                            self._process_chunk(chunk_dir)
+                            if self.delete_chunks:
+                                self._delete_chunk(chunk_dir)
+                            self._mark_uploaded(chunk_dir)
                         except Exception:
-                            _LOG.exception("Failed to process chunk %s", ready_file.parent)
-                            self._mark_failed(ready_file.parent)
-                        finally:
-                            ready_file.unlink()  # Remove the ".ready" file after processing
+                            _LOG.exception("Failed to process chunk %s", chunk_dir)
+                            self._mark_failed(chunk_dir)
                     else:
                         _LOG.warning("Ready file %s does not exist or is not a file", ready_file)
-                    _LOG.info("Done processing hunk %s", ready_file.parent)
+                    _LOG.info("Done processing chunk %s", chunk_dir.name)
 
                     if self.upload_interval > 0:
                         _LOG.info("Sleeping for %d seconds before next upload", self.upload_interval)
@@ -134,8 +142,7 @@ class ChunkUploader:
         parquet_files = list(chunk_dir.glob("*.parquet"))
 
         if not parquet_files:
-            _LOG.warning("No parquet files in %s", chunk_dir)
-            return
+            raise RuntimeError(f"No parquet files found in {chunk_dir}")
 
         relative_chunk_path = Path(chunk_dir).relative_to(self.directory)
         base_gcs_path = posixpath.join(self.folder_name, str(relative_chunk_path))
@@ -146,7 +153,7 @@ class ChunkUploader:
             _LOG.info("Generated manifest: %s", manifest)
             manifest_path = posixpath.join(base_gcs_path, "manifest.json")
             self._upload_manifest(manifest, manifest_path)  # Upload manifest to GCS
-            self._post_to_stage_chunk_topic(self.bucket_name, base_gcs_path)
+            self._post_to_stage_chunk_topic(self.bucket_name, base_gcs_path)  # Publish message to Pub/Sub
         except Exception as e:
             _LOG.exception("Upload to cloud storage failed")
             self._delete_objects(list(gcs_paths.values()))  # Delete the files in GCS
@@ -206,6 +213,22 @@ class ChunkUploader:
                 _LOG.debug("Deleted GCS path %s", gcs_path)
             except Exception:
                 _LOG.exception("Failed to delete %s", gcs_path)
+
+    def _delete_chunk(self, chunk_dir: Path) -> None:
+        """Delete the chunk directory after upload.
+
+        Notes
+        -----
+        The directory is left so that the marker file ".uploaded" can be
+        created and used to indicate that the chunk has been processed.
+        """
+        try:
+            for file in chunk_dir.glob("*"):
+                file.unlink()
+            _LOG.debug("Deleted chunk %s", chunk_dir)
+        except Exception:
+            _LOG.exception("Failed to delete chunk %s", chunk_dir)
+            raise
 
     def _generate_manifest(self, chunk_dir: Path) -> dict[str, Any]:
         """
