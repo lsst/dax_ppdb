@@ -141,19 +141,24 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--wait-interval",
         type=int,
-        help="Number of seconds to wait before scanning for more files.",
+        help="Number of seconds to wait between file scans.",
         default=30,
     )
     group.add_argument(
         "--upload-interval",
         type=int,
-        help="Number of seconds to wait before uploading more files.",
+        help="Number of seconds to wait between uploading chunks.",
         default=0,
     )
-    group.add_argument
     group.add_argument(
         "--exit-on-empty",
-        help="Exit if no files are found.",
+        help="Exit if no new files are found after scanning.",
+        default=False,
+        action="store_true",
+    )
+    group.add_argument(
+        "--delete-chunks",
+        help="Delete chunks after they are successfully uploaded.",
         default=False,
         action="store_true",
     )
