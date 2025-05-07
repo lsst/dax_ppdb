@@ -139,6 +139,13 @@ class ChunkUploader:
                 time.sleep(self.wait_interval)
 
     def _process_chunk(self, chunk_dir: Path) -> None:
+        """Process a chunk directory by uploading its files to GCS.
+
+        Parameters
+        ----------
+        chunk_dir : `Path`
+            The directory containing the chunk files.
+        """
         parquet_files = list(chunk_dir.glob("*.parquet"))
 
         if not parquet_files:
@@ -160,6 +167,13 @@ class ChunkUploader:
             self._mark_failed(chunk_dir, e)  # Mark the chunk as failed
 
     def _upload_files(self, gcs_paths: dict[Path, str]) -> None:
+        """Upload files to GCS using a thread pool.
+
+        Parameters
+        ----------
+        gcs_paths : `dict`
+            A dictionary mapping local file paths to GCS paths.
+        """
         with ThreadPoolExecutor() as executor:
             futures = [
                 executor.submit(self._upload_single_file, file, path) for file, path in gcs_paths.items()
@@ -173,6 +187,15 @@ class ChunkUploader:
                     raise
 
     def _upload_single_file(self, file_path: Path, gcs_path: str) -> None:
+        """Upload a single file to GCS.
+
+        Parameters
+        ----------
+        file_path : `Path`
+            The local file path to upload.
+        gcs_path : `str`
+            The target GCS path.
+        """
         blob = self.bucket.blob(gcs_path)
         try:
             blob.upload_from_filename(file_path)
@@ -182,6 +205,15 @@ class ChunkUploader:
             raise
 
     def _upload_manifest(self, manifest: dict[str, str], gcs_path: str) -> None:
+        """Upload the manifest file to GCS.
+
+        Parameters
+        ----------
+        manifest : `dict`
+            The manifest data to upload.
+        gcs_path : `str`
+            The target GCS path for the manifest file.
+        """
         blob = self.bucket.blob(gcs_path)
         try:
             blob.upload_from_string(json.dumps(manifest), content_type="application/json")
@@ -191,6 +223,15 @@ class ChunkUploader:
             raise
 
     def _mark_failed(self, chunk_dir: Path, exc: Exception | None = None) -> None:
+        """Mark the chunk as failed by creating a ".error" file.
+
+        Parameters
+        ----------
+        chunk_dir : `Path`
+            The directory containing the chunk files.
+        exc : `Exception`, optional
+            The exception that caused the failure, if any.
+        """
         try:
             with open(chunk_dir / ".error", "w") as f:
                 f.write(traceback.format_exc() if exc else "Upload failed")
@@ -199,7 +240,13 @@ class ChunkUploader:
         _LOG.info("Marked chunk %s upload as failed.", chunk_dir)
 
     def _mark_uploaded(self, chunk_dir: Path) -> None:
-        """Mark the chunk as uploaded by creating a ".uploaded" file."""
+        """Mark the chunk as uploaded by creating a ".uploaded" file.
+
+        Parameters
+        ----------
+        chunk_dir : `Path`
+            The directory containing the chunk files.
+        """
         uploaded_file = chunk_dir / ".uploaded"
         if not uploaded_file.exists():
             uploaded_file.touch()
@@ -231,8 +278,7 @@ class ChunkUploader:
             raise
 
     def _generate_manifest(self, chunk_dir: Path) -> dict[str, Any]:
-        """
-        Generate a manifest file for the chunk.
+        """Generate a manifest file for the chunk.
 
         Parameters
         ----------
@@ -253,8 +299,7 @@ class ChunkUploader:
         return manifest
 
     def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_path: str) -> None:
-        """
-        Publish a message to the 'stage-chunk-topic' Pub/Sub topic.
+        """Publish a message to the 'stage-chunk-topic' Pub/Sub topic.
 
         Parameters
         ----------
