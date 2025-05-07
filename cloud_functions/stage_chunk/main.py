@@ -54,17 +54,16 @@ _dataflow_client = build("dataflow", "v1b3", credentials=_credentials)
 
 
 def trigger_stage_chunk(event, context):
-    """
-    Cloud Function to launch a Dataflow job to stage PPDB data.
+    """Cloud Function to launch a Dataflow job to stage PPDB data.
 
     Parameters
     ----------
-    event : dict
+    event : `dict`
         The dictionary with data specific to this type of event. The `data`
         field contains a base64-encoded string representing a JSON message
         with `bucket` and `name` fields.
 
-    context : google.cloud.functions.Context
+    context : `google.cloud.functions.Context`
         Metadata of triggering event including `event_id`.
     """
     try:
