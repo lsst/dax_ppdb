@@ -66,6 +66,8 @@ class ChunkExporter(PpdbSql):
         Configuration object for PPDB.
     directory : `Path`
         Directory where the exported chunks will be stored.
+    schema_version : `VersionTuple`
+        Version of the APDB schema to use for the export.
     batch_size : `int`, optional
         Number of rows to process in each batch. Default is 1000.
     compression_format : `str`, optional
@@ -119,10 +121,12 @@ class ChunkExporter(PpdbSql):
         try:
             chunk_dir = self._make_path(replica_chunk.id)
             _LOG.debug("Created directory for chunk %s: %s", replica_chunk.id, chunk_dir)
-            for table_name, table_data in zip(
-                _APDB_TABLES,
-                [objects, sources, forced_sources],
-            ):
+            table_dict = {
+                "DiaObject": objects,
+                "DiaSource": sources,
+                "DiaForcedSource": forced_sources,
+            }
+            for table_name, table_data in table_dict.items():
                 _LOG.info("Processing %s", table_name)
                 try:
                     self._write_parquet(table_name, table_data, chunk_dir / f"{table_name}.parquet")
