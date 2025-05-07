@@ -157,13 +157,20 @@ class ChunkExporter(PpdbSql):
         return path
 
     def _write_parquet(self, table_name: str, table_data: ApdbTableData, file_path: Path) -> None:
+        # Get rows from the table data
+        rows = list(table_data.rows())  # This is a list of rows (records)
+
+        # Writing parquet is silently skipepd if there are no rows. The
+        # DiaForcedSource table is empty for some chunks.
+        if not rows:
+            return
+
         # Get the expected column types for the table
         expected_types = self.column_type_map.get(table_name)
         if expected_types is None:
             raise ValueError(f"No column type map found for table: {table_name}")
 
-        # Get rows and column names from the table data
-        rows = list(table_data.rows())  # This is a list of rows (records)
+        # Get column names from the table data
         input_column_names = list(table_data.column_names())  # These are the column names (attributes)
 
         # Only keep columns present in the expected schema
@@ -179,11 +186,6 @@ class ChunkExporter(PpdbSql):
         schema = pyarrow.schema(
             [(column_name, expected_types[column_name]) for column_name in selected_column_names]
         )
-
-        # Handle the case where no rows are present
-        if not rows:
-            _LOG.warning("No rows found for table: %s, skipping Parquet export", table_name)
-            return
 
         # Write in batches
         with parquet.ParquetWriter(file_path, schema, compression=self.compression_format) as writer:
