@@ -104,9 +104,9 @@ def trigger_stage_chunk(event: dict[str, Any], context: Context) -> None:
         }
     }
 
-    logging.info(f"Launching Dataflow job {job_name} for input path {input_path}")
-    logging.info(f"Triggered by event ID: {context.event_id}")
-    logging.info(f"Dataflow launch body: {json.dumps(launch_body, indent=2)}")
+    logging.info("Launching Dataflow job %s for input path %s", job_name, input_path)
+    logging.info("Triggered by event ID: %s", context.event_id)
+    logging.info("Dataflow launch body: %s", json.dumps(launch_body))
 
     try:
         request = (
