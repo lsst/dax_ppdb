@@ -19,14 +19,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import apache_beam
-from apache_beam.io.parquetio import ReadFromParquet
-from apache_beam.io.gcp.bigquery import WriteToBigQuery, BigQueryDisposition
-from apache_beam.options.pipeline_options import PipelineOptions, GoogleCloudOptions, SetupOptions
-from google.cloud import storage
 import argparse
 import json
 import logging
+
+import apache_beam
+from apache_beam.io.gcp.bigquery import BigQueryDisposition, WriteToBigQuery
+from apache_beam.io.parquetio import ReadFromParquet
+from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions, SetupOptions
+from google.cloud import storage
 
 
 class BeamSuppressUpdateDestinationSchemaWarning(logging.Filter):
