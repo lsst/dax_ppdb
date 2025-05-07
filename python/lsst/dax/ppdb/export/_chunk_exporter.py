@@ -20,7 +20,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-import pprint
 from datetime import datetime
 from pathlib import Path
 
@@ -105,7 +104,6 @@ class ChunkExporter(PpdbSql):
                         )
                     column_types[column.name] = arrow_type
                 column_type_map[table.name] = column_types
-        _LOG.debug("Column type map:\n%s", pprint.pformat(column_type_map))
         return column_type_map
 
     def store(

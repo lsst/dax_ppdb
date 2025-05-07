@@ -8,7 +8,7 @@ if [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
 fi
 
 if [ -z "${GCP_PROJECT:-}" ]; then
-  echo "PROJECT_ID is not set. Please set it to your Google Cloud project ID."
+  echo "GCP_PROJECT is not set. Please set it to your Google Cloud project ID."
   exit 1
 fi
 
@@ -18,7 +18,7 @@ if [ -z "${REGION:-}" ]; then
 fi
 
 if [ -z "${GCS_BUCKET:-}" ]; then
-  echo "BUCKET is not set. Please set it to your Google Cloud Storage bucket name."
+  echo "GCS_BUCKET is not set. Please set it to your Google Cloud Storage bucket name."
   exit 1
 fi
 
