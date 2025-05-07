@@ -109,11 +109,13 @@ class ChunkUploader:
             ready_files = list(Path(self.directory).rglob(".ready"))
             if ready_files:
                 _LOG.info("Found %d ready files", len(ready_files))
-                for ready_file in ready_files:
+                chunk_ids = {int(ready_file.parent): ready_file for ready_file in ready_files}
+                for chunk_id in sorted(chunk_ids):
+                    _LOG.info("Processing chunk %s", chunk_id)
+                    ready_file = chunk_ids[chunk_id]
                     if ready_file.exists() and ready_file.is_file():
                         try:
                             chunk_dir = ready_file.parent
-                            _LOG.info("Processing chunk %s", chunk_dir.name)
                             self._process_chunk(chunk_dir)
                             if self.delete_chunks:
                                 self._delete_chunk(chunk_dir)
@@ -123,7 +125,7 @@ class ChunkUploader:
                             self._mark_failed(chunk_dir)
                     else:
                         _LOG.warning("Ready file %s does not exist or is not a file", ready_file)
-                    _LOG.info("Done processing chunk %s", chunk_dir.name)
+                    _LOG.info("Done processing chunk %s", chunk_id)
 
                     if self.upload_interval > 0:
                         _LOG.info("Sleeping for %d seconds before next upload", self.upload_interval)
@@ -245,7 +247,7 @@ class ChunkUploader:
         try:
             with open(chunk_dir / ".error", "w") as f:
                 f.write(traceback.format_exc() if exc else "Upload failed")
-        except Exception:
+        except OSError:
             _LOG.exception("Failed to write .error file for chunk %s", chunk_dir)
         _LOG.info("Marked chunk %s upload as failed.", chunk_dir)
 
