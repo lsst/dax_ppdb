@@ -116,20 +116,20 @@ def write_to_bigquery(
 
 
 def read_manifest_from_gcs(input_path: str) -> dict:
-    """
-    Read the manifest.json file from GCS and return it as a Python dictionary.
+    """Read the manifest.json file from GCS and return it as a Python
+    dictionary.
 
     Parameters
     ----------
-    input_path : str
+    input_path : `str`
         The GCS path to the directory containing the manifest.json file.
 
     Returns
     -------
-    dict
+    manifest_dict: `dict`
         The contents of the manifest.json file as a Python dictionary.
     """
-    # Parse the bucket name and object path from the input_path
+    # Parse the bucket name and object path from the input_path.
     if not input_path.endswith("/"):
         input_path += "/"
     bucket_name, object_path = input_path[5:].split("/", 1)
