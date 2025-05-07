@@ -70,9 +70,14 @@ def trigger_stage_chunk(event: dict[str, Any], context: Context) -> None:
     """
     try:
         message = base64.b64decode(event["data"]).decode("utf-8")
-        data = json.loads(message)
     except Exception:
         logging.exception("Malformed or missing Pub/Sub data payload")
+        return
+
+    try:
+        data = json.loads(message)
+    except json.JSONDecodeError:
+        logging.exception("Failed to decode JSON from Pub/Sub message")
         return
 
     try:
