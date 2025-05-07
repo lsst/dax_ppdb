@@ -124,9 +124,6 @@ class ChunkExporter(PpdbSql):
                 [objects, sources, forced_sources],
             ):
                 _LOG.info("Processing %s", table_name)
-                if len(table_data.rows()) == 0:
-                    _LOG.warning("Skipping %s for chunk %s: table is empty", table_name, replica_chunk.id)
-                    continue
                 try:
                     self._write_parquet(table_name, table_data, chunk_dir / f"{table_name}.parquet")
                 except Exception:
