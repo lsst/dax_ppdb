@@ -152,19 +152,29 @@ class ChunkUploader:
             raise RuntimeError(f"No parquet files found in {chunk_dir}")
 
         relative_chunk_path = Path(chunk_dir).relative_to(self.directory)
-        base_gcs_path = posixpath.join(self.folder_name, str(relative_chunk_path))
-        gcs_paths = {file: posixpath.join(base_gcs_path, file.name) for file in parquet_files}
+        gcs_prefix = posixpath.join(self.folder_name, str(relative_chunk_path))
+        gcs_names = {file: posixpath.join(gcs_prefix, file.name) for file in parquet_files}
+
         try:
-            self._upload_files(gcs_paths)  # Upload parquet files to GCS
-            manifest = self._generate_manifest(chunk_dir)  # Generate manifest file
+            # Upload parquet files to GCS
+            self._upload_files(gcs_names)
+
+            # Generate and upload manifest
+            manifest = self._generate_manifest(chunk_dir)
             _LOG.info("Generated manifest: %s", manifest)
-            manifest_path = posixpath.join(base_gcs_path, "manifest.json")
-            self._upload_manifest(manifest, manifest_path)  # Upload manifest to GCS
-            self._post_to_stage_chunk_topic(self.bucket_name, base_gcs_path)  # Publish message to Pub/Sub
+            manifest_path = posixpath.join(gcs_prefix, "manifest.json")
+            self._upload_manifest(manifest, manifest_path)
+
+            # Post to Pub/Sub topic
+            self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix)
         except Exception as e:
             _LOG.exception("Upload to cloud storage failed")
-            self._delete_objects(list(gcs_paths.values()))  # Delete the files in GCS
-            self._mark_failed(chunk_dir, e)  # Mark the chunk as failed
+
+            # Recursively delete objects under the GCS prefix if upload fails
+            self._delete_objects(gcs_prefix)
+
+            # Mark the chunk as failed
+            self._mark_failed(chunk_dir, e)
 
     def _upload_files(self, gcs_paths: dict[Path, str]) -> None:
         """Upload files to GCS using a thread pool.
@@ -252,14 +262,26 @@ class ChunkUploader:
             uploaded_file.touch()
             _LOG.debug("Marked chunk %s as uploaded", chunk_dir)
 
-    def _delete_objects(self, gcs_paths: list[str]) -> None:
-        for gcs_path in gcs_paths:
-            blob = self.bucket.blob(gcs_path)
-            try:
-                blob.delete()
-                _LOG.debug("Deleted GCS path %s", gcs_path)
-            except Exception:
-                _LOG.exception("Failed to delete %s", gcs_path)
+    def _delete_objects(self, gcs_prefix: str) -> None:
+        """Recursively delete all objects under a GCS prefix.
+
+        Parameters
+        ----------
+        gcs_path : `str`
+            The GCS prefix to recursively delete.
+        """
+        try:
+            # List all objects under the given prefix
+            blobs = self.bucket.list_blobs(prefix=gcs_prefix)
+            for blob in blobs:
+                try:
+                    blob.delete()
+                    _LOG.debug("Deleted GCS object: %s", blob.name)
+                except Exception:
+                    _LOG.exception("Failed to delete GCS object: %s", blob.name)
+        except Exception:
+            _LOG.exception("Failed to list objects under prefix: %s", gcs_prefix)
+            raise
 
     def _delete_chunk(self, chunk_dir: Path) -> None:
         """Delete the chunk directory after upload.
