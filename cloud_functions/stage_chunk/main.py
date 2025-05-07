@@ -39,7 +39,7 @@ def require_env(var_name: str) -> str:
     """Require an environment variable to be set."""
     value = os.getenv(var_name)
     if not value:
-        raise EnvironmentError(f"Missing required environment variable: {var_name}")
+        raise LookupError(f"Missing required environment variable: {var_name}")
     return value
 
 
