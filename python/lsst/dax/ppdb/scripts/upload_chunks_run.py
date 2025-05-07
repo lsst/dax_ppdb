@@ -37,11 +37,19 @@ def upload_chunks_run(
     ----------
     directory : `str`
         Directory containing the chunks to upload.
-    bucket_name : `str`
+    bucket : `str`
         Name of the bucket to upload the chunks to.
-    folder_name : `str`, optional
+    folder : `str`, optional
         Name of the folder within the bucket to upload the chunks to. If not
         provided, the chunks will be uploaded to the root of the bucket.
+    wait_interval : `int`
+        Time in seconds to wait before checking for new chunks to upload.
+    upload_interval : `int`
+        Time in seconds to wait between uploads of chunks.
+    exit_on_empty : `bool`
+        If `True`, exit the process if there are no chunks to upload.
+    delete_chunks : `bool`
+        If `True`, delete the chunks after they have been uploaded.
     """
     chunk_exporter = ChunkUploader(
         directory, bucket, folder, wait_interval, upload_interval, exit_on_empty, delete_chunks
