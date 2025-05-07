@@ -25,9 +25,11 @@ import logging
 import os
 import posixpath
 from datetime import datetime, timezone
+from typing import Any
 
 import google.auth
 from google.api_core.exceptions import GoogleAPICallError
+from google.cloud.functions_v1.context import Context
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -53,7 +55,7 @@ _credentials, _ = google.auth.default()
 _dataflow_client = build("dataflow", "v1b3", credentials=_credentials)
 
 
-def trigger_stage_chunk(event, context):
+def trigger_stage_chunk(event: dict[str, Any], context: Context) -> None:
     """Cloud Function to launch a Dataflow job to stage PPDB data.
 
     Parameters
