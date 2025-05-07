@@ -24,6 +24,7 @@ import json
 import logging
 
 import apache_beam
+from apache_beam import PCollection
 from apache_beam.io.gcp.bigquery import BigQueryDisposition, WriteToBigQuery
 from apache_beam.io.parquetio import ReadFromParquet
 from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions, SetupOptions
@@ -55,7 +56,7 @@ class CustomOptions(PipelineOptions):
     """Custom options for the pipeline."""
 
     @classmethod
-    def _add_argparse_args(cls, parser: argparse.ArgumentParser):
+    def _add_argparse_args(cls, parser: argparse.ArgumentParser) -> None:
         """Add custom arguments to the parser.
 
         Parameters
@@ -69,7 +70,7 @@ class CustomOptions(PipelineOptions):
         )
 
 
-def read_parquet(pipeline: apache_beam.Pipeline, input_path: str, name: str):
+def read_parquet(pipeline: apache_beam.Pipeline, input_path: str, name: str) -> PCollection:
     """Read Parquet files from GCS.
 
     Parameters
@@ -80,13 +81,18 @@ def read_parquet(pipeline: apache_beam.Pipeline, input_path: str, name: str):
         The GCS path to the directory containing Parquet files.
     name : `str`
         The name of the Parquet file to read (without extension).
+
+    Returns
+    -------
+    transform: `apache_beam.PTransform`
+        The transform to read the Parquet file.
     """
     return pipeline | f"Read{name}" >> ReadFromParquet(f"{input_path}/{name}")
 
 
 def write_to_bigquery(
     pcoll: apache_beam.PCollection, project_id: str, dataset_id: str, table_name: str, temp_location: str
-):
+) -> PCollection:
     """Write PCollection to BigQuery.
 
     Parameters
@@ -104,7 +110,7 @@ def write_to_bigquery(
 
     Returns
     -------
-    `apache_beam.PTransform`
+    transform: `apache_beam.PTransform`
         The transform to write the PCollection to BigQuery.
     """
     return pcoll | f"Write{table_name}" >> WriteToBigQuery(
@@ -145,7 +151,7 @@ def read_manifest_from_gcs(input_path: str) -> dict:
     return json.loads(manifest_content)
 
 
-def run(argv=None):
+def run(argv=None) -> None:
     """Run the pipeline."""
     options = PipelineOptions(argv)
     custom_options = options.view_as(CustomOptions)
@@ -164,7 +170,7 @@ def run(argv=None):
 
     try:
         manifest = read_manifest_from_gcs(input_path)
-        logging.info(f"Manifest content: {json.dumps(manifest, indent=2)}")
+        logging.info("Manifest content: %s", json.dumps(manifest))
     except Exception:
         logging.exception("Failed to read manifest.json from GCS")
         raise
