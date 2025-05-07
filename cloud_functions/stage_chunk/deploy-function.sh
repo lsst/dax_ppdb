@@ -2,37 +2,37 @@
 
 set -euxo pipefail
 
-if [ -z "$GOOGLE_APPLICATION_CREDENTIALS+x" ]; then
+if [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
   echo "GOOGLE_APPLICATION_CREDENTIALS is not set. Please set it to your service account key file."
   exit 1
 fi
 
-if [ -z "$GCP_PROJECT+x" ]; then
+if [ -z "${GCP_PROJECT:-}" ]; then
   echo "PROJECT_ID is not set. Please set it to your Google Cloud project ID."
   exit 1
 fi
 
-if [ -z "$REGION+x" ]; then
+if [ -z "${REGION:-}" ]; then
   echo "REGION is not set. Please set it to your Google Cloud region."
   exit 1
 fi
 
-if [ -z "$DATAFLOW_TEMPLATE_PATH+x" ]; then
+if [ -z "${DATAFLOW_TEMPLATE_PATH:-}" ]; then
   echo "DATAFLOW_TEMPLATE_PATH is not set. Please set it to your Dataflow template path."
   exit 1
 fi
 
-if [ -z "$SERVICE_ACCOUNT_EMAIL+x" ]; then
+if [ -z "${SERVICE_ACCOUNT_EMAIL:-}" ]; then
   echo "SERVICE_ACCOUNT_EMAIL is not set. Please set it to your Google Cloud service account email."
   exit 1
 fi
 
-if [ -z "$DATASET_ID+x" ]; then
+if [ -z "${DATASET_ID:-}" ]; then
   echo "DATASET_ID is not set. Please set it to your Google Cloud dataset ID."
   exit 1
 fi
 
-if [ -z "$TEMP_LOCATION+x" ]; then
+if [ -z "${TEMP_LOCATION:-}" ]; then
   echo "TEMP_LOCATION is not set. Please set it to your Google Cloud temporary location."
   exit 1
 fi
