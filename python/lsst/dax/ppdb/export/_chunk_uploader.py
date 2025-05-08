@@ -218,10 +218,7 @@ class ChunkUploader:
 
             # Optionally delete the chunk directory
             if self.delete_chunks:
-                self._delete_chunk(chunk_dir)
-
-            # Delete the ".ready" marker file
-            (chunk_dir / ".ready").unlink()
+                self._delete_chunk_parq_files(chunk_dir)
 
             # Mark the chunk as uploaded
             self._mark_uploaded(chunk_dir)
@@ -242,14 +239,33 @@ class ChunkUploader:
                     chunk_dir.name,
                     f"gc://{self.bucket_name}/{gcs_prefix}",
                 ) from e
+        finally:
+            # Delete the ".ready" marker file so the chunk is not processed
+            # again
+            self._delete_ready_file(chunk_dir)
+
+    def _delete_ready_file(self, chunk_dir: Path) -> None:
+        """Delete the ".ready" marker file in the chunk directory.
+
+        Parameters
+        ----------
+        chunk_dir : `Path`
+            The directory containing the chunk files.
+        """
+        ready_file = chunk_dir / ".ready"
+        if ready_file.exists():
+            ready_file.unlink()
+            _LOG.debug("Deleted .ready file in %s", chunk_dir)
+        else:
+            _LOG.debug(".ready file not found in %s", chunk_dir)
 
     def _upload_files(self, gcs_names: dict[Path, str]) -> None:
         """Upload files to GCS using a thread pool.
 
         Parameters
         ----------
-        gcs_paths : `dict`
-            A dictionary mapping local file paths to GCS paths.
+        gcs_names : `dict`
+            A dictionary mapping local file paths to GCS names.
         """
         with ThreadPoolExecutor() as executor:
             futures = [
@@ -270,7 +286,7 @@ class ChunkUploader:
         ----------
         file_path : `Path`
             The local file path to upload.
-        gcs_path : `str`
+        gcs_name : `str`
             The target GCS path.
         """
         blob = self.bucket.blob(gcs_name)
@@ -288,7 +304,7 @@ class ChunkUploader:
         ----------
         manifest : `dict`
             The manifest data to upload.
-        gcs_path : `str`
+        gcs_name : `str`
             The target GCS name for the manifest file.
         """
         blob = self.bucket.blob(gcs_name)
@@ -331,7 +347,7 @@ class ChunkUploader:
 
         Parameters
         ----------
-        gcs_path : `str`
+        gcs_prefix : `str`
             The GCS prefix to recursively delete.
         """
         try:
@@ -343,8 +359,8 @@ class ChunkUploader:
             raise RuntimeError(f"Failed to delete objects under prefix {gcs_prefix}") from e
         _LOG.info("Deleted all objects under GCS prefix: %s", gcs_prefix)
 
-    def _delete_chunk(self, chunk_dir: Path) -> None:
-        """Delete the files in the chunk directory after upload.
+    def _delete_chunk_parq_files(self, chunk_dir: Path) -> None:
+        """Delete the parquet files from a chunk directory after upload.
 
         Parameters
         ----------
@@ -357,9 +373,9 @@ class ChunkUploader:
         created and used to indicate that the chunk has been successfully
         processed.
         """
-        for file in chunk_dir.glob("*"):
+        for file in chunk_dir.glob("*.parquet"):
             file.unlink()
-        _LOG.debug("Deleted chunk %s", chunk_dir)
+        _LOG.debug("Deleted parquet files for chunk %s", chunk_dir)
 
     def _generate_manifest(self, chunk_dir: Path) -> dict[str, Any]:
         """Generate a manifest file for the chunk.
@@ -371,7 +387,7 @@ class ChunkUploader:
 
         Returns
         -------
-        dict
+        manifest : `dict`
             The manifest data.
         """
         manifest = {
@@ -387,14 +403,10 @@ class ChunkUploader:
 
         Parameters
         ----------
-        topic_name : str
-            The name of the Pub/Sub topic (e.g., 'stage-chunk-topic').
         bucket_name : str
             The name of the GCS bucket.
         chunk_path : str
             The path to the chunk in the bucket.
-        chunk_id : str
-            The unique ID of the chunk.
         """
         publisher = pubsub_v1.PublisherClient()
         topic_path = publisher.topic_path(self.project_id, self.topic_name)
