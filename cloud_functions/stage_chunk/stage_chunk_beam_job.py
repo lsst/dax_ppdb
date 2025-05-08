@@ -30,6 +30,8 @@ from apache_beam.io.parquetio import ReadFromParquet
 from apache_beam.options.pipeline_options import GoogleCloudOptions, PipelineOptions, SetupOptions
 from google.cloud import storage
 
+logging.basicConfig(level=logging.INFO)
+
 
 class BeamSuppressUpdateDestinationSchemaWarning(logging.Filter):
     """Suppresses the UpdateDestinationSchema warning from Apache Beam."""

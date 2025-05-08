@@ -33,6 +33,8 @@ from google.cloud.functions_v1.context import Context
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+logging.basicConfig(level=logging.INFO)
+
 
 # Helper function to require environment variables
 def require_env(var_name: str) -> str:
