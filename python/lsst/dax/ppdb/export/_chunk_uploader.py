@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import posixpath
+import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,6 +63,8 @@ class ChunkUploader:
         If `True`, the files in the chunk directory will be deleted after
         upload. The directory is left so that the marker file ".uploaded" can
         be created and used to indicate that the chunk has been processed.
+    exit_on_error : `bool`
+        If `True`, the uploader will exit if an error occurs during upload.
     """
 
     def __init__(
@@ -73,6 +76,7 @@ class ChunkUploader:
         upload_interval: int = 0,
         exit_on_empty: bool = False,
         delete_chunks: bool = False,
+        exit_on_error: bool = False,
     ):
         self.bucket_name = bucket_name
         self.folder_name = folder_name
@@ -81,6 +85,7 @@ class ChunkUploader:
         self.upload_interval = upload_interval
         self.exit_on_empty = exit_on_empty
         self.delete_chunks = delete_chunks
+        self.exit_on_error = exit_on_error
 
         # Environment check
         if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
@@ -108,37 +113,70 @@ class ChunkUploader:
             _LOG.info("Checking for new chunks to upload...")
             ready_files = list(Path(self.directory).rglob(".ready"))
             if ready_files:
-                _LOG.info("Found %d ready files", len(ready_files))
-                chunk_ids = {int(ready_file.parent): ready_file for ready_file in ready_files}
-                for chunk_id in sorted(chunk_ids):
-                    _LOG.info("Processing chunk %s", chunk_id)
-                    ready_file = chunk_ids[chunk_id]
-                    if ready_file.exists() and ready_file.is_file():
-                        try:
-                            chunk_dir = ready_file.parent
-                            self._process_chunk(chunk_dir)
-                            if self.delete_chunks:
-                                self._delete_chunk(chunk_dir)
-                            self._mark_uploaded(chunk_dir)
-                        except Exception:
-                            _LOG.exception("Failed to process chunk %s", chunk_dir)
-                            self._mark_failed(chunk_dir)
-                    else:
-                        _LOG.warning("Ready file %s does not exist or is not a file", ready_file)
+                _LOG.info("Found %d chunks ready for upload", len(ready_files))
+                chunk_map = self._make_chunk_map(
+                    [
+                        ready_file.parent
+                        for ready_file in ready_files
+                        if ready_file.exists() and ready_file.is_file()
+                    ]
+                )
+                for chunk_id, chunk_dir in chunk_map.items():
+                    _LOG.info("Processing chunk %s in directory %s", chunk_id, chunk_dir)
+                    try:
+                        self._process_chunk(chunk_dir)
+                    except Exception:
+                        _LOG.exception("Failed to process chunk %s", chunk_dir)
+                        if self.exit_on_error:
+                            _LOG.error("Exiting due to error in processing chunk %s", chunk_id)
+                            sys.exit(1)
                     _LOG.info("Done processing chunk %s", chunk_id)
-
                     if self.upload_interval > 0:
                         _LOG.info("Sleeping for %d seconds before next upload", self.upload_interval)
                         time.sleep(self.upload_interval)
             else:
-                _LOG.info("No ready files found.")
+                _LOG.info("No ready chunks were found.")
                 if self.exit_on_empty:
-                    _LOG.info("Exiting as no files were found.")
+                    _LOG.info("Exiting as no ready chunks were found.")
                     break
 
             if self.wait_interval > 0:
                 _LOG.info("Sleeping for %d seconds before next scan", self.wait_interval)
                 time.sleep(self.wait_interval)
+
+    @classmethod
+    def _make_chunk_map(cls, chunk_paths: list[Path]) -> dict[int, Path]:
+        """Create a mapping of chunk IDs to their respective paths.
+
+        Parameters
+        ----------
+        chunk_paths : `list`
+            A list of paths to chunk directories.
+
+        Returns
+        -------
+        chunk_map : `dict`
+            A dictionary mapping chunk IDs to their respective paths.
+
+        Notes
+        -----
+        Paths which are not directories or do not contain valid chunk IDs are
+        ignored with a warning logged. The chunk IDs are expected to be
+        integers.
+        """
+        chunk_map = {}
+        for path in chunk_paths:
+            if path.is_dir():
+                try:
+                    chunk_id = int(path.name)
+                    chunk_map[chunk_id] = path
+                except ValueError:
+                    _LOG.warning("Invalid chunk ID %s from path %s", path.name, path)
+                    continue
+            else:
+                _LOG.warning("Path %s is not a directory", path)
+                continue
+        return dict(sorted(chunk_map.items()))
 
     def _process_chunk(self, chunk_dir: Path) -> None:
         """Process a chunk directory by uploading its files to GCS.
@@ -147,17 +185,24 @@ class ChunkUploader:
         ----------
         chunk_dir : `Path`
             The directory containing the chunk files.
+
+        Raises
+        ------
+        RuntimeError
+            If no parquet files are found in the chunk directory or if the
+            processing fails for any reason.
         """
         parquet_files = list(chunk_dir.glob("*.parquet"))
 
         if not parquet_files:
             raise RuntimeError(f"No parquet files found in {chunk_dir}")
 
-        relative_chunk_path = Path(chunk_dir).relative_to(self.directory)
-        gcs_prefix = posixpath.join(self.folder_name, str(relative_chunk_path))
-        gcs_names = {file: posixpath.join(gcs_prefix, file.name) for file in parquet_files}
-
         try:
+            # Get the GCS names for the parquet files
+            relative_chunk_path = Path(chunk_dir).relative_to(self.directory)
+            gcs_prefix = posixpath.join(self.folder_name, str(relative_chunk_path))
+            gcs_names = {file: posixpath.join(gcs_prefix, file.name) for file in parquet_files}
+
             # Upload parquet files to GCS
             self._upload_files(gcs_names)
 
@@ -169,16 +214,32 @@ class ChunkUploader:
 
             # Post to Pub/Sub topic
             self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix)
+
+            # Optionally delete the chunk directory
+            if self.delete_chunks:
+                self._delete_chunk(chunk_dir)
+
+            # Mark the chunk as uploaded
+            self._mark_uploaded(chunk_dir)
+
         except Exception as e:
-            _LOG.exception("Upload to cloud storage failed")
+            try:
+                # Recursively delete objects under the GCS prefix if the upload
+                # fails
+                self._delete_objects(gcs_prefix)
 
-            # Recursively delete objects under the GCS prefix if upload fails
-            self._delete_objects(gcs_prefix)
+                # Mark the chunk as failed
+                self._mark_failed(chunk_dir, e)
+            except Exception:
+                _LOG.exception("Error cleaning up after failed upload")
+            finally:
+                raise RuntimeError(
+                    "Processing failed to upload chunk %s to %s",
+                    chunk_dir.name,
+                    f"gc://{self.bucket_name}/{gcs_prefix}",
+                ) from e
 
-            # Mark the chunk as failed
-            self._mark_failed(chunk_dir, e)
-
-    def _upload_files(self, gcs_paths: dict[Path, str]) -> None:
+    def _upload_files(self, gcs_names: dict[Path, str]) -> None:
         """Upload files to GCS using a thread pool.
 
         Parameters
@@ -188,7 +249,7 @@ class ChunkUploader:
         """
         with ThreadPoolExecutor() as executor:
             futures = [
-                executor.submit(self._upload_single_file, file, path) for file, path in gcs_paths.items()
+                executor.submit(self._upload_single_file, file, path) for file, path in gcs_names.items()
             ]
             _LOG.debug("Uploading %d files to GCS", len(futures))
             for future in as_completed(futures):
@@ -198,7 +259,7 @@ class ChunkUploader:
                     _LOG.exception("Error uploading file")
                     raise
 
-    def _upload_single_file(self, file_path: Path, gcs_path: str) -> None:
+    def _upload_single_file(self, file_path: Path, gcs_name: str) -> None:
         """Upload a single file to GCS.
 
         Parameters
@@ -208,15 +269,15 @@ class ChunkUploader:
         gcs_path : `str`
             The target GCS path.
         """
-        blob = self.bucket.blob(gcs_path)
+        blob = self.bucket.blob(gcs_name)
         try:
             blob.upload_from_filename(file_path)
-            _LOG.info("Uploaded %s to %s", file_path, gcs_path)
+            _LOG.info("Uploaded %s to %s", file_path, gcs_name)
         except Exception:
             _LOG.exception("Failed to upload %s", file_path)
             raise
 
-    def _upload_manifest(self, manifest: dict[str, str], gcs_path: str) -> None:
+    def _upload_manifest(self, manifest: dict[str, str], gcs_name: str) -> None:
         """Upload the manifest file to GCS.
 
         Parameters
@@ -224,12 +285,12 @@ class ChunkUploader:
         manifest : `dict`
             The manifest data to upload.
         gcs_path : `str`
-            The target GCS path for the manifest file.
+            The target GCS name for the manifest file.
         """
-        blob = self.bucket.blob(gcs_path)
+        blob = self.bucket.blob(gcs_name)
         try:
             blob.upload_from_string(json.dumps(manifest), content_type="application/json")
-            _LOG.info("Uploaded manifest to %s", gcs_path)
+            _LOG.info("Uploaded manifest to %s", gcs_name)
         except Exception:
             _LOG.exception("Failed to upload manifest")
             raise
@@ -244,12 +305,9 @@ class ChunkUploader:
         exc : `Exception`, optional
             The exception that caused the failure, if any.
         """
-        try:
-            with open(chunk_dir / ".error", "w") as f:
-                f.write(traceback.format_exc() if exc else "Upload failed")
-        except OSError:
-            _LOG.exception("Failed to write .error file for chunk %s", chunk_dir)
-        _LOG.info("Marked chunk %s upload as failed.", chunk_dir)
+        with open(chunk_dir / ".error", "w") as f:
+            f.write(traceback.format_exc() if exc else "Upload failed")
+        _LOG.info("Marked chunk %s upload as failed", chunk_dir)
 
     def _mark_uploaded(self, chunk_dir: Path) -> None:
         """Mark the chunk as uploaded by creating a ".uploaded" file.
@@ -273,33 +331,31 @@ class ChunkUploader:
             The GCS prefix to recursively delete.
         """
         try:
-            # List all objects under the given prefix
             blobs = self.bucket.list_blobs(prefix=gcs_prefix)
             for blob in blobs:
-                try:
-                    blob.delete()
-                    _LOG.debug("Deleted GCS object: %s", blob.name)
-                except Exception:
-                    _LOG.exception("Failed to delete GCS object: %s", blob.name)
-        except Exception:
-            _LOG.exception("Failed to list objects under prefix: %s", gcs_prefix)
-            raise
+                blob.delete()
+                _LOG.debug("Deleted GCS object: %s", blob.name)
+        except Exception as e:
+            raise RuntimeError(f"Failed to delete objects under prefix {gcs_prefix}") from e
+        _LOG.info("Deleted all objects under GCS prefix: %s", gcs_prefix)
 
     def _delete_chunk(self, chunk_dir: Path) -> None:
-        """Delete the chunk directory after upload.
+        """Delete the files in the chunk directory after upload.
+
+        Parameters
+        ----------
+        chunk_dir : `Path`
+            The directory containing the chunk files.
 
         Notes
         -----
-        The directory is left so that the marker file ".uploaded" can be
-        created and used to indicate that the chunk has been processed.
+        The directory itself is left so that the marker file ".uploaded" can be
+        created and used to indicate that the chunk has been successfully
+        processed.
         """
-        try:
-            for file in chunk_dir.glob("*"):
-                file.unlink()
-            _LOG.debug("Deleted chunk %s", chunk_dir)
-        except Exception:
-            _LOG.exception("Failed to delete chunk %s", chunk_dir)
-            raise
+        for file in chunk_dir.glob("*"):
+            file.unlink()
+        _LOG.debug("Deleted chunk %s", chunk_dir)
 
     def _generate_manifest(self, chunk_dir: Path) -> dict[str, Any]:
         """Generate a manifest file for the chunk.

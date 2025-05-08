@@ -162,3 +162,9 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
         default=False,
         action="store_true",
     )
+    group.add_argument(
+        "--exit-on-error",
+        help="Exit if an error occurs during upload.",
+        default=False,
+        action="store_true",
+    )
