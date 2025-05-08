@@ -3,37 +3,37 @@
 set -euxo pipefail
 
 if [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
-  echo "GOOGLE_APPLICATION_CREDENTIALS is not set. Please set it to your service account key file."
+  echo "GOOGLE_APPLICATION_CREDENTIALS is unset or empty. Please set it to your service account key file."
   exit 1
 fi
 
 if [ -z "${GCP_PROJECT:-}" ]; then
-  echo "PROJECT_ID is not set. Please set it to your Google Cloud project ID."
+  echo "GCP_PROJECT is unset or empty. Please set it to your Google Cloud project ID."
   exit 1
 fi
 
 if [ -z "${REGION:-}" ]; then
-  echo "REGION is not set. Please set it to your Google Cloud region."
+  echo "REGION is unset or empty. Please set it to your Google Cloud region."
   exit 1
 fi
 
 if [ -z "${DATAFLOW_TEMPLATE_PATH:-}" ]; then
-  echo "DATAFLOW_TEMPLATE_PATH is not set. Please set it to your Dataflow template path."
+  echo "DATAFLOW_TEMPLATE_PATH is unset or empty. Please set it to your Dataflow template path."
   exit 1
 fi
 
 if [ -z "${SERVICE_ACCOUNT_EMAIL:-}" ]; then
-  echo "SERVICE_ACCOUNT_EMAIL is not set. Please set it to your Google Cloud service account email."
+  echo "SERVICE_ACCOUNT_EMAIL is unset or empty. Please set it to your Google Cloud service account email."
   exit 1
 fi
 
 if [ -z "${DATASET_ID:-}" ]; then
-  echo "DATASET_ID is not set. Please set it to your Google Cloud dataset ID."
+  echo "DATASET_ID is unset or empty. Please set it to your Google Cloud dataset ID."
   exit 1
 fi
 
 if [ -z "${TEMP_LOCATION:-}" ]; then
-  echo "TEMP_LOCATION is not set. Please set it to your Google Cloud temporary location."
+  echo "TEMP_LOCATION is unset or empty. Please set it to your Google Cloud temporary location."
   exit 1
 fi
 
