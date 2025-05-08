@@ -23,6 +23,7 @@ import argparse
 import json
 import logging
 from typing import Optional
+from urllib.parse import urlparse
 
 import apache_beam
 from apache_beam import PCollection
@@ -124,6 +125,31 @@ def write_to_bigquery(
     )
 
 
+def parse_input_path(input_path: str) -> tuple[str, str]:
+    """Parse the input URL to extract the bucket name and object path.
+
+    Parameters
+    ----------
+    input_path : `str`
+        The GCS URL to the prefix containing the manifest.json file.
+
+    Returns
+    -------
+    bucket_and_prefix: tuple[str, str]
+        A tuple containing the bucket name and object prefix.
+    """
+    parsed_url = urlparse(input_path)
+    if parsed_url.scheme != "gs":
+        raise ValueError("Input path must start with 'gs://'")
+    bucket_name = parsed_url.netloc
+    object_path = parsed_url.path.lstrip("/")  # Remove leading slash from the path
+    if not bucket_name or not object_path:
+        raise ValueError(f"Invalid GCS path: {input_path}")
+    if not object_path.endswith("/"):
+        object_path += "/"
+    return bucket_name, object_path
+
+
 def read_manifest_from_gcs(input_path: str) -> dict:
     """Read the manifest.json file from GCS and return it as a Python
     dictionary.
@@ -138,16 +164,13 @@ def read_manifest_from_gcs(input_path: str) -> dict:
     manifest_dict: `dict`
         The contents of the manifest.json file as a Python dictionary.
     """
-    # Parse the bucket name and object path from the input_path.
-    if not input_path.endswith("/"):
-        input_path += "/"
-    bucket_name, object_path = input_path[5:].split("/", 1)
-    manifest_path = f"{object_path}manifest.json"
+    # Parse the bucket name and object path from the input_path
+    bucket_name, object_prefix = parse_input_path(input_path)
 
     # Initialize the GCS client
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    blob = bucket.blob(manifest_path)
+    blob = bucket.blob(f"{object_prefix}manifest.json")
 
     # Download and parse the manifest file
     manifest_content = blob.download_as_text()
