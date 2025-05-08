@@ -151,7 +151,7 @@ def read_manifest_from_gcs(input_path: str) -> dict:
     return json.loads(manifest_content)
 
 
-def run(argv=None) -> None:
+def run(argv: list[str] | None = None) -> None:
     """Run the pipeline."""
     options = PipelineOptions(argv)
     custom_options = options.view_as(CustomOptions)
