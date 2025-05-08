@@ -108,3 +108,65 @@ def replication_options(parser: argparse.ArgumentParser) -> None:
         metavar="SECONDS",
         help="Time to wait before next check if there was no replicated chunks, default: %(default)s.",
     )
+    group.add_argument(
+        "--exit-on-empty",
+        help="Exit if no chunks are found.",
+        default=False,
+        action="store_true",
+    )
+
+
+def export_options(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_argument_group("chunk export options")
+    group.add_argument("--directory", help="Directory for local file storage.", required=True)
+    group.add_argument(
+        "--batch-size",
+        type=int,
+        help="Number of records to write in each batch.",
+    )
+    group.add_argument(
+        "--compression-format",
+        help="Compression format for Parquet files.",
+        default="snappy",
+        choices=["snappy", "gzip", "brotli", "zstd", "lz4", "none"],
+    )
+
+
+def upload_options(parser: argparse.ArgumentParser) -> None:
+    """Define CLI options for Google Cloud Storage upload."""
+    group = parser.add_argument_group("Google Cloud Storage upload options")
+    group.add_argument("--directory", help="Directory to scan for chunk files.", default=None, required=True)
+    group.add_argument("--bucket", help="GCS bucket name.", default=None, required=True)
+    group.add_argument(
+        "--prefix", help="GCS base prefix for the object, e.g., 'data/staging'.", default=None, required=True
+    )
+    group.add_argument(
+        "--wait-interval",
+        type=int,
+        help="Number of seconds to wait between file scans.",
+        default=30,
+    )
+    group.add_argument(
+        "--upload-interval",
+        type=int,
+        help="Number of seconds to wait between uploading chunks.",
+        default=0,
+    )
+    group.add_argument(
+        "--exit-on-empty",
+        help="Exit if no new files are found after scanning.",
+        default=False,
+        action="store_true",
+    )
+    group.add_argument(
+        "--delete-chunks",
+        help="Delete chunks after they are successfully uploaded.",
+        default=False,
+        action="store_true",
+    )
+    group.add_argument(
+        "--exit-on-error",
+        help="Exit if an error occurs during upload.",
+        default=False,
+        action="store_true",
+    )

@@ -1,0 +1,20 @@
+{
+    "name": "Stage Chunk Beam Job",
+    "description": "Loads parquet chunks into BigQuery",
+    "parameters": [
+      {
+        "name": "input_path",
+        "label": "GCS input path",
+        "helpText": "Path to directory containing Parquet files",
+        "paramType": "TEXT",
+        "isOptional": false
+      },
+      {
+        "name": "dataset_id",
+        "label": "BigQuery dataset ID",
+        "helpText": "BigQuery dataset to load into",
+        "paramType": "TEXT",
+        "isOptional": false
+      }
+    ]
+  }
