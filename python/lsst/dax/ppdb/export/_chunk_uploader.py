@@ -43,7 +43,7 @@ _PUBSUB_TOPIC_NAME = "stage-chunk-topic"
 
 class ChunkUploader:
     """Scans a local directory tree for chunks that are ready to be uploaded
-    and copies their parquet files to the specified GCS bucket and folder.
+    and copies their parquet files to the specified GCS bucket and prefix.
 
     Parameters
     ----------
@@ -51,8 +51,8 @@ class ChunkUploader:
         The local directory to scan for parquet files.
     bucket_name : `str`
         The name of the GCS bucket for uploads.
-    folder_name : `str`
-        The folder name in the GCS bucket for uploads.
+    prefix : `str`
+        The base prefix for the uploaded objects, e.g., 'data/staging'.
     wait_interval : `int`
         The time in seconds to wait between scans of the local directory.
     upload_interval : `int`
@@ -71,7 +71,7 @@ class ChunkUploader:
         self,
         directory: str,
         bucket_name: str,
-        folder_name: str,
+        prefix: str,
         wait_interval: int = 30,
         upload_interval: int = 0,
         exit_on_empty: bool = False,
@@ -79,7 +79,7 @@ class ChunkUploader:
         exit_on_error: bool = False,
     ):
         self.bucket_name = bucket_name
-        self.folder_name = folder_name
+        self.prefix = prefix
         self.directory = directory
         self.wait_interval = wait_interval
         self.upload_interval = upload_interval
@@ -200,7 +200,7 @@ class ChunkUploader:
         try:
             # Get the GCS names for the parquet files
             relative_chunk_path = Path(chunk_dir).relative_to(self.directory)
-            gcs_prefix = posixpath.join(self.folder_name, str(relative_chunk_path))
+            gcs_prefix = posixpath.join(self.prefix, str(relative_chunk_path))
             gcs_names = {file: posixpath.join(gcs_prefix, file.name) for file in parquet_files}
 
             # Upload parquet files to GCS
