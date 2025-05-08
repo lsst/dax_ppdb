@@ -22,6 +22,7 @@
 import argparse
 import json
 import logging
+from typing import Optional
 
 import apache_beam
 from apache_beam import PCollection
@@ -153,7 +154,7 @@ def read_manifest_from_gcs(input_path: str) -> dict:
     return json.loads(manifest_content)
 
 
-def run(argv: list[str] | None = None) -> None:
+def run(argv: Optional[list[str]] = None) -> None:
     """Run the pipeline."""
     options = PipelineOptions(argv)
     custom_options = options.view_as(CustomOptions)
