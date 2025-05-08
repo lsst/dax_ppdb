@@ -137,7 +137,9 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
     group = parser.add_argument_group("Google Cloud Storage upload options")
     group.add_argument("--directory", help="Directory to scan for chunk files.", default=None, required=True)
     group.add_argument("--bucket", help="GCS bucket name.", default=None, required=True)
-    group.add_argument("--folder", help="GCS folder name.", default=None, required=True)
+    group.add_argument(
+        "--prefix", help="GCS base prefix for the object, e.g., 'data/staging'.", default=None, required=True
+    )
     group.add_argument(
         "--wait-interval",
         type=int,
