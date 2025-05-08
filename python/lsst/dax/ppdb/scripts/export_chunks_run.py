@@ -80,7 +80,7 @@ def export_chunks_run(
 
     ppdb = ChunkExporter(
         ppdb_sql_config,
-        apdb._schema.schemaVersion(),  # type: ignore[attr-defined]
+        apdb.schemaVersion(),
         Path(directory),
         batch_size=batch_size,
         compression_format=compression_format,
