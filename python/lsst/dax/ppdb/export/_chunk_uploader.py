@@ -219,6 +219,9 @@ class ChunkUploader:
             if self.delete_chunks:
                 self._delete_chunk(chunk_dir)
 
+            # Delete the ".ready" marker file
+            (chunk_dir / ".ready").unlink()
+
             # Mark the chunk as uploaded
             self._mark_uploaded(chunk_dir)
 
