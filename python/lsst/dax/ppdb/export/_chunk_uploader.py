@@ -77,7 +77,8 @@ class ChunkUploader:
         exit_on_empty: bool = False,
         delete_chunks: bool = False,
         exit_on_error: bool = False,
-    ):
+        topic_name: str = _PUBSUB_TOPIC_NAME,
+    ) -> None:
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.directory = directory
@@ -105,7 +106,7 @@ class ChunkUploader:
         self.client = storage.Client()
         self.bucket = self.client.bucket(self.bucket_name)
 
-        self.topic_name = _PUBSUB_TOPIC_NAME
+        self.topic_name = topic_name
 
     def run(self) -> None:
         """Start the uploader to scan for files and upload them."""
