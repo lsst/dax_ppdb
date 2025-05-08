@@ -30,6 +30,7 @@ def upload_chunks_run(
     upload_interval: int,
     exit_on_empty: bool,
     delete_chunks: bool,
+    exit_on_error: bool,
 ) -> None:
     """Upload chunks to the specified bucket and folder.
 
@@ -52,6 +53,6 @@ def upload_chunks_run(
         If `True`, delete the chunks after they have been uploaded.
     """
     chunk_exporter = ChunkUploader(
-        directory, bucket, folder, wait_interval, upload_interval, exit_on_empty, delete_chunks
+        directory, bucket, folder, wait_interval, upload_interval, exit_on_empty, delete_chunks, exit_on_error
     )
     chunk_exporter.run()
