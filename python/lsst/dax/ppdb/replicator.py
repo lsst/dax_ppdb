@@ -24,6 +24,8 @@ from __future__ import annotations
 __all__ = ["Replicator"]
 
 import logging
+import time
+import warnings
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
@@ -41,7 +43,7 @@ _MON = monitor.MonAgent(__name__)
 
 
 class Replicator:
-    """Implementation of APDB-to-PPDB replication metods.
+    """Implementation of APDB-to-PPDB replication methods.
 
     Parameters
     ----------
@@ -59,6 +61,8 @@ class Replicator:
     max_wait_time : `int`
         Maximum time in seconds to wait for replicating a chunk if no chunk
         appears.
+    check_interval : `int`
+        Time in seconds to wait before checking for new chunks.
     """
 
     def __init__(
@@ -68,12 +72,14 @@ class Replicator:
         update: bool,
         min_wait_time: int,
         max_wait_time: int,
+        check_interval: int,
     ):
         self._apdb = apdb
         self._ppdb = ppdb
         self._update = update
         self._min_wait_time = min_wait_time
         self._max_wait_time = max_wait_time
+        self._check_interval = check_interval
 
     def copy_chunks(
         self,
@@ -172,3 +178,57 @@ class Replicator:
 
         with Timer("store_chunks_time", _MON):
             self._ppdb.store(replica_chunk, dia_objects, dia_sources, dia_forced_sources, update=self._update)
+
+    def run(self, single: bool = False, exit_on_empty: bool = False) -> None:
+        """Run the replication loop.
+
+        Parameters
+        ----------
+        single : `bool`, optional
+            If `True` then copy only one chunk and stop. Default is `False`.
+        exit_on_empty : `bool`, optional
+            If `True` then exit if no chunks are found. Default is `False`.
+        """
+        wait_time = 0
+        while True:
+            if wait_time > 0:
+                _LOG.info("Waiting %s seconds before next iteration.", wait_time)
+                time.sleep(wait_time)
+
+            # Get existing chunks in APDB.
+            apdb_chunks = self._apdb.getReplicaChunks()
+            if apdb_chunks is None:
+                raise TypeError("APDB implementation does not support replication")
+            min_chunk_id = min((chunk.id for chunk in apdb_chunks), default=None)
+            if min_chunk_id is None:
+                # No chunks in APDB?
+                _LOG.info("No replica chunks found in APDB.")
+                if single or exit_on_empty:
+                    return
+                else:
+                    wait_time = self._check_interval
+                    continue
+
+            # Get existing chunks in PPDB.
+            ppdb_chunks = self._ppdb.get_replica_chunks(min_chunk_id)
+            if ppdb_chunks is None:
+                raise TypeError("PPDB implementation does not support replication")
+
+            # Check existing PPDB ids for consistency.
+            ppdb_id_map = {ppdb_chunk.id: ppdb_chunk for ppdb_chunk in ppdb_chunks}
+            for apdb_chunk in apdb_chunks:
+                if (ppdb_chunk := ppdb_id_map.get(apdb_chunk.id)) is not None:
+                    if ppdb_chunk.unique_id != apdb_chunk.unique_id:
+                        # Crash if running in a single-shot mode.
+                        message = f"Inconsistent values of unique ID - APDB: {apdb_chunk} PPDB: {ppdb_chunk}"
+                        if single:
+                            raise ValueError(message)
+                        else:
+                            warnings.warn(message)
+
+            # Replicate one or many chunks.
+            chunks = self.copy_chunks(apdb_chunks, ppdb_chunks, 1 if single else None)
+            if single or (exit_on_empty and not chunks):
+                break
+            # IF something was copied then start new iteration immediately.
+            wait_time = 0 if chunks else self._check_interval
