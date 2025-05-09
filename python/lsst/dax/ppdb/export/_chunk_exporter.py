@@ -171,10 +171,7 @@ class ChunkExporter(PpdbSql):
 
         # Prepare columns (columns, not rows)
         column_indices = {name: input_column_names.index(name) for name in selected_column_names}
-        selected_columns = [
-            [row[column_indices[name]] for row in rows]
-            for name in selected_column_names
-        ]
+        selected_columns = [[row[column_indices[name]] for row in rows] for name in selected_column_names]
 
         # Prepare schema
         schema = pyarrow.schema(
