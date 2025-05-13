@@ -375,7 +375,7 @@ class ChunkUploader:
         """
         for file in chunk_dir.glob("*.parquet"):
             file.unlink()
-        _LOG.debug("Deleted parquet files for chunk %s", chunk_dir)
+        _LOG.info("Deleted parquet files for chunk %s", chunk_dir)
 
     def _generate_manifest(self, chunk_dir: Path) -> dict[str, Any]:
         """Generate a manifest file for the chunk.
