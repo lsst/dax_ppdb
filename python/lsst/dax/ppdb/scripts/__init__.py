@@ -20,6 +20,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from .create_sql import create_sql
+from .export_chunks_run import export_chunks_run
 from .replication_list_chunks_apdb import replication_list_chunks_apdb
 from .replication_list_chunks_ppdb import replication_list_chunks_ppdb
 from .replication_run import replication_run
+from .upload_chunks_run import upload_chunks_run

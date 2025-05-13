@@ -23,6 +23,10 @@ classifiers = [
 keywords = ["lsst"]
 dependencies = [
     "astropy",
+    "google-auth",
+    "google-cloud-storage",
+    "google-cloud-pubsub",
+    "pyarrow",
     "pyyaml >= 5.1",
     "sqlalchemy",
     "lsst-felis",

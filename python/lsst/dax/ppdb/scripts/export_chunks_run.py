@@ -21,19 +21,18 @@
 
 from __future__ import annotations
 
-__all__ = ["replication_run"]
+__all__ = ["export_chunks_run"]
 
-import logging
+from pathlib import Path
 
 from lsst.dax.apdb import ApdbReplica
 
-from ..ppdb import Ppdb
+from ..export._chunk_exporter import ChunkExporter
 from ..replicator import Replicator
+from ..sql._ppdb_sql import PpdbSqlConfig
 
-_LOG = logging.getLogger(__name__)
 
-
-def replication_run(
+def export_chunks_run(
     apdb_config: str,
     ppdb_config: str,
     single: bool,
@@ -42,6 +41,9 @@ def replication_run(
     max_wait_time: int,
     check_interval: int,
     exit_on_empty: bool,
+    directory: str,
+    compression_format: str,
+    batch_size: int,
 ) -> None:
     """Execute replication process from APDB to PPDB.
 
@@ -64,9 +66,25 @@ def replication_run(
     check_interval : `int`
         Time in seconds to wait before next check if there was no replicated
         chunks.
+    directory : `str`
+        Directory where the chunks are stored.
+    compression_format : `str`
+        Compression format for the chunks.
+    batch_size : `int`
+        Number of records to write in each batch for the Parquet files.
+    exit_on_empty : `bool`
+        Exit if no chunks are found.
     """
     apdb = ApdbReplica.from_uri(apdb_config)
-    ppdb = Ppdb.from_uri(ppdb_config)
+    ppdb_sql_config = PpdbSqlConfig.from_uri(ppdb_config)
+
+    ppdb = ChunkExporter(
+        ppdb_sql_config,
+        apdb.schemaVersion(),
+        Path(directory),
+        batch_size=batch_size,
+        compression_format=compression_format,
+    )
 
     replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time, check_interval)
     replicator.run(single=single, exit_on_empty=exit_on_empty)
