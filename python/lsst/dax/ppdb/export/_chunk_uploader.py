@@ -54,6 +54,10 @@ class ChunkUploader:
         The name of the GCS bucket for uploads.
     prefix : `str`
         The base prefix for the uploaded objects, e.g., 'data/staging'.
+    dataset : `str`
+        The name of the target BigQuery dataset. This may also include the
+        project name, e.g., 'my_project:my_dataset'. If the project name is
+        not specified, the project name from the environment will be used.
     wait_interval : `int`
         The time in seconds to wait between scans of the local directory.
     upload_interval : `int`
@@ -73,6 +77,7 @@ class ChunkUploader:
         directory: str,
         bucket_name: str,
         prefix: str,
+        dataset: str,
         wait_interval: int = 30,
         upload_interval: int = 0,
         exit_on_empty: bool = False,
@@ -83,6 +88,7 @@ class ChunkUploader:
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.directory = directory
+        self.dataset = dataset
         self.wait_interval = wait_interval
         self.upload_interval = upload_interval
         self.exit_on_empty = exit_on_empty
@@ -414,7 +420,7 @@ class ChunkUploader:
         topic_path = publisher.topic_path(self.project_id, self.topic_name)
 
         # Construct the message payload
-        message = {"bucket": bucket_name, "name": chunk_path}
+        message = {"bucket": bucket_name, "name": chunk_path, "dataset": self.dataset}
 
         try:
             # Publish the message
