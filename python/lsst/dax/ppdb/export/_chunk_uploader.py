@@ -33,6 +33,7 @@ from typing import Any
 
 import google.auth
 from google.cloud import pubsub_v1, storage
+from lsst.dax.apdb.timer import Timer
 
 __all__ = ["ChunkUploader"]
 
@@ -291,8 +292,9 @@ class ChunkUploader:
         """
         blob = self.bucket.blob(gcs_name)
         try:
-            blob.upload_from_filename(file_path)
-            _LOG.info("Uploaded %s to %s", file_path, gcs_name)
+            with Timer("upload_parquet", _LOG, tags={"name": file_path.name}):
+                blob.upload_from_filename(file_path)
+            _LOG.info("Uploaded %s to %s", file_path.name, gcs_name)
         except Exception:
             _LOG.exception("Failed to upload %s", file_path)
             raise
@@ -375,7 +377,7 @@ class ChunkUploader:
         """
         for file in chunk_dir.glob("*.parquet"):
             file.unlink()
-        _LOG.info("Deleted parquet files for chunk %s", chunk_dir)
+        _LOG.info("Deleted parquet files for chunk %s", chunk_dir.name)
 
     def _generate_manifest(self, chunk_dir: Path) -> dict[str, Any]:
         """Generate a manifest file for the chunk.
