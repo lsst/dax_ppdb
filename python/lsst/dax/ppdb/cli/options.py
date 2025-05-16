@@ -148,6 +148,9 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
         required=True,
     )
     group.add_argument(
+        "--topic", help="Pub/Sub topic for publishing upload events.", default=None, required=False
+    )
+    group.add_argument(
         "--wait-interval",
         type=int,
         help="Number of seconds to wait between file scans.",

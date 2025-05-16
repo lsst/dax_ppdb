@@ -27,6 +27,7 @@ def upload_chunks_run(
     bucket: str,
     prefix: str,
     dataset: str,
+    topic: str,
     wait_interval: int,
     upload_interval: int,
     exit_on_empty: bool,
@@ -45,6 +46,8 @@ def upload_chunks_run(
         Prefix within the bucket for object naming.
     dataset : `str`
         Target BigQuery dataset.
+    topic : `str`
+        Pub/Sub topic for publishing upload events.
     wait_interval : `int`
         Time in seconds to wait before checking for new chunks to upload.
     upload_interval : `int`
@@ -59,6 +62,7 @@ def upload_chunks_run(
         bucket,
         prefix,
         dataset,
+        topic=topic,
         wait_interval=wait_interval,
         upload_interval=upload_interval,
         exit_on_empty=exit_on_empty,
