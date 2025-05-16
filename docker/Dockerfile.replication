@@ -41,4 +41,4 @@ RUN chmod +x /app/entrypoint-replication.sh
 RUN rm -rf /build
 
 # Run the wrapper script for the ppdb-replication command
-CMD ["/app/entrypoint-replication.sh"]
+ENTRYPOINT ["/app/entrypoint-replication.sh"]

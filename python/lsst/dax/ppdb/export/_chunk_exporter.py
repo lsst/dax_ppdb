@@ -26,6 +26,7 @@ from pathlib import Path
 import pyarrow
 import sqlalchemy
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
+from lsst.dax.apdb.timer import Timer
 from lsst.dax.apdb.versionTuple import VersionTuple
 from pyarrow import parquet
 
@@ -129,7 +130,9 @@ class ChunkExporter(PpdbSql):
             for table_name, table_data in table_dict.items():
                 _LOG.info("Processing %s", table_name)
                 try:
-                    self._write_parquet(table_name, table_data, chunk_dir / f"{table_name}.parquet")
+                    with Timer("write_parquet_time", _LOG, tags={"table": table_name}) as timer:
+                        self._write_parquet(table_name, table_data, chunk_dir / f"{table_name}.parquet")
+                        timer.add_values(row_count=len(table_data.rows()))
                 except Exception:
                     _LOG.exception("Failed to write %s", table_name)
                     raise
