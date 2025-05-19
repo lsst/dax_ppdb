@@ -33,6 +33,7 @@ from typing import Any
 
 import google.auth
 from google.cloud import pubsub_v1, storage
+from lsst.dax.apdb.timer import Timer
 
 __all__ = ["ChunkUploader"]
 
@@ -53,6 +54,13 @@ class ChunkUploader:
         The name of the GCS bucket for uploads.
     prefix : `str`
         The base prefix for the uploaded objects, e.g., 'data/staging'.
+    dataset : `str`
+        The name of the target BigQuery dataset. This may also include the
+        project name, e.g., 'my_project:my_dataset'. If the project name is
+        not specified, the project name from the environment will be used.
+    topic : `str`
+        The name of the Pub/Sub topic to publish messages to. The default is
+        'stage-chunk-topic'.
     wait_interval : `int`
         The time in seconds to wait between scans of the local directory.
     upload_interval : `int`
@@ -72,16 +80,18 @@ class ChunkUploader:
         directory: str,
         bucket_name: str,
         prefix: str,
+        dataset: str,
+        topic: str | None = None,
         wait_interval: int = 30,
         upload_interval: int = 0,
         exit_on_empty: bool = False,
         delete_chunks: bool = False,
         exit_on_error: bool = False,
-        topic_name: str = _PUBSUB_TOPIC_NAME,
     ) -> None:
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.directory = directory
+        self.dataset = dataset
         self.wait_interval = wait_interval
         self.upload_interval = upload_interval
         self.exit_on_empty = exit_on_empty
@@ -106,7 +116,7 @@ class ChunkUploader:
         self.client = storage.Client()
         self.bucket = self.client.bucket(self.bucket_name)
 
-        self.topic_name = topic_name
+        self.topic_name = topic if topic else _PUBSUB_TOPIC_NAME
 
     def run(self) -> None:
         """Start the uploader to scan for files and upload them."""
@@ -291,8 +301,9 @@ class ChunkUploader:
         """
         blob = self.bucket.blob(gcs_name)
         try:
-            blob.upload_from_filename(file_path)
-            _LOG.info("Uploaded %s to %s", file_path, gcs_name)
+            with Timer("upload_parquet", _LOG, tags={"name": file_path.name}):
+                blob.upload_from_filename(file_path)
+            _LOG.info("Uploaded %s to %s", file_path.name, gcs_name)
         except Exception:
             _LOG.exception("Failed to upload %s", file_path)
             raise
@@ -375,7 +386,7 @@ class ChunkUploader:
         """
         for file in chunk_dir.glob("*.parquet"):
             file.unlink()
-        _LOG.debug("Deleted parquet files for chunk %s", chunk_dir)
+        _LOG.info("Deleted parquet files for chunk %s", chunk_dir.name)
 
     def _generate_manifest(self, chunk_dir: Path) -> dict[str, Any]:
         """Generate a manifest file for the chunk.
@@ -412,7 +423,7 @@ class ChunkUploader:
         topic_path = publisher.topic_path(self.project_id, self.topic_name)
 
         # Construct the message payload
-        message = {"bucket": bucket_name, "name": chunk_path}
+        message = {"bucket": bucket_name, "name": chunk_path, "dataset": self.dataset}
 
         try:
             # Publish the message

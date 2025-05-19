@@ -141,6 +141,16 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
         "--prefix", help="GCS base prefix for the object, e.g., 'data/staging'.", default=None, required=True
     )
     group.add_argument(
+        "--dataset",
+        help="Target BigQuery dataset, e.g., 'my_project:my_dataset'."
+        "If not provided the project will be derived from the environment.",
+        default=None,
+        required=True,
+    )
+    group.add_argument(
+        "--topic", help="Pub/Sub topic for publishing upload events.", default=None, required=False
+    )
+    group.add_argument(
         "--wait-interval",
         type=int,
         help="Number of seconds to wait between file scans.",
