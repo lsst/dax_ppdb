@@ -167,7 +167,7 @@ class ChunkExporter(PpdbSql):
         # Get rows from the table data
         rows = list(table_data.rows())  # This is a list of rows (records)
 
-        # Writing parquet is silently skipepd if there are no rows. The
+        # Writing parquet is silently skipped if there are no rows. The
         # DiaForcedSource table is empty for some chunks.
         if not rows:
             return
