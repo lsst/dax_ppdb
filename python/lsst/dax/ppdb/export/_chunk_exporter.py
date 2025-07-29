@@ -212,7 +212,6 @@ class ChunkExporter(PpdbSql):
         path = Path(
             self.directory,
             datetime.today().strftime("%Y/%m/%d"),
-            "v" + str(self.schema_version).replace(".", "_"),
             str(chunk_id),
         )
         path.mkdir(parents=True, exist_ok=True)
