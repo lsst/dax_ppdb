@@ -128,6 +128,7 @@ class ChunkExporter(PpdbSql):
                 for table_name, data in table_dict.items()
             },
             "compression_format": self.compression_format,
+            "status": "exported",
         }
 
     @staticmethod
@@ -138,7 +139,7 @@ class ChunkExporter(PpdbSql):
         with open(tmp_path, "w") as meta_file:
             json.dump(metadata, meta_file, indent=4)
         os.rename(tmp_path, final_path)
-        _LOG.debug("Wrote metadata file for %s: %s", replica_chunk.id, final_path)
+        _LOG.info("Wrote metadata file for %s: %s", replica_chunk.id, final_path)
 
     def store(
         self,
