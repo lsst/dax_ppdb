@@ -19,8 +19,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import json
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pyarrow
@@ -109,6 +111,35 @@ class ChunkExporter(PpdbSql):
                 column_type_map[table.name] = column_types
         return column_type_map
 
+    def _create_metadata(
+        self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
+    ) -> dict[str, str]:
+        """Create metadata for the replica chunk."""
+        return {
+            "chunk_id": str(replica_chunk.id),
+            "unique_id": str(replica_chunk.unique_id),
+            "schema_version": str(self.schema_version),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "last_update_time": replica_chunk.last_update_time.to_value("isot", "date_hms"),
+            "table_data": {
+                table_name: {
+                    "row_count": len(data.rows()),
+                }
+                for table_name, data in table_dict.items()
+            },
+            "compression_format": self.compression_format,
+        }
+
+    @staticmethod
+    def _write_metadata(metadata: dict[str, str], chunk_dir: Path, replica_chunk: ReplicaChunk) -> None:
+        """Write metadata to a JSON file."""
+        final_path = chunk_dir / f"chunk_{str(replica_chunk.id)}.metadata.json"
+        tmp_path = final_path.with_suffix(".tmp")
+        with open(tmp_path, "w") as meta_file:
+            json.dump(metadata, meta_file, indent=4)
+        os.rename(tmp_path, final_path)
+        _LOG.debug("Wrote metadata file for %s: %s", replica_chunk.id, final_path)
+
     def store(
         self,
         replica_chunk: ReplicaChunk,
@@ -119,16 +150,22 @@ class ChunkExporter(PpdbSql):
         update: bool = False,
     ) -> None:
         # Docstring is inherited.
+        _LOG.info("Processing %s", replica_chunk.id)
         try:
             chunk_dir = self._make_path(replica_chunk.id)
-            _LOG.debug("Created directory for chunk %s: %s", replica_chunk.id, chunk_dir)
+            _LOG.debug("Created directory for %s: %s", replica_chunk.id, chunk_dir)
+
             table_dict = {
                 "DiaObject": objects,
                 "DiaSource": sources,
                 "DiaForcedSource": forced_sources,
             }
+
+            # Loop over the table data and write each table to a Parquet file.
             for table_name, table_data in table_dict.items():
-                _LOG.info("Processing %s", table_name)
+                _LOG.info("Exporting %s", table_name)
+
+                # Write the table data to a Parquet file.
                 try:
                     with Timer("write_parquet_time", _LOG, tags={"table": table_name}) as timer:
                         self._write_parquet(table_name, table_data, chunk_dir / f"{table_name}.parquet")
@@ -136,16 +173,34 @@ class ChunkExporter(PpdbSql):
                 except Exception:
                     _LOG.exception("Failed to write %s", table_name)
                     raise
+
+            # Create metadata for the replica chunk.
+            try:
+                metadata = self._create_metadata(replica_chunk, table_dict)
+                _LOG.info("Created metadata for %s: %s", replica_chunk.id, metadata)
+            except Exception:
+                _LOG.exception("Failed to create metadata for %s", table_name)
+                raise
+
+            # Write metadata to a JSON file.
+            try:
+                ChunkExporter._write_metadata(metadata, chunk_dir, replica_chunk)
+            except Exception:
+                _LOG.exception("Failed to write metadata file for %s", table_name)
+                raise
         except Exception:
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
             raise
 
-        # Mark the chunk as ready for upload by creating a ".ready" file.
-        self._set_ready(chunk_dir)
-
         # Update the database to indicate that the chunk has been exported.
-        with self._engine.begin() as connection:
-            self._store_insert_id(replica_chunk, connection, update)
+        try:
+            with self._engine.begin() as connection:
+                self._store_insert_id(replica_chunk, connection, update)
+        except Exception:
+            _LOG.exception("Failed to update database for replica chunk %s", replica_chunk.id)
+            raise
+
+        _LOG.info("Done processing %s", replica_chunk.id)
 
     def _set_ready(self, directory: Path) -> None:
         ready_file = directory / ".ready"
