@@ -119,8 +119,8 @@ class ChunkExporter(PpdbSql):
             "chunk_id": str(replica_chunk.id),
             "unique_id": str(replica_chunk.unique_id),
             "schema_version": str(self.schema_version),
-            "exported_at": datetime.now(timezone.utc).isoformat(),
-            "last_update_time": replica_chunk.last_update_time.to_value("isot", "date_hms"),
+            "exported_at": str(datetime.now(tz=timezone.utc)),
+            "last_update_time": str(replica_chunk.last_update_time),  # TAI value
             "table_data": {
                 table_name: {
                     "row_count": len(data.rows()),
