@@ -30,6 +30,7 @@ import sqlalchemy
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.apdb.versionTuple import VersionTuple
+from lsst.dax.ppdb.ppdb import ChunkStatus
 from pyarrow import parquet
 
 from ..config import PpdbConfig
@@ -196,7 +197,7 @@ class ChunkExporter(PpdbSql):
         # Update the database to indicate that the chunk has been exported.
         try:
             with self._engine.begin() as connection:
-                self._store_insert_id(replica_chunk, connection, update)
+                self._store_insert_id(replica_chunk, connection, update, status=ChunkStatus.EXPORTED)
         except Exception:
             _LOG.exception("Failed to update database for replica chunk %s", replica_chunk.id)
             raise

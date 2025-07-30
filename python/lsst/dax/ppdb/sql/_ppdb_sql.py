@@ -53,7 +53,7 @@ from sqlalchemy import sql
 from sqlalchemy.pool import NullPool
 
 from ..config import PpdbConfig
-from ..ppdb import Ppdb, PpdbReplicaChunk
+from ..ppdb import ChunkStatus, Ppdb, PpdbReplicaChunk
 from .bulk_insert import make_inserter
 
 _LOG = logging.getLogger(__name__)
@@ -532,7 +532,11 @@ class PpdbSql(Ppdb):
             self._store_table_data(forced_sources, connection, update, "DiaForcedSource", 1000)
 
     def _store_insert_id(
-        self, replica_chunk: ReplicaChunk, connection: sqlalchemy.engine.Connection, update: bool
+        self,
+        replica_chunk: ReplicaChunk,
+        connection: sqlalchemy.engine.Connection,
+        update: bool,
+        status: ChunkStatus | None = None,
     ) -> None:
         """Insert or replace single record in PpdbReplicaChunk table"""
         # `astropy.Time.datetime` returns naive datetime, even though all
@@ -546,6 +550,8 @@ class PpdbSql(Ppdb):
         table = self._get_table("PpdbReplicaChunk")
 
         values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
+        if status is not None:
+            values["status"] = status.value
         row = {"apdb_replica_chunk": replica_chunk.id} | values
         if update:
             # We need UPSERT which is dialect-specific construct
