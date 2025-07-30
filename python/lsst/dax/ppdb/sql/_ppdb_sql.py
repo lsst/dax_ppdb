@@ -477,7 +477,9 @@ class PpdbSql(Ppdb):
         # docstring is inherited from a base class
         return self._metadata
 
-    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
+    def get_replica_chunks(
+        self, start_chunk_id: int | None = None, status: ChunkStatus | list[ChunkStatus] | None = None
+    ) -> list[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
         table = self._get_table("PpdbReplicaChunk")
         query = sql.select(
@@ -490,6 +492,15 @@ class PpdbSql(Ppdb):
         ).order_by(table.columns["last_update_time"])
         if start_chunk_id is not None:
             query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)
+        if status is not None:
+            if isinstance(status, list):
+                # Handle list of statuses with IN clause
+                status_values = [s.value for s in status]
+                query = query.where(table.columns["status"].in_(status_values))
+            else:
+                # Handle single status
+                query = query.where(table.columns["status"] == status.value)
+
         with self._engine.connect() as conn:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
             ids = []
@@ -506,6 +517,7 @@ class PpdbSql(Ppdb):
                         unique_id=row[2],
                         replica_time=replica_time,
                         status=row[4],
+                        directory=row[5],
                     )
                 )
             return ids
@@ -544,6 +556,7 @@ class PpdbSql(Ppdb):
         connection: sqlalchemy.engine.Connection,
         update: bool,
         status: ChunkStatus | None = None,
+        directory: str | None = None,
     ) -> None:
         """Insert or replace single record in PpdbReplicaChunk table"""
         # `astropy.Time.datetime` returns naive datetime, even though all
@@ -559,6 +572,8 @@ class PpdbSql(Ppdb):
         values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
         if status is not None:
             values["status"] = status.value
+        if directory is not None:
+            values["directory"] = directory
         row = {"apdb_replica_chunk": replica_chunk.id} | values
         if update:
             # We need UPSERT which is dialect-specific construct
