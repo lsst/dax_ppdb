@@ -216,7 +216,7 @@ class ChunkUploader:
 
         # Set the GCS prefix for the chunk.
         exported_at = datetime.fromisoformat(manifest_data.get("exported_at"))
-        gcs_prefix = posixpath.join(self.prefix, f"chunks/{exported_at.strftime("%Y/%m/%d")}/{chunk_id}")
+        gcs_prefix = posixpath.join(self.prefix, f"chunks/{exported_at.strftime('%Y/%m/%d')}/{chunk_id}")
         _LOG.info("GCS path for chunk %d: %s", chunk_id, gcs_prefix)
 
         # Get the Parquet files for the chunk and raise an error if there are
@@ -329,9 +329,8 @@ class ChunkUploader:
         """
         blob = self.bucket.blob(gcs_name)
         try:
-            with Timer("upload_parquet", _LOG, tags={"name": file_path.name}):
+            with Timer("upload_parquet", _LOG, tags={"name": gcs_name}):
                 blob.upload_from_filename(file_path)
-            _LOG.info("Uploaded %s to %s", file_path.name, gcs_name)
         except Exception:
             _LOG.exception("Failed to upload %s", file_path)
             raise
