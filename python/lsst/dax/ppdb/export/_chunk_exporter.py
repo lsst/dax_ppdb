@@ -112,10 +112,10 @@ class ChunkExporter(PpdbSql):
                 column_type_map[table.name] = column_types
         return column_type_map
 
-    def _create_metadata(
+    def _generate_manifest_data(
         self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
     ) -> dict[str, str]:
-        """Create metadata for the replica chunk."""
+        """Generate the manifest data for the replica chunk."""
         return {
             "chunk_id": str(replica_chunk.id),
             "unique_id": str(replica_chunk.unique_id),
@@ -133,14 +133,14 @@ class ChunkExporter(PpdbSql):
         }
 
     @staticmethod
-    def _write_metadata(metadata: dict[str, str], chunk_dir: Path, replica_chunk: ReplicaChunk) -> None:
-        """Write metadata to a JSON file."""
-        final_path = chunk_dir / f"chunk_{str(replica_chunk.id)}.metadata.json"
+    def _write_manifest(manifest_data: dict[str, str], chunk_dir: Path, replica_chunk: ReplicaChunk) -> None:
+        """Write the manifest data to a JSON file."""
+        final_path = chunk_dir / f"chunk_{str(replica_chunk.id)}.manifest.json"
         tmp_path = final_path.with_suffix(".tmp")
         with open(tmp_path, "w") as meta_file:
-            json.dump(metadata, meta_file, indent=4)
+            json.dump(manifest_data, meta_file, indent=4)
         os.rename(tmp_path, final_path)
-        _LOG.info("Wrote metadata file for %s: %s", replica_chunk.id, final_path)
+        _LOG.info("Wrote manifest file for %s: %s", replica_chunk.id, final_path)
 
     def store(
         self,
@@ -176,19 +176,19 @@ class ChunkExporter(PpdbSql):
                     _LOG.exception("Failed to write %s", table_name)
                     raise
 
-            # Create metadata for the replica chunk.
+            # Create manifest for the replica chunk.
             try:
-                metadata = self._create_metadata(replica_chunk, table_dict)
-                _LOG.info("Created metadata for %s: %s", replica_chunk.id, metadata)
+                manifest_data = self._generate_manifest_data(replica_chunk, table_dict)
+                _LOG.info("Created manifest for %s: %s", replica_chunk.id, manifest_data)
             except Exception:
-                _LOG.exception("Failed to create metadata for %s", table_name)
+                _LOG.exception("Failed to create manifest for %s", table_name)
                 raise
 
-            # Write metadata to a JSON file.
+            # Write manifest data to a JSON file.
             try:
-                ChunkExporter._write_metadata(metadata, chunk_dir, replica_chunk)
+                ChunkExporter._write_manifest(manifest_data, chunk_dir, replica_chunk)
             except Exception:
-                _LOG.exception("Failed to write metadata file for %s", table_name)
+                _LOG.exception("Failed to write manifest file for %s", table_name)
                 raise
         except Exception:
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)

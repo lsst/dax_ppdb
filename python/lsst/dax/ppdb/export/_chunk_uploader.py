@@ -209,19 +209,19 @@ class ChunkUploader:
             If no parquet files are found in the chunk directory or if the
             processing fails for any reason.
         """
-        # Get the information for the chunk
+        # Get the information for the chunk.
         chunk_id = replica_chunk.id
         chunk_dir = Path(replica_chunk.directory)
         _LOG.info("Processing chunk %d in directory %s", chunk_id, chunk_dir)
 
-        # Get the local metadata file for the chunk
-        metadata_path = chunk_dir / f"chunk_{chunk_id}.metadata.json"
-        if not metadata_path.exists():
-            raise RuntimeError(f"Metadata file {metadata_path} does not exist for chunk {chunk_id}")
-        metadata = json.loads(metadata_path.read_text())
+        # Get the local manifest file for the chunk.
+        manifest_path = chunk_dir / f"chunk_{chunk_id}.manifest.json"
+        if not manifest_path.exists():
+            raise RuntimeError(f"Manifest file {manifest_path} does not exist for chunk {chunk_id}")
+        manifest_data = json.loads(manifest_path.read_text())
 
-        # Set the GCS prefix for the chunk
-        exported_at = datetime.fromisoformat(metadata.get("exported_at"))
+        # Set the GCS prefix for the chunk.
+        exported_at = datetime.fromisoformat(manifest_data.get("exported_at"))
         gcs_prefix = posixpath.join(self.prefix, f"chunks/{exported_at.strftime("%Y/%m/%d")}/{chunk_id}")
         _LOG.info("GCS path for chunk %d: %s", chunk_id, gcs_prefix)
 
@@ -232,18 +232,18 @@ class ChunkUploader:
             raise RuntimeError(f"No parquet files found in chunk directory {chunk_dir}")
 
         try:
-            # Create full object names for the Parquet files
+            # Create full object names for the Parquet files.
             gcs_names = {file: posixpath.join(gcs_prefix, file.name) for file in parquet_files}
 
             # TODO: Check if any of the files already exist in GCS and raise an
             # exception if they do.
 
-            # Upload Parquet files to GCS
+            # Upload Parquet files to GCS.
             self._upload_files(gcs_names)
 
             # Create the cloud manifest from the local one, update it, and then
             # upload it to GCS.
-            manifest = self._generate_manifest(metadata)
+            manifest = self._update_manifest_uploaded(manifest_data)
             _LOG.info("Generated manifest: %s", manifest)
             manifest_path = posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json")
             self._upload_manifest(manifest, manifest_path)
@@ -276,13 +276,9 @@ class ChunkUploader:
                 # fails.
                 self._delete_objects(gcs_prefix)
 
-                # Update the local metadata to indicate that a failure
+                # Update the local manifest to indicate that a failure
                 # occurred.
-                metadata_failed = metadata.copy()
-                metadata_failed["status"] = ChunkStatus.FAILED.value
-                metadata_failed["error"] = str(e)
-                with open(metadata_path, "w") as f:
-                    json.dump(metadata_failed, f, indent=4)
+                self._update_manifest_failure(manifest_path, manifest_data, e)
             except Exception:
                 _LOG.exception("Error cleaning up after failed upload")
             finally:
@@ -291,6 +287,25 @@ class ChunkUploader:
                     chunk_dir.name,
                     f"gc://{self.bucket_name}/{gcs_prefix}",
                 ) from e
+
+    def _update_manifest_failure(
+        self, manifest_path: Path, manifest_data: dict[str, Any], error: Exception | str
+    ) -> None:
+        """Update the manifest file to indicate a failure.
+
+        Parameters
+        ----------
+        manifest_path : `Path`
+            The path to the manifest file.
+        error : `Exception`
+            The exception that occurred during processing.
+        """
+        if not manifest_path.exists():
+            raise RuntimeError(f"Manifest file {manifest_path} does not exist, cannot update failure")
+        manifest_data["status"] = ChunkStatus.FAILED.value
+        manifest_data["error"] = str(error) if isinstance(error, Exception) else error
+        with open(manifest_path, "w") as f:
+            json.dump(manifest_data, f, indent=4)
 
     def _upload_files(self, gcs_names: dict[Path, str]) -> None:
         """Upload files to GCS in parallel using a thread pool executor.
@@ -307,7 +322,7 @@ class ChunkUploader:
             _LOG.debug("Uploading %d files to GCS", len(futures))
             for future in as_completed(futures):
                 try:
-                    future.result()  # Trigger exception if any
+                    future.result()  # Trigger exception, if any.
                 except Exception:
                     _LOG.exception("Error uploading file")
                     raise
@@ -384,7 +399,7 @@ class ChunkUploader:
             file.unlink()
         _LOG.info("Deleted parquet files for chunk %s", chunk_dir.name)
 
-    def _generate_manifest(self, metadata: dict[str, Any]) -> dict[str, Any]:
+    def _update_manifest_uploaded(self, manifest_data: dict[str, Any]) -> dict[str, Any]:
         """Generate a manifest file for the chunk.
 
         This just copies the local manifest data and updates it with some
@@ -392,8 +407,8 @@ class ChunkUploader:
 
         Parameters
         ----------
-        metadata
-            The metadata for the chunk, including when it was exported and
+        manifest data : `dict`
+            The manifest data for the chunk, including when it was exported and
             other relevant information.
 
         Returns
@@ -401,7 +416,7 @@ class ChunkUploader:
         manifest : `dict`
             The manifest data.
         """
-        manifest = metadata.copy()
+        manifest = manifest_data.copy()
         manifest["status"] = ChunkStatus.UPLOADED.value
         manifest["uploaded_at"] = datetime.now(tz=timezone.utc).isoformat()
         return manifest
