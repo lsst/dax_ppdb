@@ -42,8 +42,8 @@ class ChunkStatus(StrEnum):
     """Chunk has been exported from the APDB to a local parquet file."""
     UPLOADED = "uploaded"
     """Chunk has been uploaded to cloud storage."""
-    FAILED = "failed"
-    """Chunk export or upload failed."""
+    FAILED = "error"
+    """Chunk processing failed and an error occurred."""
 
 
 @dataclass(frozen=True)

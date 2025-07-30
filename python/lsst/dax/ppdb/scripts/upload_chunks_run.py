@@ -20,10 +20,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from ..export._chunk_uploader import ChunkUploader
+from ..sql._ppdb_sql import PpdbSqlConfig
 
 
 def upload_chunks_run(
-    directory: str,
+    ppdb_config: str,
     bucket: str,
     prefix: str,
     dataset: str,
@@ -57,8 +58,9 @@ def upload_chunks_run(
     delete_chunks : `bool`
         If `True`, delete the chunks after they have been uploaded.
     """
+    ppdb_sql_config = PpdbSqlConfig.from_uri(ppdb_config)
     chunk_exporter = ChunkUploader(
-        directory,
+        ppdb_sql_config,
         bucket,
         prefix,
         dataset,

@@ -134,11 +134,13 @@ def export_options(parser: argparse.ArgumentParser) -> None:
 
 def upload_options(parser: argparse.ArgumentParser) -> None:
     """Define CLI options for Google Cloud Storage upload."""
-    group = parser.add_argument_group("Google Cloud Storage upload options")
-    group.add_argument("--directory", help="Directory to scan for chunk files.", default=None, required=True)
+    group = parser.add_argument_group("upload chunk options")
     group.add_argument("--bucket", help="GCS bucket name.", default=None, required=True)
     group.add_argument(
-        "--prefix", help="GCS base prefix for the object, e.g., 'data/staging'.", default=None, required=True
+        "--prefix",
+        help="Base prefix for the object in cloud storage, e.g., 'data/staging'.",
+        default=None,
+        required=True,
     )
     group.add_argument(
         "--dataset",

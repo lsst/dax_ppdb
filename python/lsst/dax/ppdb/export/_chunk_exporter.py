@@ -129,7 +129,7 @@ class ChunkExporter(PpdbSql):
                 for table_name, data in table_dict.items()
             },
             "compression_format": self.compression_format,
-            "status": "exported",
+            "status": ChunkStatus.EXPORTED.value,
         }
 
     @staticmethod
@@ -197,9 +197,11 @@ class ChunkExporter(PpdbSql):
         # Update the database to indicate that the chunk has been exported.
         try:
             with self._engine.begin() as connection:
-                self._store_insert_id(replica_chunk, connection, update, status=ChunkStatus.EXPORTED)
+                self._store_insert_id(
+                    replica_chunk, connection, update, status=ChunkStatus.EXPORTED, directory=str(chunk_dir)
+                )
         except Exception:
-            _LOG.exception("Failed to update database for replica chunk %s", replica_chunk.id)
+            _LOG.exception("Failed to store replica chunk id %s in database", replica_chunk.id)
             raise
 
         _LOG.info("Done processing %s", replica_chunk.id)

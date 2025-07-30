@@ -105,5 +105,6 @@ def _export_chunks_subcommand(subparsers: argparse._SubParsersAction) -> None:
 
 def _upload_chunks_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser("upload-chunks", help="Upload data from Parquet files to GCS.")
+    parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
     options.upload_options(parser)
     parser.set_defaults(method=scripts.upload_chunks_run)
