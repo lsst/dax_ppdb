@@ -32,7 +32,6 @@ def upload_chunks_run(
     wait_interval: int,
     upload_interval: int,
     exit_on_empty: bool,
-    delete_chunks: bool,
     exit_on_error: bool,
 ) -> None:
     """Upload chunks to the specified bucket and prefix.
@@ -55,8 +54,6 @@ def upload_chunks_run(
         Time in seconds to wait between uploads of chunks.
     exit_on_empty : `bool`
         If `True`, exit the process if there are no chunks to upload.
-    delete_chunks : `bool`
-        If `True`, delete the chunks after they have been uploaded.
     """
     ppdb_sql_config = PpdbSqlConfig.from_uri(ppdb_config)
     chunk_exporter = ChunkUploader(
@@ -68,7 +65,6 @@ def upload_chunks_run(
         wait_interval=wait_interval,
         upload_interval=upload_interval,
         exit_on_empty=exit_on_empty,
-        delete_chunks=delete_chunks,
         exit_on_error=exit_on_error,
     )
     chunk_exporter.run()

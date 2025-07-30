@@ -171,12 +171,6 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
         action="store_true",
     )
     group.add_argument(
-        "--delete-chunks",
-        help="Delete chunks after they are successfully uploaded.",
-        default=False,
-        action="store_true",
-    )
-    group.add_argument(
         "--exit-on-error",
         help="Exit if an error occurs during upload.",
         default=False,

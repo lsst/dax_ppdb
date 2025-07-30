@@ -75,10 +75,6 @@ class ChunkUploader:
         chunk after a successful upload.
     exit_on_empty : `bool`
         If `True`, the uploader will exit if no files are found during a scan.
-    delete_chunks : `bool`
-        If `True`, the files in the chunk directory will be deleted after
-        upload. The directory is left so that the marker file ".uploaded" can
-        be created and used to indicate that the chunk has been processed.
     exit_on_error : `bool`
         If `True`, the uploader will exit if an error occurs during upload.
 
@@ -103,7 +99,6 @@ class ChunkUploader:
         wait_interval: int = 30,
         upload_interval: int = 0,
         exit_on_empty: bool = False,
-        delete_chunks: bool = False,
         exit_on_error: bool = False,
     ) -> None:
         self._sql = PpdbSql.from_config(config)
@@ -113,7 +108,6 @@ class ChunkUploader:
         self.wait_interval = wait_interval
         self.upload_interval = upload_interval
         self.exit_on_empty = exit_on_empty
-        self.delete_chunks = delete_chunks
         self.exit_on_error = exit_on_error
 
         # Environment check
@@ -252,10 +246,6 @@ class ChunkUploader:
             # in BigQuery.
             self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix)
 
-            # Optionally delete the chunk directory.
-            if self.delete_chunks:
-                self._delete_chunk_parq_files(chunk_dir)
-
             # Update the record for the replica chunk in the database to
             # indicate that it has been uploaded.
             try:
@@ -380,24 +370,6 @@ class ChunkUploader:
         except Exception as e:
             raise RuntimeError(f"Failed to delete objects under prefix {gcs_prefix}") from e
         _LOG.info("Deleted all objects under GCS prefix: %s", gcs_prefix)
-
-    def _delete_chunk_parq_files(self, chunk_dir: Path) -> None:
-        """Delete the parquet files from a chunk directory after upload.
-
-        Parameters
-        ----------
-        chunk_dir : `Path`
-            The directory containing the chunk files.
-
-        Notes
-        -----
-        The directory itself is left so that the marker file ".uploaded" can be
-        created and used to indicate that the chunk has been successfully
-        processed.
-        """
-        for file in chunk_dir.glob("*.parquet"):
-            file.unlink()
-        _LOG.info("Deleted parquet files for chunk %s", chunk_dir.name)
 
     def _update_manifest_uploaded(self, manifest_data: dict[str, Any]) -> dict[str, Any]:
         """Generate a manifest file for the chunk.
