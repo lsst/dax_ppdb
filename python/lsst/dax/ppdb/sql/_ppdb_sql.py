@@ -272,6 +272,12 @@ class PpdbSql(Ppdb):
                 datatype=felis.datamodel.DataType.string,
                 nullable=True,
             ),
+            schema_model.Column(
+                name="directory",
+                id=f"#{table_name}.directory",
+                datatype=felis.datamodel.DataType.string,
+                nullable=True,
+            ),
         ]
         indices = [
             schema_model.Index(
@@ -480,6 +486,7 @@ class PpdbSql(Ppdb):
             table.columns["unique_id"],
             table.columns["replica_time"],
             table.columns["status"],
+            table.columns["directory"],
         ).order_by(table.columns["last_update_time"])
         if start_chunk_id is not None:
             query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)

@@ -56,6 +56,9 @@ class PpdbReplicaChunk(ReplicaChunk):
     status: ChunkStatus
     """Status of the replica chunk."""
 
+    directory: str
+    """Directory where the exported replica chunk data is stored."""
+
 
 class Ppdb(ABC):
     """Class defining an interface for PPDB management operations."""
