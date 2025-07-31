@@ -206,12 +206,6 @@ class ChunkExporter(PpdbSql):
 
         _LOG.info("Done processing %s", replica_chunk.id)
 
-    def _set_ready(self, directory: Path) -> None:
-        ready_file = directory / ".ready"
-        if not ready_file.exists():
-            ready_file.touch()
-            _LOG.debug("Marked chunk %s as ready", directory)
-
     def _make_path(self, chunk_id: int) -> Path:
         path = Path(
             self.directory,
