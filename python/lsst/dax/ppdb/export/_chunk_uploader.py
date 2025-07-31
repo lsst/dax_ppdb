@@ -244,7 +244,7 @@ class ChunkUploader:
 
             # Post to the Pub/Sub topic, triggering the staging of the chunk
             # in BigQuery.
-            self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix)
+            self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix, chunk_id)
 
             # Update the record for the replica chunk in the database to
             # indicate that it has been uploaded.
@@ -392,7 +392,7 @@ class ChunkUploader:
         manifest["uploaded_at"] = datetime.now(tz=timezone.utc).isoformat()
         return manifest
 
-    def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_path: str) -> None:
+    def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_prefix: str, chunk_id: int) -> None:
         """Publish a message to the 'stage-chunk-topic' Pub/Sub topic.
 
         This will trigger the staging of the chunk in BigQuery.
@@ -401,14 +401,20 @@ class ChunkUploader:
         ----------
         bucket_name : str
             The name of the GCS bucket.
-        chunk_path : str
-            The path to the chunk in the bucket.
+        chunk_prefix : str
+            The prefix to the chunk in the bucket.
+        chunk_id : int
+            The ID of the chunk being staged.
         """
         publisher = pubsub_v1.PublisherClient()
         topic_path = publisher.topic_path(self.project_id, self.topic_name)
 
         # Construct the message payload
-        message = {"bucket": bucket_name, "name": chunk_path, "dataset": self.dataset}
+        message = {
+            "dataset": self.dataset,
+            "chunk_id": str(chunk_id),
+            "folder": f"gs://{posixpath.join(bucket_name, chunk_prefix)}",
+        }
 
         try:
             # Publish the message
