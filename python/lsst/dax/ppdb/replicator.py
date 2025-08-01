@@ -30,7 +30,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import astropy.time
-from lsst.dax.apdb import monitor
+from lsst.dax.apdb import ApdbTables, monitor
 from lsst.dax.apdb.timer import Timer
 
 if TYPE_CHECKING:
@@ -164,15 +164,15 @@ class Replicator:
     def _replicate_one(self, replica_chunk: ReplicaChunk) -> None:
         """Copy single chcunk from APDB to PPDB."""
         with Timer("get_chunks_time", _MON, tags={"table": "DiaObject"}) as timer:
-            dia_objects = self._apdb.getDiaObjectsChunks([replica_chunk.id])
+            dia_objects = self._apdb.getTableDataChunks(ApdbTables.DiaObject, [replica_chunk.id])
             timer.add_values(row_count=len(dia_objects.rows()))
         _LOG.info("Selected %s DiaObjects for replication", len(dia_objects.rows()))
         with Timer("get_chunks_time", _MON, tags={"table": "DiaSource"}) as timer:
-            dia_sources = self._apdb.getDiaSourcesChunks([replica_chunk.id])
+            dia_sources = self._apdb.getTableDataChunks(ApdbTables.DiaSource, [replica_chunk.id])
             timer.add_values(row_count=len(dia_objects.rows()))
         _LOG.info("Selected %s DiaSources for replication", len(dia_sources.rows()))
         with Timer("get_chunks_time", _MON, tags={"table": "DiaForcedSource"}) as timer:
-            dia_forced_sources = self._apdb.getDiaForcedSourcesChunks([replica_chunk.id])
+            dia_forced_sources = self._apdb.getTableDataChunks(ApdbTables.DiaForcedSource, [replica_chunk.id])
             timer.add_values(row_count=len(dia_objects.rows()))
         _LOG.info("Selected %s DiaForcedSources for replication", len(dia_forced_sources.rows()))
 
