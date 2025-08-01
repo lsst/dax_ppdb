@@ -458,8 +458,11 @@ class PpdbSql(Ppdb):
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
             ids = []
             for row in result:
-                last_update_time = astropy.time.Time(row[1].timestamp(), format="unix_tai")
-                replica_time = astropy.time.Time(row[3].timestamp(), format="unix_tai")
+                # When we store these timestamps we convert astropy Time to
+                # unix_tai and then to `datetime` in UTC. This conversion
+                # reverses that process,
+                last_update_time = astropy.time.Time(row[1], format="datetime", scale="tai")
+                replica_time = astropy.time.Time(row[3], format="datetime", scale="tai")
                 ids.append(
                     PpdbReplicaChunk(
                         id=row[0],
