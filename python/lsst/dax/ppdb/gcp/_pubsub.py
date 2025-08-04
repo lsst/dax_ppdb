@@ -22,6 +22,7 @@
 import json
 import logging
 
+from google.api_core.exceptions import NotFound
 from google.cloud import pubsub_v1
 
 _LOG = logging.getLogger(__name__)
@@ -36,6 +37,16 @@ class Publisher:
         """
         self.publisher = pubsub_v1.PublisherClient()
         self.topic_path = self.publisher.topic_path(project_id, topic_name)
+
+    def validate_topic_exists(self) -> None:
+        """
+        Validate that the Pub/Sub topic exists.
+        """
+        try:
+            self.publisher.get_topic(request={"topic": self.topic_path})
+        except NotFound:
+            _LOG.error("Pub/Sub topic does not exist: %s", self.topic_path)
+            raise
 
     def publish(self, message: dict) -> None:
         """
