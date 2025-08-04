@@ -21,7 +21,6 @@
 
 import json
 import logging
-import os
 import posixpath
 import sys
 import time
@@ -30,19 +29,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import google.auth
-from google.cloud import pubsub_v1, storage
+from google.cloud import storage
 from lsst.dax.apdb.timer import Timer
 
 from ..config import PpdbConfig
+from ..gcp._auth import get_auth_default
+from ..gcp._pubsub import Publisher
 from ..ppdb import ChunkStatus, PpdbReplicaChunk
 from ..sql._ppdb_sql import PpdbSql
 
 __all__ = ["ChunkUploader"]
 
 _LOG = logging.getLogger(__name__)
-
-_PUBSUB_TOPIC_NAME = "stage-chunk-topic"
 
 
 class ChunkUploader:
@@ -110,25 +108,13 @@ class ChunkUploader:
         self.exit_on_empty = exit_on_empty
         self.exit_on_error = exit_on_error
 
-        # Environment check
-        if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
-            raise RuntimeError("Environment variable GOOGLE_APPLICATION_CREDENTIALS is not set.")
-        credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if not credentials_path or not os.path.exists(credentials_path):
-            raise RuntimeError("Invalid GOOGLE_APPLICATION_CREDENTIALS path.")
-
-        # Setup Google authentication
-        try:
-            self.credentials, self.project_id = google.auth.default()
-            if not self.project_id:
-                raise RuntimeError("Project ID could not be determined from the credentials.")
-        except Exception as e:
-            raise RuntimeError("Failed to setup Google credentials.") from e
+        self.credentials, self.project_id = get_auth_default()
 
         self.client = storage.Client()
         self.bucket = self.client.bucket(self.bucket_name)
 
-        self.topic_name = topic if topic else _PUBSUB_TOPIC_NAME
+        self.topic_name = topic if topic else "stage-chunk-topic"
+        self.publisher = Publisher(self.project_id, self.topic_name)
 
     def run(self) -> None:
         """Check in the database for replica chunks which have been exported
@@ -242,10 +228,6 @@ class ChunkUploader:
             manifest_path = posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json")
             self._upload_manifest(manifest, manifest_path)
 
-            # Post to the Pub/Sub topic, triggering the staging of the chunk
-            # in BigQuery.
-            self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix, chunk_id)
-
             # Update the record for the replica chunk in the database to
             # indicate that it has been uploaded.
             try:
@@ -259,6 +241,11 @@ class ChunkUploader:
             except Exception:
                 _LOG.exception("Failed to update replica chunk %s in database", replica_chunk.id)
                 raise
+
+            # Post to the Pub/Sub topic, triggering the staging of the chunk
+            # in BigQuery. This happens after the database to ensure state
+            # consistency.
+            self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix, chunk_id)
 
         except Exception as e:
             try:
@@ -406,9 +393,6 @@ class ChunkUploader:
         chunk_id : int
             The ID of the chunk being staged.
         """
-        publisher = pubsub_v1.PublisherClient()
-        topic_path = publisher.topic_path(self.project_id, self.topic_name)
-
         # Construct the message payload
         message = {
             "dataset": self.dataset,
@@ -416,11 +400,4 @@ class ChunkUploader:
             "folder": f"gs://{posixpath.join(bucket_name, chunk_prefix)}",
         }
 
-        try:
-            # Publish the message
-            future = publisher.publish(topic_path, json.dumps(message).encode("utf-8"))
-            future.result()  # Wait for the publish to complete
-            _LOG.info("Published message to topic %s: %s", self.topic_name, message)
-        except Exception:
-            _LOG.exception("Failed to publish message to topic %s: %s", self.topic_name, message)
-            raise
+        self.publisher.publish(message)
