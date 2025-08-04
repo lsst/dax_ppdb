@@ -86,6 +86,7 @@ class ChunkExporter(PpdbSql):
         config: PpdbConfig,
         schema_version: VersionTuple,
         directory: Path,
+        topic_name: str | None = None,
         batch_size: int = _DEFAULT_BATCH_SIZE,
         compression_format: str = _DEFAULT_COMPRESSION_FORMAT,
     ):
@@ -100,7 +101,7 @@ class ChunkExporter(PpdbSql):
 
         self.credentials, self.project_id = get_auth_default()
 
-        self.topic_name = "track-chunk-topic"  # TODO: Make this configurable.
+        self.topic_name = topic_name if topic_name else "track-chunk-topic"
         self.publisher = Publisher(self.project_id, self.topic_name)
 
     @classmethod

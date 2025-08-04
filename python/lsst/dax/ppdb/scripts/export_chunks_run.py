@@ -42,6 +42,7 @@ def export_chunks_run(
     check_interval: int,
     exit_on_empty: bool,
     directory: str,
+    topic: str,
     compression_format: str,
     batch_size: int,
 ) -> None:
@@ -68,6 +69,8 @@ def export_chunks_run(
         chunks.
     directory : `str`
         Directory where the chunks are stored.
+    topic_name : `str`
+        Pub/Sub topic name for publishing the exported replica chunks.
     compression_format : `str`
         Compression format for the chunks.
     batch_size : `int`
@@ -82,6 +85,7 @@ def export_chunks_run(
         ppdb_sql_config,
         apdb.schemaVersion(),
         Path(directory),
+        topic_name=topic,
         batch_size=batch_size,
         compression_format=compression_format,
     )
