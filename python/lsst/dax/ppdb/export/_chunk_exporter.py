@@ -25,6 +25,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+import astropy
 import pyarrow
 import sqlalchemy
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
@@ -34,6 +35,8 @@ from lsst.dax.ppdb.ppdb import ChunkStatus
 from pyarrow import parquet
 
 from ..config import PpdbConfig
+from ..gcp._auth import get_auth_default
+from ..gcp._pubsub import Publisher
 from ..sql._ppdb_sql import PpdbSql
 
 __all__ = ["ChunkExporter"]
@@ -94,6 +97,11 @@ class ChunkExporter(PpdbSql):
         self.batch_size = batch_size
         self.compression_format = compression_format
         self.column_type_map = self._make_column_type_map(self._sa_metadata)
+
+        self.credentials, self.project_id = get_auth_default()
+
+        self.topic_name = "track-chunk-topic"  # TODO: Make this configurable.
+        self.publisher = Publisher(self.project_id, self.topic_name)
 
     @classmethod
     def _make_column_type_map(cls, metadata: sqlalchemy.MetaData) -> dict[str, dict[str, pyarrow.DataType]]:
@@ -194,14 +202,10 @@ class ChunkExporter(PpdbSql):
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
             raise
 
-        # Update the database to indicate that the chunk has been exported.
         try:
-            with self._engine.begin() as connection:
-                self._store_insert_id(
-                    replica_chunk, connection, update, status=ChunkStatus.EXPORTED, directory=str(chunk_dir)
-                )
+            self._post_to_track_chunk_topic(replica_chunk, ChunkStatus.EXPORTED, chunk_dir)
         except Exception:
-            _LOG.exception("Failed to store replica chunk id %s in database", replica_chunk.id)
+            _LOG.exception("Failed to post to track chunk topic for %s", replica_chunk.id)
             raise
 
         _LOG.info("Done processing %s", replica_chunk.id)
@@ -268,3 +272,31 @@ class ChunkExporter(PpdbSql):
                     )
 
         _LOG.info("Finished writing %s to %s", table_name, file_path)
+
+    def _post_to_track_chunk_topic(
+        self, replica_chunk: ReplicaChunk, status: ChunkStatus, directory: Path
+    ) -> None:
+        """Publish a message to the 'track-chunk-topic' Pub/Sub topic.
+
+        This will add a new record to the chunk tracking database with status
+        of 'exported'. The chunk uploader process will then pick up this record
+        and copy the chunk into cloud storage.
+        """
+        # Convert last_update_time and replica_time to UTC datetime
+        last_update_time = datetime.fromtimestamp(replica_chunk.last_update_time.unix_tai, tz=timezone.utc)
+        now = datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=timezone.utc)
+
+        # Construct the message payload
+        message = {
+            "operation": "insert",
+            "apdb_replica_chunk": replica_chunk.id,
+            "values": {
+                "last_update_time": str(last_update_time),
+                "unique_id": str(replica_chunk.unique_id),
+                "replica_time": str(now),
+                "status": status.value,
+                "directory": str(directory),
+            },
+        }
+
+        self.publisher.publish(message)
