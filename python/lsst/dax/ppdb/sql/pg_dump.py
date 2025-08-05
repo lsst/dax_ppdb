@@ -218,7 +218,7 @@ class _TimestampColumnDataHandler(_ColumnDataHandler):
 #     NUMERICTYPE
 #     NVARCHAR
 #     Numeric
-#     REAL
+#     REAL          # done
 #     SMALLINT      # done
 #     STRINGTYPE
 #     SmallInteger
@@ -247,6 +247,7 @@ _TYPE_MAP = {
     sqltypes.DOUBLE: _FixedColumnDataHandler(8, "d"),
     sqltypes.DOUBLE_PRECISION: _FixedColumnDataHandler(8, "d"),
     sqltypes.BOOLEAN: _FixedColumnDataHandler(1, "?"),
+    sqltypes.REAL: _FixedColumnDataHandler(4, "f"),
     sqltypes.FLOAT: _FixedColumnDataHandler(4, "f"),
     sqltypes.CHAR: _StringColumnDataHandler("s"),
     sqltypes.VARCHAR: _StringColumnDataHandler("s"),

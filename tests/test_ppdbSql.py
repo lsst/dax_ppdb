@@ -26,6 +26,8 @@ import tempfile
 import unittest
 from typing import Any
 
+from lsst.dax.apdb import ApdbConfig
+from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.ppdb import PpdbConfig
 from lsst.dax.ppdb.sql import PpdbSql
 from lsst.dax.ppdb.tests import PpdbTest
@@ -43,14 +45,24 @@ class ApdbSQLiteTestCase(PpdbTest, unittest.TestCase):
 
     def setUp(self) -> None:
         self.tempdir = tempfile.mkdtemp()
-        self.db_url = f"sqlite:///{self.tempdir}/apdb.sqlite3"
+        self.apdb_url = f"sqlite:///{self.tempdir}/apdb.sqlite3"
+        self.ppdb_url = f"sqlite:///{self.tempdir}/ppdb.sqlite3"
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
-        return PpdbSql.init_database(db_url=self.db_url, schema_file=TEST_SCHEMA, **kwargs)
+        return PpdbSql.init_database(db_url=self.ppdb_url, schema_file=TEST_SCHEMA, **kwargs)
+
+    def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
+        kw = {
+            "schema_file": TEST_SCHEMA,
+            "db_url": self.apdb_url,
+            "enable_replica": True,
+        }
+        kw.update(kwargs)
+        return ApdbSql.init_database(**kw)  # type: ignore[arg-type]
 
 
 @unittest.skipUnless(testing is not None, "testing.postgresql module not found")
@@ -82,6 +94,16 @@ class ApdbPostgresTestCase(PpdbTest, unittest.TestCase):
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
         return PpdbSql.init_database(db_url=self.server.url(), schema_file=TEST_SCHEMA, **kwargs)
+
+    def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
+        kw = {
+            "schema_file": TEST_SCHEMA,
+            "db_url": self.server.url(),
+            "namespace": "apdb",
+            "enable_replica": True,
+        }
+        kw.update(kwargs)
+        return ApdbSql.init_database(**kw)  # type: ignore[arg-type]
 
 
 @unittest.skipUnless(testing is not None, "testing.postgresql module not found")
