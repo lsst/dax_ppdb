@@ -22,6 +22,7 @@
 import json
 import logging
 import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -89,11 +90,13 @@ class ChunkExporter(PpdbSql):
         topic_name: str | None = None,
         batch_size: int = _DEFAULT_BATCH_SIZE,
         compression_format: str = _DEFAULT_COMPRESSION_FORMAT,
+        overwrite: bool = False,
     ):
         super().__init__(config)
         self.schema_version = schema_version
         self.directory = directory
-        self.directory.mkdir(parents=True, exist_ok=True)
+        if self.directory == "/":
+            raise ValueError("Export directory cannot be the root directory ('/').")
         _LOG.info("Directory for chunk export: %s", self.directory)
         self.batch_size = batch_size
         self.compression_format = compression_format
@@ -103,6 +106,8 @@ class ChunkExporter(PpdbSql):
 
         self.topic_name = topic_name if topic_name else "track-chunk-topic"
         self.publisher = Publisher(self.project_id, self.topic_name)
+
+        self.overwrite = overwrite
 
     @classmethod
     def _make_column_type_map(cls, metadata: sqlalchemy.MetaData) -> dict[str, dict[str, pyarrow.DataType]]:
@@ -163,8 +168,17 @@ class ChunkExporter(PpdbSql):
         # Docstring is inherited.
         _LOG.info("Processing %s", replica_chunk.id)
         try:
-            chunk_dir = self._make_path(replica_chunk.id)
-            _LOG.debug("Created directory for %s: %s", replica_chunk.id, chunk_dir)
+            chunk_dir = self._get_chunk_path(replica_chunk.id)
+
+            if chunk_dir.exists():
+                if not self.overwrite:
+                    # By default, do not overwrite existing directories.
+                    raise FileExistsError(f"Directory already exists for {replica_chunk.id}: {chunk_dir}")
+                _LOG.warning("Overwriting existing directory for %s: %s", replica_chunk.id, chunk_dir)
+                shutil.rmtree(chunk_dir)
+
+            chunk_dir.mkdir(parents=True, exist_ok=True)
+            _LOG.info("Created directory for %s: %s", replica_chunk.id, chunk_dir)
 
             table_dict = {
                 "DiaObject": objects,
@@ -211,13 +225,12 @@ class ChunkExporter(PpdbSql):
 
         _LOG.info("Done processing %s", replica_chunk.id)
 
-    def _make_path(self, chunk_id: int) -> Path:
+    def _get_chunk_path(self, chunk_id: int) -> Path:
         path = Path(
             self.directory,
             datetime.today().strftime("%Y/%m/%d"),
             str(chunk_id),
         )
-        path.mkdir(parents=True, exist_ok=True)
         return path
 
     def _write_parquet(self, table_name: str, table_data: ApdbTableData, file_path: Path) -> None:

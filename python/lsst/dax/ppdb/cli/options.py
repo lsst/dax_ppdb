@@ -136,6 +136,12 @@ def export_options(parser: argparse.ArgumentParser) -> None:
         default="snappy",
         choices=["snappy", "gzip", "brotli", "zstd", "lz4", "none"],
     )
+    group.add_argument(
+        "--overwrite",
+        help="Overwrite existing directories for chunks.",
+        default=False,
+        action="store_true",
+    )
 
 
 def upload_options(parser: argparse.ArgumentParser) -> None:
