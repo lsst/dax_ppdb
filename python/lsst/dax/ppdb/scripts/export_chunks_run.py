@@ -45,7 +45,7 @@ def export_chunks_run(
     topic: str,
     compression_format: str,
     batch_size: int,
-    overwrite: bool,
+    delete_existing: bool,
 ) -> None:
     """Execute replication process from APDB to PPDB.
 
@@ -89,7 +89,7 @@ def export_chunks_run(
         topic_name=topic,
         batch_size=batch_size,
         compression_format=compression_format,
-        overwrite=overwrite,
+        delete_existing=delete_existing,
     )
 
     replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time, check_interval)

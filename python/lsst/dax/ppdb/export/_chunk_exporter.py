@@ -80,6 +80,20 @@ class ChunkExporter(PpdbSql):
         Number of rows to process in each batch. Default is 1000.
     compression_format : `str`, optional
         Compression format for Parquet files. Default is "snappy".
+    delete_existing : `bool`, optional
+        If `True`, existing directories for chunks will be deleted before
+        export. Default is `False`.
+
+    Notes
+    -----
+    By default, the exporter will not overwrite existing directories for
+    chunks. This is designed to prevent accidental data loss or ingestion of
+    duplicate data. In the production system, if a chunk directory already
+    exists, it may indicate that there is an error in the ETL process which
+    needs to be resolved or cleared before proceeding. The `delete_existing`
+    option can be used to override this behavior, but it should be used with
+    caution as it will remove any existing data in the specified directory. It
+    may be useful for testing and development purposes.
     """
 
     def __init__(
@@ -90,7 +104,7 @@ class ChunkExporter(PpdbSql):
         topic_name: str | None = None,
         batch_size: int = _DEFAULT_BATCH_SIZE,
         compression_format: str = _DEFAULT_COMPRESSION_FORMAT,
-        overwrite: bool = False,
+        delete_existing: bool = False,
     ):
         super().__init__(config)
         self.schema_version = schema_version
@@ -107,7 +121,7 @@ class ChunkExporter(PpdbSql):
         self.topic_name = topic_name if topic_name else "track-chunk-topic"
         self.publisher = Publisher(self.project_id, self.topic_name)
 
-        self.overwrite = overwrite
+        self.delete_existing = delete_existing
 
     @classmethod
     def _make_column_type_map(cls, metadata: sqlalchemy.MetaData) -> dict[str, dict[str, pyarrow.DataType]]:
@@ -171,8 +185,7 @@ class ChunkExporter(PpdbSql):
             chunk_dir = self._get_chunk_path(replica_chunk.id)
 
             if chunk_dir.exists():
-                if not self.overwrite:
-                    # By default, do not overwrite existing directories.
+                if not self.delete_existing:
                     raise FileExistsError(f"Directory already exists for {replica_chunk.id}: {chunk_dir}")
                 _LOG.warning("Overwriting existing directory for %s: %s", replica_chunk.id, chunk_dir)
                 shutil.rmtree(chunk_dir)
