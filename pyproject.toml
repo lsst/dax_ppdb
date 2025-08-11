@@ -33,6 +33,7 @@ dependencies = [
     "lsst-utils",
     "lsst-resources",
     "lsst-dax-apdb",
+    "lsst-ppdb-gcp",
 ]
 dynamic = ["version"]
 

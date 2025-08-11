@@ -33,11 +33,11 @@ from lsst.dax.apdb import ApdbTableData, ReplicaChunk
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.apdb.versionTuple import VersionTuple
 from lsst.dax.ppdb.ppdb import ChunkStatus
+from lsst.ppdb.gcp.auth import get_auth_default
+from lsst.ppdb.gcp.pubsub import Publisher
 from pyarrow import parquet
 
 from ..config import PpdbConfig
-from ..gcp._auth import get_auth_default
-from ..gcp._pubsub import Publisher
 from ..sql._ppdb_sql import PpdbSql
 
 __all__ = ["ChunkExporter"]
@@ -295,7 +295,8 @@ class ChunkExporter(PpdbSql):
                     writer.write_table(batch_table)
                 except Exception as e:
                     raise ValueError(
-                        f"Failed to create Arrow arrays for table {table_name}, batch {i}-{i+batch_size}: {e}"
+                        f"Failed to create Arrow arrays for table {table_name}, "
+                        f"batch {i}-{i + batch_size}: {e}"
                     )
 
         _LOG.info("Finished writing %s to %s", table_name, file_path)

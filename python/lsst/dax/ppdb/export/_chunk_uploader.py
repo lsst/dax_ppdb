@@ -31,10 +31,10 @@ from typing import Any
 
 from google.cloud import storage
 from lsst.dax.apdb.timer import Timer
+from lsst.ppdb.gcp.auth import get_auth_default
+from lsst.ppdb.gcp.pubsub import Publisher
 
 from ..config import PpdbConfig
-from ..gcp._auth import get_auth_default
-from ..gcp._pubsub import Publisher
 from ..ppdb import ChunkStatus, PpdbReplicaChunk
 from ..sql._ppdb_sql import PpdbSql
 
