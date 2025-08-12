@@ -28,7 +28,6 @@ from pathlib import Path
 
 import astropy
 import pyarrow
-import sqlalchemy
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.apdb.versionTuple import VersionTuple
@@ -38,30 +37,11 @@ from pyarrow import parquet
 
 from ..config import PpdbConfig
 from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
+from ._arrow import create_arrow_schema
 
 __all__ = ["ChunkExporter"]
 
 _LOG = logging.getLogger(__name__)
-
-_DEFAULT_COMPRESSION_FORMAT = "snappy"
-
-_DEFAULT_BATCH_SIZE = 1000
-
-_APDB_TABLES = ("DiaObject", "DiaSource", "DiaForcedSource")
-
-_SQLTYPE = sqlalchemy.sql.sqltypes
-
-_PYARROW_TYPE = {
-    _SQLTYPE.BigInteger: pyarrow.int64(),
-    _SQLTYPE.Boolean: pyarrow.bool_(),
-    _SQLTYPE.CHAR: pyarrow.string(),
-    _SQLTYPE.Double: pyarrow.float64(),
-    _SQLTYPE.Integer: pyarrow.int32(),
-    _SQLTYPE.REAL: pyarrow.float64(),
-    _SQLTYPE.SmallInteger: pyarrow.int16(),
-    _SQLTYPE.TIMESTAMP: pyarrow.timestamp("ms", tz="UTC"),
-    _SQLTYPE.VARCHAR: pyarrow.string(),
-}
 
 
 class ChunkExporter(PpdbReplicaChunkSql):
@@ -101,8 +81,8 @@ class ChunkExporter(PpdbReplicaChunkSql):
         schema_version: VersionTuple,
         directory: Path,
         topic_name: str | None = None,
-        batch_size: int = _DEFAULT_BATCH_SIZE,
-        compression_format: str = _DEFAULT_COMPRESSION_FORMAT,
+        batch_size: int | None = None,
+        compression_format: str | None = None,
         delete_existing: bool = False,
     ):
         super().__init__(config)
@@ -111,9 +91,8 @@ class ChunkExporter(PpdbReplicaChunkSql):
         if self.directory == "/":
             raise ValueError("Export directory cannot be the root directory ('/').")
         _LOG.info("Directory for chunk export: %s", self.directory)
-        self.batch_size = batch_size
-        self.compression_format = compression_format
-        self.column_type_map = self._make_column_type_map(self._sa_metadata)
+        self.batch_size = batch_size or 10000
+        self.compression_format = compression_format or "snappy"
 
         self.credentials, self.project_id = get_auth_default()
 
@@ -121,23 +100,6 @@ class ChunkExporter(PpdbReplicaChunkSql):
         self.publisher = Publisher(self.project_id, self.topic_name)
 
         self.delete_existing = delete_existing
-
-    @classmethod
-    def _make_column_type_map(cls, metadata: sqlalchemy.MetaData) -> dict[str, dict[str, pyarrow.DataType]]:
-        """Create a mapping of column names to Arrow types."""
-        column_type_map = {}
-        for table in metadata.tables.values():
-            column_types = {}
-            if table.name in _APDB_TABLES:
-                for column in table.columns.values():
-                    arrow_type = _PYARROW_TYPE.get(type(column.type), None)
-                    if arrow_type is None:
-                        raise ValueError(
-                            f'"{table.name}"."{column.name}" has an unsupported column type: {column.type}'
-                        )
-                    column_types[column.name] = arrow_type
-                column_type_map[table.name] = column_types
-        return column_type_map
 
     def _generate_manifest_data(
         self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
@@ -246,59 +208,53 @@ class ChunkExporter(PpdbReplicaChunkSql):
         return path
 
     def _write_parquet(self, table_name: str, table_data: ApdbTableData, file_path: Path) -> None:
-        # Get rows from the table data
-        rows = list(table_data.rows())  # This is a list of rows (records)
+        """Batch write a table of APDB data to Parquet.
 
-        # Writing parquet is silently skipepd if there are no rows. The
-        # DiaForcedSource table is empty for some chunks.
+        Parameters
+        ----------
+        table_name : str
+            Logical table name (for logging and error messages).
+        table_data : ApdbTableData
+            The APDB table data to write.
+        file_path : Path
+            Destination Parquet file path.
+        """
+        rows = list(table_data.rows())
         if not rows:
             return
 
-        # Get the expected column types for the table
-        expected_types = self.column_type_map.get(table_name)
-        if expected_types is None:
-            raise ValueError(f"No column type map found for table: {table_name}")
+        # Create Arrow schema from the table data column definitions.
+        schema = create_arrow_schema(table_data.column_defs())
+        schema_names = [f.name for f in schema]
+        field_types = {f.name: f.type for f in schema}
 
-        # Get column names from the table data
-        input_column_names = list(table_data.column_names())  # These are the column names (attributes)
+        # Map column names to their indices in the rows.
+        col_names = list(table_data.column_names())
+        col_index_by_name = {name: i for i, name in enumerate(col_names)}
 
-        # Only keep columns present in the expected schema
-        selected_column_names = [name for name in input_column_names if name in expected_types]
-        if not selected_column_names:
-            raise ValueError(f"No matching columns found for table: {table_name}")
+        # Check if all schema names are present in the column names.
+        missing = [n for n in schema_names if n not in col_index_by_name]
+        if missing:
+            raise ValueError(f"{table_name}: missing columns in data: {missing}")
 
-        # Prepare columns (columns, not rows)
-        column_indices = {name: input_column_names.index(name) for name in selected_column_names}
-        selected_columns = [[row[column_indices[name]] for row in rows] for name in selected_column_names]
+        total = len(rows)
+        batch_size = max(1, int(self.batch_size))
 
-        # Prepare schema
-        schema = pyarrow.schema(
-            [(column_name, expected_types[column_name]) for column_name in selected_column_names]
-        )
-
-        # Write in batches
         with parquet.ParquetWriter(file_path, schema, compression=self.compression_format) as writer:
-            for i in range(0, len(rows), self.batch_size):
-                # Ensure the batch size is valid even for the last batch
-                batch_size = min(self.batch_size, len(rows) - i)
+            for start in range(0, total, batch_size):
+                stop = min(start + batch_size, total)
 
-                # Prepare the batch columns by slicing the data
-                try:
-                    batch_columns = [
-                        pyarrow.array(column[i : i + batch_size], type=expected_types[column_name])
-                        for column, column_name in zip(selected_columns, selected_column_names)
-                    ]
+                # Create a batch of Arrow arrays for the current slice of rows.
+                batch_arrays: list[pyarrow.Array] = []
+                for name in schema_names:
+                    idx = col_index_by_name[name]
+                    gen = (rows[r][idx] for r in range(start, stop))
+                    batch_arrays.append(pyarrow.array(gen, type=field_types[name]))
 
-                    # Create a pyarrow Table from the selected batch
-                    batch_table = pyarrow.Table.from_arrays(batch_columns, schema=schema)
-                    writer.write_table(batch_table)
-                except Exception as e:
-                    raise ValueError(
-                        f"Failed to create Arrow arrays for table {table_name}, "
-                        f"batch {i}-{i + batch_size}: {e}"
-                    )
+                batch_table = pyarrow.Table.from_arrays(batch_arrays, schema=schema)
+                writer.write_table(batch_table)
 
-        _LOG.info("Finished writing %s to %s", table_name, file_path)
+        _LOG.info("Wrote %s rows from %s to %s (batch_size=%s)", total, table_name, file_path, batch_size)
 
     def _post_to_track_chunk_topic(
         self, replica_chunk: ReplicaChunk, status: ChunkStatus, directory: Path
