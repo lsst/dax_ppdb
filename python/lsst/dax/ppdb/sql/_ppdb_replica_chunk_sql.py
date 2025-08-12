@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["PpdbSql", "PpdbSqlConfig"]
+__all__ = ["PpdbReplicaChunkSql", "PpdbSqlConfig"]
 
 import datetime
 import logging
@@ -29,6 +29,8 @@ import os
 import sqlite3
 from collections.abc import MutableMapping
 from contextlib import closing
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 import astropy.time
@@ -53,7 +55,9 @@ from sqlalchemy import sql
 from sqlalchemy.pool import NullPool
 
 from ..config import PpdbConfig
-from ..ppdb import Ppdb, PpdbReplicaChunk
+from ..ppdb import Ppdb
+from ..ppdb import PpdbReplicaChunk as _PpdbReplicaChunk
+from ._ppdb_sql import PpdbSqlConfig
 from .bulk_insert import make_inserter
 
 _LOG = logging.getLogger(__name__)
@@ -67,6 +71,28 @@ VERSION = VersionTuple(0, 1, 1)
 """
 
 
+class ChunkStatus(StrEnum):
+    """Base class for status codes used in PPDB."""
+
+    EXPORTED = "exported"
+    """Chunk has been exported from the APDB to a local parquet file."""
+    UPLOADED = "uploaded"
+    """Chunk has been uploaded to cloud storage."""
+    FAILED = "error"
+    """Chunk processing failed and an error occurred."""
+
+
+@dataclass(frozen=True)
+class PpdbReplicaChunk(_PpdbReplicaChunk):
+    """ReplicaChunk with additional PPDB-specific info."""
+
+    status: ChunkStatus
+    """Status of the replica chunk."""
+
+    directory: str
+    """Directory where the exported replica chunk data is stored."""
+
+
 def _onSqlite3Connect(
     dbapiConnection: sqlite3.Connection, connectionRecord: sqlalchemy.pool._ConnectionRecord
 ) -> None:
@@ -75,36 +101,7 @@ def _onSqlite3Connect(
         cursor.execute("PRAGMA foreign_keys=ON;")
 
 
-class PpdbSqlConfig(PpdbConfig):
-    db_url: str
-    """SQLAlchemy database connection URI."""
-
-    schema_name: str | None = None
-    """Database schema name, if `None` then default schema is used."""
-
-    felis_path: str | None = None
-    """Name of YAML file with ``felis`` schema, if `None` then default schema
-    file is used.
-    """
-
-    felis_schema: str | None = None
-    """Name of the schema in YAML file, if `None` then file has to contain
-    single schema.
-    """
-
-    use_connection_pool: bool = True
-    """If True then allow use of connection pool."""
-
-    isolation_level: str | None = None
-    """Transaction isolation level, if unset then backend-default value is
-    used.
-    """
-
-    connection_timeout: float | None = None
-    """Maximum connection timeout in seconds."""
-
-
-class PpdbSql(Ppdb):
+class PpdbReplicaChunkSql(Ppdb):
     default_felis_schema_file = "${SDM_SCHEMAS_DIR}/yml/apdb.yaml"
 
     meta_schema_version_key = "version:schema"
@@ -130,12 +127,6 @@ class PpdbSql(Ppdb):
 
         # Check schema version compatibility
         self._versionCheck(self._metadata, schema_version)
-
-        # Check if schema uses MJD TAI for timestamps (DM-52215).
-        self._use_mjd_tai = False
-        for table in self._sa_metadata.tables.values():
-            if table.name == "DiaObject":
-                self._use_mjd_tai = "validityStartMjdTai" in table.columns
 
     @classmethod
     def init_database(
@@ -266,6 +257,18 @@ class PpdbSql(Ppdb):
                 datatype=felis.datamodel.DataType.timestamp,
                 nullable=False,
             ),
+            schema_model.Column(
+                name="status",
+                id=f"#{table_name}.status",
+                datatype=felis.datamodel.DataType.string,
+                nullable=True,
+            ),
+            schema_model.Column(
+                name="directory",
+                id=f"#{table_name}.directory",
+                datatype=felis.datamodel.DataType.string,
+                nullable=True,
+            ),
         ]
         indices = [
             schema_model.Index(
@@ -302,22 +305,6 @@ class PpdbSql(Ppdb):
         converter = ModelToSql(metadata=metadata)
         converter.make_tables(schema.tables)
 
-        # Check if schema uses MJD TAI for timestamps (DM-52215). This is not
-        # super-efficient, but I do not want to improve dax_apdb at this point.
-        use_mjd_tai = False
-        for schema_table in schema.tables:
-            if schema_table.name == "DiaObject":
-                for column in schema_table.columns:
-                    if column.name == "validityStartMjdTai":
-                        use_mjd_tai = True
-                        break
-                break
-
-        if use_mjd_tai:
-            validity_end_column = "validityEndMjdTai"
-        else:
-            validity_end_column = "validityEnd"
-
         # Add an additional index to DiaObject table to speed up replication.
         # This is a partial index (Postgres-only), we do not have support for
         # partial indices in ModelToSql, so we have to do it using sqlalchemy.
@@ -326,11 +313,11 @@ class PpdbSql(Ppdb):
             table: sqlalchemy.schema.Table | None = None
             for table in metadata.tables.values():
                 if table.name == "DiaObject":
-                    name = f"IDX_DiaObject_diaObjectId_{validity_end_column}_IS_NULL"
+                    name = "IDX_DiaObject_diaObjectId_validityEnd_IS_NULL"
                     sqlalchemy.schema.Index(
                         name,
                         table.columns["diaObjectId"],
-                        postgresql_where=table.columns[validity_end_column].is_(None),
+                        postgresql_where=table.columns["validityEnd"].is_(None),
                     )
                     break
             else:
@@ -450,8 +437,7 @@ class PpdbSql(Ppdb):
             )
         if not VERSION.checkCompatibility(db_code_version):
             raise IncompatibleVersionError(
-                f"Current code version {VERSION} "
-                f"is not compatible with database version {db_code_version}"
+                f"Current code version {VERSION} is not compatible with database version {db_code_version}"
             )
 
     def _get_table(self, name: str) -> sqlalchemy.schema.Table:
@@ -465,7 +451,9 @@ class PpdbSql(Ppdb):
         # docstring is inherited from a base class
         return self._metadata
 
-    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
+    def get_replica_chunks(
+        self, start_chunk_id: int | None = None, status: ChunkStatus | list[ChunkStatus] | None = None
+    ) -> list[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
         table = self._get_table("PpdbReplicaChunk")
         query = sql.select(
@@ -473,9 +461,20 @@ class PpdbSql(Ppdb):
             table.columns["last_update_time"],
             table.columns["unique_id"],
             table.columns["replica_time"],
+            table.columns["status"],
+            table.columns["directory"],
         ).order_by(table.columns["last_update_time"])
         if start_chunk_id is not None:
             query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)
+        if status is not None:
+            if isinstance(status, list):
+                # Handle list of statuses with IN clause
+                status_values = [s.value for s in status]
+                query = query.where(table.columns["status"].in_(status_values))
+            else:
+                # Handle single status
+                query = query.where(table.columns["status"] == status.value)
+
         with self._engine.connect() as conn:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
             ids = []
@@ -491,6 +490,8 @@ class PpdbSql(Ppdb):
                         last_update_time=last_update_time,
                         unique_id=row[2],
                         replica_time=replica_time,
+                        status=row[4],
+                        directory=row[5],
                     )
                 )
             return ids
@@ -524,7 +525,12 @@ class PpdbSql(Ppdb):
             self._store_table_data(forced_sources, connection, update, "DiaForcedSource", 1000)
 
     def _store_insert_id(
-        self, replica_chunk: ReplicaChunk, connection: sqlalchemy.engine.Connection, update: bool
+        self,
+        replica_chunk: ReplicaChunk,
+        connection: sqlalchemy.engine.Connection,
+        update: bool,
+        status: ChunkStatus | None = None,
+        directory: str | None = None,
     ) -> None:
         """Insert or replace single record in PpdbReplicaChunk table"""
         # `astropy.Time.datetime` returns naive datetime, even though all
@@ -538,6 +544,10 @@ class PpdbSql(Ppdb):
         table = self._get_table("PpdbReplicaChunk")
 
         values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
+        if status is not None:
+            values["status"] = status.value
+        if directory is not None:
+            values["directory"] = directory
         row = {"apdb_replica_chunk": replica_chunk.id} | values
         if update:
             # We need UPSERT which is dialect-specific construct
@@ -566,13 +576,6 @@ class PpdbSql(Ppdb):
 
         table = self._get_table("DiaObject")
 
-        if self._use_mjd_tai:
-            validity_start_column = "validityStartMjdTai"
-            validity_end_column = "validityEndMjdTai"
-        else:
-            validity_start_column = "validityStart"
-            validity_end_column = "validityEnd"
-
         with Timer("update_validity_time", _MON, tags={"table": table.name}) as timer:
             # We need to fill validityEnd column for the previously stored
             # objects that have new records. Window function is used here to
@@ -585,41 +588,41 @@ class PpdbSql(Ppdb):
                 select_cte = sqlalchemy.cte(
                     sqlalchemy.select(
                         table.columns["diaObjectId"],
-                        table.columns[validity_start_column],
-                        table.columns[validity_end_column],
+                        table.columns["validityStart"],
+                        table.columns["validityEnd"],
                         sqlalchemy.func.rank()
                         .over(
                             partition_by=table.columns["diaObjectId"],
-                            order_by=table.columns[validity_start_column],
+                            order_by=table.columns["validityStart"],
                         )
                         .label("rank"),
                     ).where(
                         sqlalchemy.and_(
                             table.columns["diaObjectId"].in_(chunk),
-                            table.columns[validity_end_column] == None,  # noqa: E711
+                            table.columns["validityEnd"] == None,  # noqa: E711
                         )
                     )
                 )
                 sub1 = select_cte.alias("s1")
                 sub2 = select_cte.alias("s2")
-                new_end = sql.select(sub2.columns[validity_start_column]).select_from(
+                new_end = sql.select(sub2.columns["validityStart"]).select_from(
                     sub1.join(
                         sub2,
                         sqlalchemy.and_(
                             sub1.columns["diaObjectId"] == sub2.columns["diaObjectId"],
                             sub1.columns["rank"] + sqlalchemy.literal(1) == sub2.columns["rank"],
                             sub1.columns["diaObjectId"] == table.columns["diaObjectId"],
-                            sub1.columns[validity_start_column] == table.columns[validity_start_column],
+                            sub1.columns["validityStart"] == table.columns["validityStart"],
                         ),
                     )
                 )
                 stmt = (
                     table.update()
-                    .values(**{validity_end_column: new_end.scalar_subquery()})
+                    .values(validityEnd=new_end.scalar_subquery())
                     .where(
                         sqlalchemy.and_(
                             table.columns["diaObjectId"].in_(chunk),
-                            table.columns[validity_end_column] == None,  # noqa: E711
+                            table.columns["validityEnd"] == None,  # noqa: E711
                         )
                     )
                 )

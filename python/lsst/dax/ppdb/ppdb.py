@@ -25,7 +25,6 @@ __all__ = ["Ppdb"]
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import StrEnum
 
 import astropy.time
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
@@ -35,29 +34,12 @@ from ._factory import ppdb_type
 from .config import PpdbConfig
 
 
-class ChunkStatus(StrEnum):
-    """Base class for status codes used in PPDB."""
-
-    EXPORTED = "exported"
-    """Chunk has been exported from the APDB to a local parquet file."""
-    UPLOADED = "uploaded"
-    """Chunk has been uploaded to cloud storage."""
-    FAILED = "error"
-    """Chunk processing failed and an error occurred."""
-
-
 @dataclass(frozen=True)
 class PpdbReplicaChunk(ReplicaChunk):
     """ReplicaChunk with additional PPDB-specific info."""
 
     replica_time: astropy.time.Time
     """Time when this bucket was replicated (`astropy.time.Time`)."""
-
-    status: ChunkStatus
-    """Status of the replica chunk."""
-
-    directory: str
-    """Directory where the exported replica chunk data is stored."""
 
 
 class Ppdb(ABC):

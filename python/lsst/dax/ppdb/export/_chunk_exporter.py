@@ -32,13 +32,12 @@ import sqlalchemy
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.apdb.versionTuple import VersionTuple
-from lsst.dax.ppdb.ppdb import ChunkStatus
 from lsst.ppdb.gcp.auth import get_auth_default
 from lsst.ppdb.gcp.pubsub import Publisher
 from pyarrow import parquet
 
 from ..config import PpdbConfig
-from ..sql._ppdb_sql import PpdbSql
+from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
 
 __all__ = ["ChunkExporter"]
 
@@ -65,7 +64,7 @@ _PYARROW_TYPE = {
 }
 
 
-class ChunkExporter(PpdbSql):
+class ChunkExporter(PpdbReplicaChunkSql):
     """Exports data from Cassandra to local Parquet files.
 
     Parameters

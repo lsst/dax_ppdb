@@ -35,8 +35,7 @@ from lsst.ppdb.gcp.auth import get_auth_default
 from lsst.ppdb.gcp.pubsub import Publisher
 
 from ..config import PpdbConfig
-from ..ppdb import ChunkStatus, PpdbReplicaChunk
-from ..sql._ppdb_sql import PpdbSql
+from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunk, PpdbReplicaChunkSql
 
 __all__ = ["ChunkUploader"]
 
@@ -99,7 +98,7 @@ class ChunkUploader:
         exit_on_empty: bool = False,
         exit_on_error: bool = False,
     ) -> None:
-        self._sql = PpdbSql.from_config(config)
+        self._sql = PpdbReplicaChunkSql(config)
         self.prefix = prefix
         self.bucket_name = bucket_name
         self.dataset = dataset
