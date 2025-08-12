@@ -118,7 +118,6 @@ class ChunkExporter(PpdbReplicaChunkSql):
                 for table_name, data in table_dict.items()
             },
             "compression_format": self.compression_format,
-            "status": ChunkStatus.EXPORTED.value,
         }
 
     @staticmethod

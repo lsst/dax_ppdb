@@ -278,7 +278,6 @@ class ChunkUploader:
         """
         if not manifest_path.exists():
             raise RuntimeError(f"Manifest file {manifest_path} does not exist, cannot update failure")
-        manifest_data["status"] = ChunkStatus.FAILED.value
         manifest_data["error"] = str(error) if isinstance(error, Exception) else error
         with open(manifest_path, "w") as f:
             json.dump(manifest_data, f, indent=4)
