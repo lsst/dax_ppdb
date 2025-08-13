@@ -36,7 +36,8 @@ from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from .._arrow import write_parquet
 from ..config import PpdbConfig
-from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
+from ..ppdb import ChunkStatus
+from ..sql._ppdb_replica_chunk_sql import PpdbReplicaChunkSql
 
 __all__ = ["ChunkExporter"]
 

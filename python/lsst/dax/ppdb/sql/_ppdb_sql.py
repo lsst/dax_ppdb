@@ -450,8 +450,7 @@ class PpdbSql(Ppdb):
             )
         if not VERSION.checkCompatibility(db_code_version):
             raise IncompatibleVersionError(
-                f"Current code version {VERSION} "
-                f"is not compatible with database version {db_code_version}"
+                f"Current code version {VERSION} is not compatible with database version {db_code_version}"
             )
 
     def _get_table(self, name: str) -> sqlalchemy.schema.Table:
@@ -491,6 +490,8 @@ class PpdbSql(Ppdb):
                         last_update_time=last_update_time,
                         unique_id=row[2],
                         replica_time=replica_time,
+                        status=None,  # Not present in this version of the database.
+                        directory=None,  # Not present in this version of the database.
                     )
                 )
             return ids

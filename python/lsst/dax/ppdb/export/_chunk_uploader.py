@@ -36,7 +36,7 @@ from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from ..config import PpdbConfig
 from ..ppdb import PpdbReplicaChunk
-from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql, _PpdbReplicaChunk
+from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
 
 __all__ = ["ChunkUploader"]
 
@@ -127,7 +127,7 @@ class ChunkUploader:
             # Get replica chunks that have been exported and are ready for
             # upload to cloud storage.
             try:
-                replica_chunks = self._sql.get_replica_chunks(0, status=ChunkStatus.EXPORTED) or []
+                replica_chunks = self._sql.get_replica_chunks_by_status(status=ChunkStatus.EXPORTED)
             except Exception:
                 # Some problem occurred while retrieving replica chunks.
                 # Log the error and continue to the next iteration or exit if
@@ -138,7 +138,7 @@ class ChunkUploader:
                     sys.exit(1)
                 continue
 
-            replica_chunk_count = len(list(replica_chunks))
+            replica_chunk_count = len(replica_chunks)
             if replica_chunk_count > 0:
                 _LOG.info("Found %d chunks ready for upload", replica_chunk_count)
                 for replica_chunk in replica_chunks:
@@ -193,12 +193,8 @@ class ChunkUploader:
         # Get the information for the chunk.
         chunk_id = replica_chunk.id
 
-        # FIXME: This type check is needed to make mypy happy until DM-50563 is
-        # resolved.
-        if isinstance(replica_chunk, _PpdbReplicaChunk):
-            chunk_dir = Path(replica_chunk.directory)
-        else:
-            raise TypeError(f"Expected _PpdbReplicaChunk, got {type(replica_chunk)}")
+        if replica_chunk.directory is None:
+            raise RuntimeError(f"Replica chunk {chunk_id} does not have a directory specified.")
         chunk_dir = Path(replica_chunk.directory)
         _LOG.info("Processing chunk %d in directory %s", chunk_id, chunk_dir)
 
