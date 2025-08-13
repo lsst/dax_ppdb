@@ -373,7 +373,6 @@ class ChunkUploader:
             The manifest data.
         """
         manifest = manifest_data.copy()
-        manifest["status"] = ChunkStatus.UPLOADED.value
         manifest["uploaded_at"] = datetime.now(tz=timezone.utc).isoformat()
         return manifest
 
