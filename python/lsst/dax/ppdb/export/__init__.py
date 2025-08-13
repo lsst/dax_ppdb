@@ -20,13 +20,12 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 # Check for required GCP dependencies.
-# All modules in lsst.dax.ppdb.export require the lsst.ppdb.gcp module.
+# All modules in lsst.dax.ppdb.export require the lsst.dax.ppdbx.gcp module.
 try:
-    import lsst.ppdb.gcp
+    import lsst.dax.ppdbx.gcp
 except ImportError:
     raise ImportError(
-        "The lsst.ppdb.gcp module is required for exporting APDB data to GCP. "
-        "Please install the lsst-ppdb-gcp package from: "
-        "https://github.com/lsst-dm/ppdb-gcp\n"
-        "Or execute `pip install .[gcp]` to install it from the dax_ppdb directory."
+        "The lsst.dax.ppdbx.gcp module is required for exporting APDB data to GCP.\n"
+        "Please 'pip install' the lsst-ppdb-gcp package from:\n"
+        "https://github.com/lsst-dm/dax_ppdbx_gcp"
     )

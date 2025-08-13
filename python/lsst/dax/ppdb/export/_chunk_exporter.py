@@ -31,8 +31,8 @@ import astropy
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.apdb.versionTuple import VersionTuple
-from lsst.ppdb.gcp.auth import get_auth_default
-from lsst.ppdb.gcp.pubsub import Publisher
+from lsst.dax.ppdbx.gcp.auth import get_auth_default
+from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from .._arrow import write_parquet
 from ..config import PpdbConfig
