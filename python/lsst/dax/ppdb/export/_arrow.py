@@ -55,5 +55,24 @@ def _felis_to_arrow_type(felis_type: DataType) -> pyarrow.DataType:
     return _FELIS_TYPE_MAP.get(felis_type)
 
 
-def create_arrow_schema(column_defs: Sequence[tuple[str, DataType]]) -> pyarrow.Schema:
-    return pyarrow.schema([(name, _felis_to_arrow_type(dtype)) for name, dtype in column_defs])
+def create_arrow_schema(
+    column_defs: Sequence[tuple[str, DataType]], exclude_columns: set[str] | None = None
+) -> pyarrow.Schema:
+    """Create a PyArrow schema from column definitions, optionally excluding
+    columns.
+
+    Parameters
+    ----------
+    column_defs : sequence of (str, DataType)
+        Column name and type pairs.
+    exclude_columns : list of str, optional
+        Column names to exclude from the schema.
+
+    Returns
+    -------
+    pyarrow.Schema
+        The resulting schema.
+    """
+    return pyarrow.schema(
+        [(name, _felis_to_arrow_type(dtype)) for name, dtype in column_defs if name not in exclude_columns]
+    )

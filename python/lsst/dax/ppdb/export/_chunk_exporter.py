@@ -166,7 +166,12 @@ class ChunkExporter(PpdbReplicaChunkSql):
                 # Write the table data to a Parquet file.
                 try:
                     with Timer("write_parquet_time", _LOG, tags={"table": table_name}) as timer:
-                        self._write_parquet(table_name, table_data, chunk_dir / f"{table_name}.parquet")
+                        self._write_parquet(
+                            table_name,
+                            table_data,
+                            chunk_dir / f"{table_name}.parquet",
+                            exclude_columns={"apdb_replica_chunk", "apdb_replica_subchunk"},
+                        )
                         timer.add_values(row_count=len(table_data.rows()))
                 except Exception:
                     _LOG.exception("Failed to write %s", table_name)
@@ -206,8 +211,11 @@ class ChunkExporter(PpdbReplicaChunkSql):
         )
         return path
 
-    def _write_parquet(self, table_name: str, table_data: ApdbTableData, file_path: Path) -> None:
-        """Batch write a table of APDB data to Parquet.
+    def _write_parquet(
+        self, table_name: str, table_data: ApdbTableData, file_path: Path, exclude_columns: set[str] = {}
+    ) -> None:
+        """Batch write a table of APDB data to Parquet, excluding specified
+        columns.
 
         Parameters
         ----------
@@ -217,13 +225,18 @@ class ChunkExporter(PpdbReplicaChunkSql):
             The APDB table data to write.
         file_path : Path
             Destination Parquet file path.
+        excluded_columns : set[str], optional
+            Set of column names to exclude from the Parquet file. These
+            exclusions apply to all of the tables. Default is an empty set,
+            meaning no columns are excluded.
         """
         rows = list(table_data.rows())
         if not rows:
             return
 
-        # Create Arrow schema from the table data column definitions.
-        schema = create_arrow_schema(table_data.column_defs())
+        # Create Arrow schema from the table data column definitions, excluding
+        # unwanted columns.
+        schema = create_arrow_schema(table_data.column_defs(), exclude_columns=exclude_columns)
         schema_names = [f.name for f in schema]
         field_types = {f.name: f.type for f in schema}
 
@@ -253,7 +266,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
                 batch_table = pyarrow.Table.from_arrays(batch_arrays, schema=schema)
                 writer.write_table(batch_table)
 
-        _LOG.info("Wrote %s rows from %s to %s (batch_size=%s)", total, table_name, file_path, batch_size)
+        _LOG.info("Wrote %s rows from %s to %s", total, table_name, file_path)
 
     def _post_to_track_chunk_topic(
         self, replica_chunk: ReplicaChunk, status: ChunkStatus, directory: Path
