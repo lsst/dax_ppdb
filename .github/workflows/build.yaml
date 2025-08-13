@@ -39,6 +39,11 @@ jobs:
         run: |
           uv pip install -r requirements.txt
 
+      - name: Install optional dependencies
+        shell: bash -l {0}
+        run: |
+          uv pip install 'lsst-ppdb-gcp @ git+https://github.com/lsst-dm/ppdb-gcp@v0.0.22'
+
       # We have two cores so we can speed up the testing with xdist
       - name: Install pytest packages
         shell: bash -l {0}
