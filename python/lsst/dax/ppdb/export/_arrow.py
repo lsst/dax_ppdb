@@ -20,9 +20,12 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from collections.abc import Sequence
+from pathlib import Path
 
 import pyarrow
 from felis.datamodel import DataType
+from lsst.dax.apdb import ApdbTableData
+from pyarrow import parquet
 
 _FELIS_TYPE_MAP = {
     DataType.long: pyarrow.int64(),
@@ -76,3 +79,65 @@ def create_arrow_schema(
     return pyarrow.schema(
         [(name, _felis_to_arrow_type(dtype)) for name, dtype in column_defs if name not in exclude_columns]
     )
+
+
+def write_parquet(
+    table_name: str,
+    table_data: ApdbTableData,
+    file_path: Path,
+    batch_size: int = 1000,
+    compression_format: str = "snappy",
+    exclude_columns: set[str] = {},
+) -> int:
+    """Batch write a table of APDB data to Parquet, excluding specified
+    columns.
+
+    Parameters
+    ----------
+    table_name : str
+        Logical table name (for logging and error messages).
+    table_data : ApdbTableData
+        The APDB table data to write.
+    file_path : Path
+        Destination Parquet file path.
+    excluded_columns : set[str], optional
+        Set of column names to exclude from the Parquet file. These
+        exclusions apply to all of the tables. Default is an empty set,
+        meaning no columns are excluded.
+    """
+    rows = list(table_data.rows())
+    if not rows:
+        return
+
+    # Create Arrow schema from the table data column definitions, excluding
+    # unwanted columns.
+    schema = create_arrow_schema(table_data.column_defs(), exclude_columns=exclude_columns)
+    schema_names = [f.name for f in schema]
+    field_types = {f.name: f.type for f in schema}
+
+    # Map column names to their indices in the rows.
+    col_names = list(table_data.column_names())
+    col_index_by_name = {name: i for i, name in enumerate(col_names)}
+
+    # Check if all schema names are present in the column names.
+    missing = [n for n in schema_names if n not in col_index_by_name]
+    if missing:
+        raise ValueError(f"{table_name}: missing columns in data: {missing}")
+
+    total = len(rows)
+    batch_size = max(1, int(batch_size))
+
+    with parquet.ParquetWriter(file_path, schema, compression=compression_format) as writer:
+        for start in range(0, total, batch_size):
+            stop = min(start + batch_size, total)
+
+            # Create a batch of Arrow arrays for the current slice of rows.
+            batch_arrays: list[pyarrow.Array] = []
+            for name in schema_names:
+                idx = col_index_by_name[name]
+                gen = (rows[r][idx] for r in range(start, stop))
+                batch_arrays.append(pyarrow.array(gen, type=field_types[name]))
+
+            batch_table = pyarrow.Table.from_arrays(batch_arrays, schema=schema)
+            writer.write_table(batch_table)
+    return total

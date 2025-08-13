@@ -27,17 +27,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import astropy
-import pyarrow
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.apdb.versionTuple import VersionTuple
 from lsst.ppdb.gcp.auth import get_auth_default
 from lsst.ppdb.gcp.pubsub import Publisher
-from pyarrow import parquet
 
 from ..config import PpdbConfig
 from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
-from ._arrow import create_arrow_schema
+from ._arrow import write_parquet
 
 __all__ = ["ChunkExporter"]
 
@@ -161,18 +159,18 @@ class ChunkExporter(PpdbReplicaChunkSql):
 
             # Loop over the table data and write each table to a Parquet file.
             for table_name, table_data in table_dict.items():
-                _LOG.info("Exporting %s", table_name)
-
-                # Write the table data to a Parquet file.
+                parquet_file_path = chunk_dir / f"{table_name}.parquet"
                 try:
                     with Timer("write_parquet_time", _LOG, tags={"table": table_name}) as timer:
-                        self._write_parquet(
+                        row_count = write_parquet(
                             table_name,
                             table_data,
-                            chunk_dir / f"{table_name}.parquet",
+                            parquet_file_path,
+                            batch_size=self.batch_size,
+                            compression_format=self.compression_format,
                             exclude_columns={"apdb_replica_chunk", "apdb_replica_subchunk"},
                         )
-                        timer.add_values(row_count=len(table_data.rows()))
+                        timer.add_values(row_count=row_count, path=str(parquet_file_path))
                 except Exception:
                     _LOG.exception("Failed to write %s", table_name)
                     raise
@@ -210,63 +208,6 @@ class ChunkExporter(PpdbReplicaChunkSql):
             str(chunk_id),
         )
         return path
-
-    def _write_parquet(
-        self, table_name: str, table_data: ApdbTableData, file_path: Path, exclude_columns: set[str] = {}
-    ) -> None:
-        """Batch write a table of APDB data to Parquet, excluding specified
-        columns.
-
-        Parameters
-        ----------
-        table_name : str
-            Logical table name (for logging and error messages).
-        table_data : ApdbTableData
-            The APDB table data to write.
-        file_path : Path
-            Destination Parquet file path.
-        excluded_columns : set[str], optional
-            Set of column names to exclude from the Parquet file. These
-            exclusions apply to all of the tables. Default is an empty set,
-            meaning no columns are excluded.
-        """
-        rows = list(table_data.rows())
-        if not rows:
-            return
-
-        # Create Arrow schema from the table data column definitions, excluding
-        # unwanted columns.
-        schema = create_arrow_schema(table_data.column_defs(), exclude_columns=exclude_columns)
-        schema_names = [f.name for f in schema]
-        field_types = {f.name: f.type for f in schema}
-
-        # Map column names to their indices in the rows.
-        col_names = list(table_data.column_names())
-        col_index_by_name = {name: i for i, name in enumerate(col_names)}
-
-        # Check if all schema names are present in the column names.
-        missing = [n for n in schema_names if n not in col_index_by_name]
-        if missing:
-            raise ValueError(f"{table_name}: missing columns in data: {missing}")
-
-        total = len(rows)
-        batch_size = max(1, int(self.batch_size))
-
-        with parquet.ParquetWriter(file_path, schema, compression=self.compression_format) as writer:
-            for start in range(0, total, batch_size):
-                stop = min(start + batch_size, total)
-
-                # Create a batch of Arrow arrays for the current slice of rows.
-                batch_arrays: list[pyarrow.Array] = []
-                for name in schema_names:
-                    idx = col_index_by_name[name]
-                    gen = (rows[r][idx] for r in range(start, stop))
-                    batch_arrays.append(pyarrow.array(gen, type=field_types[name]))
-
-                batch_table = pyarrow.Table.from_arrays(batch_arrays, schema=schema)
-                writer.write_table(batch_table)
-
-        _LOG.info("Wrote %s rows from %s to %s", total, table_name, file_path)
 
     def _post_to_track_chunk_topic(
         self, replica_chunk: ReplicaChunk, status: ChunkStatus, directory: Path
