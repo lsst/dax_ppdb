@@ -25,6 +25,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import astropy
 from lsst.dax.apdb import ApdbTableData, ReplicaChunk
@@ -86,7 +87,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
         super().__init__(config)
         self.schema_version = schema_version
         self.directory = directory
-        if self.directory == "/":
+        if self.directory == Path("/"):
             raise ValueError("Export directory cannot be the root directory ('/').")
         _LOG.info("Directory for chunk export: %s", self.directory)
         self.batch_size = batch_size or 10000
@@ -101,7 +102,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
 
     def _generate_manifest_data(
         self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """Generate the manifest data for the replica chunk."""
         return {
             "chunk_id": str(replica_chunk.id),
@@ -170,7 +171,8 @@ class ChunkExporter(PpdbReplicaChunkSql):
                             compression_format=self.compression_format,
                             exclude_columns={"apdb_replica_chunk", "apdb_replica_subchunk"},
                         )
-                        timer.add_values(row_count=row_count, path=str(parquet_file_path))
+                        timer.add_values(row_count=row_count)
+                    _LOG.info("Wrote %s with %d rows to %s", table_name, row_count, parquet_file_path)
                 except Exception:
                     _LOG.exception("Failed to write %s", table_name)
                     raise

@@ -76,6 +76,8 @@ def create_arrow_schema(
     pyarrow.Schema
         The resulting schema.
     """
+    if exclude_columns is None:
+        exclude_columns = set()
     return pyarrow.schema(
         [(name, _felis_to_arrow_type(dtype)) for name, dtype in column_defs if name not in exclude_columns]
     )
@@ -85,9 +87,9 @@ def write_parquet(
     table_name: str,
     table_data: ApdbTableData,
     file_path: Path,
-    batch_size: int = 1000,
-    compression_format: str = "snappy",
-    exclude_columns: set[str] = {},
+    batch_size: int | None = None,
+    compression_format: str | None = None,
+    exclude_columns: set[str] | None = None,
 ) -> int:
     """Batch write a table of APDB data to Parquet, excluding specified
     columns.
@@ -107,7 +109,16 @@ def write_parquet(
     """
     rows = list(table_data.rows())
     if not rows:
-        return
+        return 0
+
+    if exclude_columns is None:
+        exclude_columns = set()
+
+    if compression_format is None:
+        compression_format = "snappy"
+
+    if batch_size is None:
+        batch_size = 1000
 
     # Create Arrow schema from the table data column definitions, excluding
     # unwanted columns.
