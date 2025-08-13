@@ -1,12 +1,8 @@
 astropy
-google-auth
-google-cloud-storage
-google-cloud-pubsub
 pyarrow
 pyyaml >= 5.1
 sqlalchemy
 lsst-dax-apdb @ git+https://github.com/lsst/dax_apdb@main
-lsst-ppdb-gcp @ git+https://github.com/lsst-dm/ppdb-gcp@v0.0.19
 lsst-utils @ git+https://github.com/lsst/utils@main
 lsst-resources[s3] @ git+https://github.com/lsst/resources@main
 lsst-felis @ git+https://github.com/lsst/felis@main

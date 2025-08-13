@@ -23,17 +23,13 @@ classifiers = [
 keywords = ["lsst"]
 dependencies = [
     "astropy",
-    "google-auth",
-    "google-cloud-storage",
-    "google-cloud-pubsub",
     "pyarrow",
     "pyyaml >= 5.1",
     "sqlalchemy",
     "lsst-felis",
     "lsst-utils",
     "lsst-resources",
-    "lsst-dax-apdb",
-    "lsst-ppdb-gcp",
+    "lsst-dax-apdb"
 ]
 dynamic = ["version"]
 
@@ -44,6 +40,9 @@ dynamic = ["version"]
 test = [
     "pytest >= 3.2",
     "pytest-openfiles >= 0.5.0"
+]
+gcp = [
+    "lsst-ppdb-gcp"
 ]
 
 [tool.setuptools.packages.find]
