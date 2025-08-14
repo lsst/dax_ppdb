@@ -35,7 +35,8 @@ from lsst.dax.ppdbx.gcp.auth import get_auth_default
 from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from ..config import PpdbConfig
-from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunk, PpdbReplicaChunkSql
+from ..ppdb import PpdbReplicaChunk
+from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql, _PpdbReplicaChunk
 
 __all__ = ["ChunkUploader"]
 
@@ -126,7 +127,7 @@ class ChunkUploader:
             # Get replica chunks that have been exported and are ready for
             # upload to cloud storage.
             try:
-                replica_chunks = self._sql.get_replica_chunks(0, status=ChunkStatus.EXPORTED)
+                replica_chunks = self._sql.get_replica_chunks(0, status=ChunkStatus.EXPORTED) or []
             except Exception:
                 # Some problem occurred while retrieving replica chunks.
                 # Log the error and continue to the next iteration or exit if
@@ -137,8 +138,9 @@ class ChunkUploader:
                     sys.exit(1)
                 continue
 
-            if len(replica_chunks) > 0:
-                _LOG.info("Found %d chunks ready for upload", len(replica_chunks))
+            replica_chunk_count = len(list(replica_chunks))
+            if replica_chunk_count > 0:
+                _LOG.info("Found %d chunks ready for upload", replica_chunk_count)
                 for replica_chunk in replica_chunks:
                     try:
                         # Process each replica chunk
@@ -190,6 +192,13 @@ class ChunkUploader:
         """
         # Get the information for the chunk.
         chunk_id = replica_chunk.id
+
+        # FIXME: This type check is needed to make mypy happy until DM-50563 is
+        # resolved.
+        if isinstance(replica_chunk, _PpdbReplicaChunk):
+            chunk_dir = Path(replica_chunk.directory)
+        else:
+            raise TypeError(f"Expected _PpdbReplicaChunk, got {type(replica_chunk)}")
         chunk_dir = Path(replica_chunk.directory)
         _LOG.info("Processing chunk %d in directory %s", chunk_id, chunk_dir)
 
@@ -224,8 +233,7 @@ class ChunkUploader:
             # upload it to GCS.
             manifest = self._update_manifest_uploaded(manifest_data)
             _LOG.info("Generated manifest: %s", manifest)
-            manifest_path = posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json")
-            self._upload_manifest(manifest, manifest_path)
+            self._upload_manifest(manifest, posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json"))
 
             # Update the record for the replica chunk in the database to
             # indicate that it has been uploaded.
