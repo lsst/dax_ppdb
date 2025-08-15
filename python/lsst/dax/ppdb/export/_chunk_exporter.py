@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import astropy
-from lsst.dax.apdb import ApdbTableData, ReplicaChunk
+from lsst.dax.apdb import ApdbTableData, ApdbTables, ReplicaChunk, monitor
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.apdb.versionTuple import VersionTuple
 from lsst.dax.ppdbx.gcp.auth import get_auth_default
@@ -42,6 +42,8 @@ from ..sql._ppdb_replica_chunk_sql import PpdbReplicaChunkSql
 __all__ = ["ChunkExporter"]
 
 _LOG = logging.getLogger(__name__)
+
+_MON = monitor.MonAgent(__name__)
 
 
 class ChunkExporter(PpdbReplicaChunkSql):
@@ -154,16 +156,21 @@ class ChunkExporter(PpdbReplicaChunkSql):
             _LOG.info("Created directory for %s: %s", replica_chunk.id, chunk_dir)
 
             table_dict = {
-                "DiaObject": objects,
-                "DiaSource": sources,
-                "DiaForcedSource": forced_sources,
+                "DiaObject": ApdbTables.DiaObject.value,
+                "DiaSource": ApdbTables.DiaSource.value,
+                "DiaForcedSource": ApdbTables.DiaForcedSource.value,
             }
 
             # Loop over the table data and write each table to a Parquet file.
             for table_name, table_data in table_dict.items():
+                if not table_data.rows():
+                    _LOG.warning("No data for %s in %s, skipping export", table_name, replica_chunk.id)
+                    continue
                 parquet_file_path = chunk_dir / f"{table_name}.parquet"
                 try:
-                    with Timer("write_parquet_time", _LOG, tags={"table": table_name}) as timer:
+                    with Timer(
+                        "write_parquet_time", _MON, tags={"table": table_name, "path": str(parquet_file_path)}
+                    ) as timer:
                         row_count = write_parquet(
                             table_name,
                             table_data,
