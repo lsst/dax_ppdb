@@ -24,16 +24,11 @@ from __future__ import annotations
 __all__ = ["PpdbReplicaChunkSql"]
 
 import datetime
-import os
 
 import astropy.time
 import felis
 import sqlalchemy
-import yaml
-from felis.datamodel import Schema as FelisSchema
 from lsst.dax.apdb import ReplicaChunk, VersionTuple, schema_model
-from lsst.dax.apdb.sql import ModelToSql
-from lsst.resources import ResourcePath
 from sqlalchemy import sql
 
 from ..ppdb import ChunkStatus, PpdbReplicaChunk
@@ -51,140 +46,43 @@ class PpdbReplicaChunkSql(PpdbSql):
     """
 
     @classmethod
-    def _read_schema(
-        cls, schema_file: str | None, schema_name: str | None, felis_schema: str | None, db_url: str
-    ) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
-        # Docstring is inherited from `PpdbSql`.
-        # This method adds several fields to the original ``PpdbReplicaChunk``
-        # table including ``directory`` and ``status``.
-        if schema_file is None:
-            schema_file = os.path.expandvars(cls.default_felis_schema_file)
+    def _create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
+        """Create the ``PpdbReplicaChunk`` table with additional fields for
+        status and directory.
 
-        res = ResourcePath(schema_file)
-        schemas_list = list(yaml.load_all(res.read(), Loader=yaml.SafeLoader))
-        if not schemas_list:
-            raise ValueError(f"Schema file {schema_file!r} does not define any schema")
-        if felis_schema is not None:
-            schemas_list = [schema for schema in schemas_list if schema.get("name") == felis_schema]
-            if not schemas_list:
-                raise ValueError(f"Schema file {schema_file!r} does not define schema {felis_schema!r}")
-        elif len(schemas_list) > 1:
-            raise ValueError(f"Schema file {schema_file!r} defines multiple schemas")
-        schema_dict = schemas_list[0]
+        Parameters
+        ----------
+        table_name : `str`, optional
+            Name of the table to create. If not provided, defaults to
+            "PpdbReplicaChunk".
 
-        # In case we use APDB schema drop tables that are not needed in PPDB.
-        filtered_tables = [
-            table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)
-        ]
-        schema_dict["tables"] = filtered_tables
-        dm_schema: FelisSchema = felis.datamodel.Schema.model_validate(schema_dict)
-        schema = schema_model.Schema.from_felis(dm_schema)
-
-        # Replace schema name with a configured one, just in case it may be
-        # used by someone.
-        if schema_name:
-            schema.name = schema_name
-
-        # Add replica chunk table.
-        table_name = "PpdbReplicaChunk"
-        columns = [
-            schema_model.Column(
-                name="apdb_replica_chunk",
-                id=f"#{table_name}.apdb_replica_chunk",
-                datatype=felis.datamodel.DataType.long,
-            ),
-            schema_model.Column(
-                name="last_update_time",
-                id=f"#{table_name}.last_update_time",
-                datatype=felis.datamodel.DataType.timestamp,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="unique_id",
-                id=f"#{table_name}.unique_id",
-                datatype=schema_model.ExtraDataTypes.UUID,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="replica_time",
-                id=f"#{table_name}.replica_time",
-                datatype=felis.datamodel.DataType.timestamp,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="status",
-                id=f"#{table_name}.status",
-                datatype=felis.datamodel.DataType.string,
-                nullable=True,
-            ),
-            schema_model.Column(
-                name="directory",
-                id=f"#{table_name}.directory",
-                datatype=felis.datamodel.DataType.string,
-                nullable=True,
-            ),
-        ]
-        indices = [
-            schema_model.Index(
-                name="PpdbInsertId_idx_last_update_time",
-                id="#PpdbInsertId_idx_last_update_time",
-                columns=[columns[1]],
-            ),
-            schema_model.Index(
-                name="PpdbInsertId_idx_replica_time",
-                id="#PpdbInsertId_idx_replica_time",
-                columns=[columns[3]],
-            ),
-        ]
-
-        # Add table for replication support.
-        chunks_table = schema_model.Table(
-            name=table_name,
-            id=f"#{table_name}",
-            columns=columns,
-            primary_key=[columns[0]],
-            indexes=indices,
-            constraints=[],
+        Notes
+        -----
+        This overrides the base method to add additional columns for
+        ``status`` and ``directory`` to the replica chunk table schema.
+        """
+        replica_chunk_table = super()._create_replica_chunk_table()
+        replica_chunk_table.columns.extend(
+            [
+                schema_model.Column(
+                    name="status",
+                    id=f"#{table_name}.status",
+                    datatype=felis.datamodel.DataType.string,
+                    nullable=True,
+                ),
+                schema_model.Column(
+                    name="directory",
+                    id=f"#{table_name}.directory",
+                    datatype=felis.datamodel.DataType.string,
+                    nullable=True,
+                ),
+            ]
         )
-        schema.tables.append(chunks_table)
-
-        if schema.version is not None:
-            version = VersionTuple.fromString(schema.version.current)
-        else:
-            # Missing schema version is identical to 0.1.0
-            version = VersionTuple(0, 1, 0)
-
-        metadata = sqlalchemy.schema.MetaData(schema=schema_name)
-
-        converter = ModelToSql(metadata=metadata)
-        converter.make_tables(schema.tables)
-
-        # Add an additional index to DiaObject table to speed up replication.
-        # This is a partial index (Postgres-only), we do not have support for
-        # partial indices in ModelToSql, so we have to do it using sqlalchemy.
-        url = sqlalchemy.engine.make_url(db_url)
-        if url.get_backend_name() == "postgresql":
-            table: sqlalchemy.schema.Table | None = None
-            for table in metadata.tables.values():
-                if table.name == "DiaObject":
-                    name = "IDX_DiaObject_diaObjectId_validityEnd_IS_NULL"
-                    sqlalchemy.schema.Index(
-                        name,
-                        table.columns["diaObjectId"],
-                        postgresql_where=table.columns["validityEnd"].is_(None),
-                    )
-                    break
-            else:
-                # Cannot find table, odd, but what do I know.
-                pass
-
-        return metadata, version
+        return replica_chunk_table
 
     def get_replica_chunks_by_status(self, status: ChunkStatus) -> list[PpdbReplicaChunk]:
         """Return collection of replica chunks known to the database with a
-        given status. This is an alternative to `get_replica_chunks` that
-        allows to filter chunks by status. The original method is left for
-        backward compatibility.
+        given status.
 
         Parameters
         ----------
@@ -195,6 +93,12 @@ class PpdbReplicaChunkSql(PpdbSql):
         -------
         chunks : `list` [`PpdbReplicaChunk`] or `None`
             List of chunks with the specified status.
+
+        Notes
+        -----
+        This is an alternative to `get_replica_chunks` that allows retrieving
+        chunks by their status. The original method is left for backward
+        compatibility, as it is used internally by the replication process.
         """
         table = self._get_table("PpdbReplicaChunk")
         query = sql.select(
@@ -202,8 +106,8 @@ class PpdbReplicaChunkSql(PpdbSql):
             table.columns["last_update_time"],
             table.columns["unique_id"],
             table.columns["replica_time"],
-            table.columns["status"],
-            table.columns["directory"],
+            table.columns["status"],  # New status field
+            table.columns["directory"],  # New directory field
         ).order_by(table.columns["last_update_time"])
         query = query.where(table.columns["status"] == status.value)
         ids: list[PpdbReplicaChunk] = []
@@ -239,8 +143,8 @@ class PpdbReplicaChunkSql(PpdbSql):
         the status and directory of the replica chunk.
         """
         # `astropy.Time.datetime` returns naive datetime, even though all
-        # astropy times are in UTC. Add UTC timezone to timestampt so that
-        # database can store a correct value.
+        # astropy times are in UTC. Add UTC timezone to timestamp so that
+        # the correct value is stored in the database.
         insert_dt = datetime.datetime.fromtimestamp(
             replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
         )
@@ -250,24 +154,10 @@ class PpdbReplicaChunkSql(PpdbSql):
 
         values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
         if status is not None:
+            # Add status to the values to be inserted.
             values["status"] = status.value
         if directory is not None:
+            # Add directory to the values to be inserted.
             values["directory"] = directory
         row = {"apdb_replica_chunk": replica_chunk.id} | values
-        if update:
-            # We need UPSERT which is dialect-specific construct
-            if connection.dialect.name == "sqlite":
-                insert_sqlite = sqlalchemy.dialects.sqlite.insert(table)
-                insert_sqlite = insert_sqlite.on_conflict_do_update(
-                    index_elements=table.primary_key, set_=values
-                )
-                connection.execute(insert_sqlite, row)
-            elif connection.dialect.name == "postgresql":
-                insert_pg = sqlalchemy.dialects.postgresql.dml.insert(table)
-                insert_pg = insert_pg.on_conflict_do_update(constraint=table.primary_key, set_=values)
-                connection.execute(insert_pg, row)
-            else:
-                raise TypeError(f"Unsupported dialect {connection.dialect.name} for upsert.")
-        else:
-            insert = table.insert()
-            connection.execute(insert, row)
+        self._upsert(connection, update, table, values, row)

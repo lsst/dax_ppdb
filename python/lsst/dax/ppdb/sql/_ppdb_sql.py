@@ -50,7 +50,9 @@ from lsst.dax.apdb.timer import Timer
 from lsst.resources import ResourcePath
 from lsst.utils.iteration import chunk_iterable
 from sqlalchemy import sql
+from sqlalchemy.engine import Connection
 from sqlalchemy.pool import NullPool
+from sqlalchemy.sql.schema import Table
 
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
@@ -187,6 +189,67 @@ class PpdbSql(Ppdb):
         return config
 
     @classmethod
+    def _create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
+        """Create the ``PpdbReplicaChunk`` table which will be added to the
+        schema.
+
+        Parameters
+        ----------
+        table_name : `str` or `None`
+            Name of the table to create. If not provided, defaults to
+            "PpdbReplicaChunk".
+        """
+        table_name = table_name or "PpdbReplicaChunk"
+        columns = [
+            schema_model.Column(
+                name="apdb_replica_chunk",
+                id=f"#{table_name}.apdb_replica_chunk",
+                datatype=felis.datamodel.DataType.long,
+            ),
+            schema_model.Column(
+                name="last_update_time",
+                id=f"#{table_name}.last_update_time",
+                datatype=felis.datamodel.DataType.timestamp,
+                nullable=False,
+            ),
+            schema_model.Column(
+                name="unique_id",
+                id=f"#{table_name}.unique_id",
+                datatype=schema_model.ExtraDataTypes.UUID,
+                nullable=False,
+            ),
+            schema_model.Column(
+                name="replica_time",
+                id=f"#{table_name}.replica_time",
+                datatype=felis.datamodel.DataType.timestamp,
+                nullable=False,
+            ),
+        ]
+        indices = [
+            schema_model.Index(
+                name="PpdbInsertId_idx_last_update_time",
+                id="#PpdbInsertId_idx_last_update_time",
+                columns=[columns[1]],
+            ),
+            schema_model.Index(
+                name="PpdbInsertId_idx_replica_time",
+                id="#PpdbInsertId_idx_replica_time",
+                columns=[columns[3]],
+            ),
+        ]
+
+        # Add table for replication support.
+        chunks_table = schema_model.Table(
+            name=table_name,
+            id=f"#{table_name}",
+            columns=columns,
+            primary_key=[columns[0]],
+            indexes=indices,
+            constraints=[],
+        )
+        return chunks_table
+
+    @classmethod
     def _read_schema(
         cls, schema_file: str | None, schema_name: str | None, felis_schema: str | None, db_url: str
     ) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
@@ -240,56 +303,9 @@ class PpdbSql(Ppdb):
         if schema_name:
             schema.name = schema_name
 
-        # Add replica chunk table.
-        table_name = "PpdbReplicaChunk"
-        columns = [
-            schema_model.Column(
-                name="apdb_replica_chunk",
-                id=f"#{table_name}.apdb_replica_chunk",
-                datatype=felis.datamodel.DataType.long,
-            ),
-            schema_model.Column(
-                name="last_update_time",
-                id=f"#{table_name}.last_update_time",
-                datatype=felis.datamodel.DataType.timestamp,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="unique_id",
-                id=f"#{table_name}.unique_id",
-                datatype=schema_model.ExtraDataTypes.UUID,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="replica_time",
-                id=f"#{table_name}.replica_time",
-                datatype=felis.datamodel.DataType.timestamp,
-                nullable=False,
-            ),
-        ]
-        indices = [
-            schema_model.Index(
-                name="PpdbInsertId_idx_last_update_time",
-                id="#PpdbInsertId_idx_last_update_time",
-                columns=[columns[1]],
-            ),
-            schema_model.Index(
-                name="PpdbInsertId_idx_replica_time",
-                id="#PpdbInsertId_idx_replica_time",
-                columns=[columns[3]],
-            ),
-        ]
-
-        # Add table for replication support.
-        chunks_table = schema_model.Table(
-            name=table_name,
-            id=f"#{table_name}",
-            columns=columns,
-            primary_key=[columns[0]],
-            indexes=indices,
-            constraints=[],
-        )
-        schema.tables.append(chunks_table)
+        # Create the PpdbReplicaChunk table and add it to the schema.
+        replica_chunk_table = cls._create_replica_chunk_table()
+        schema.tables.append(replica_chunk_table)
 
         if schema.version is not None:
             version = VersionTuple.fromString(schema.version.current)
@@ -524,22 +540,29 @@ class PpdbSql(Ppdb):
             self._store_table_data(sources, connection, update, "DiaSource", 100)
             self._store_table_data(forced_sources, connection, update, "DiaForcedSource", 1000)
 
-    def _store_insert_id(
-        self, replica_chunk: ReplicaChunk, connection: sqlalchemy.engine.Connection, update: bool
+    def _upsert(
+        self,
+        connection: Connection,
+        update: bool,
+        table: Table,
+        values: dict[str, Any],
+        row: dict[str, Any],
     ) -> None:
-        """Insert or replace single record in PpdbReplicaChunk table"""
-        # `astropy.Time.datetime` returns naive datetime, even though all
-        # astropy times are in UTC. Add UTC timezone to timestampt so that
-        # database can store a correct value.
-        insert_dt = datetime.datetime.fromtimestamp(
-            replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
-        )
-        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
+        """Insert or upsert a row depending on `update` flag.
 
-        table = self._get_table("PpdbReplicaChunk")
-
-        values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
-        row = {"apdb_replica_chunk": replica_chunk.id} | values
+        Parameters
+        ----------
+        connection : sqlalchemy.engine.Connection
+            Active database connection.
+        update : bool
+            Whether to perform an upsert (True) or plain insert (False).
+        table : sqlalchemy.sql.schema.Table
+            The SQLAlchemy table object.
+        values : dict[str, Any]
+            The column-to-value mapping used for the `SET` clause in upsert.
+        row : dict[str, Any]
+            The full row to insert.
+        """
         if update:
             # We need UPSERT which is dialect-specific construct
             if connection.dialect.name == "sqlite":
@@ -557,6 +580,24 @@ class PpdbSql(Ppdb):
         else:
             insert = table.insert()
             connection.execute(insert, row)
+
+    def _store_insert_id(
+        self, replica_chunk: ReplicaChunk, connection: sqlalchemy.engine.Connection, update: bool
+    ) -> None:
+        """Insert or replace single record in PpdbReplicaChunk table"""
+        # `astropy.Time.datetime` returns naive datetime, even though all
+        # astropy times are in UTC. Add UTC timezone to timestampt so that
+        # database can store a correct value.
+        insert_dt = datetime.datetime.fromtimestamp(
+            replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
+        )
+        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
+
+        table = self._get_table("PpdbReplicaChunk")
+
+        values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
+        row = {"apdb_replica_chunk": replica_chunk.id} | values
+        self._upsert(connection, update, table, values, row)
 
     def _store_objects(
         self, objects: ApdbTableData, connection: sqlalchemy.engine.Connection, update: bool
