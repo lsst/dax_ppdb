@@ -42,8 +42,7 @@ test = [
     "pytest-openfiles >= 0.5.0"
 ]
 gcp = [
-    "google-cloud-storage",
-    "lsst-dax-ppdbx-gcp"
+    "lsst-dax-ppdbx-gcp @ git+https://github.com/lsst-dm/dax_ppdbx_gcp@v0.0.28"
 ]
 
 [tool.setuptools.packages.find]

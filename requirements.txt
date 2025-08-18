@@ -6,3 +6,4 @@ lsst-dax-apdb @ git+https://github.com/lsst/dax_apdb@main
 lsst-utils @ git+https://github.com/lsst/utils@main
 lsst-resources[s3] @ git+https://github.com/lsst/resources@main
 lsst-felis @ git+https://github.com/lsst/felis@main
+lsst-dax-ppdbx-gcp @ git+https://github.com/lsst-dm/dax_ppdbx_gcp@v0.0.28
