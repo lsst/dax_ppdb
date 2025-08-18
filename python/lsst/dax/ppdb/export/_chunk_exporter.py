@@ -156,9 +156,9 @@ class ChunkExporter(PpdbReplicaChunkSql):
             _LOG.info("Created directory for %s: %s", replica_chunk.id, chunk_dir)
 
             table_dict = {
-                "DiaObject": ApdbTables.DiaObject.value,
-                "DiaSource": ApdbTables.DiaSource.value,
-                "DiaForcedSource": ApdbTables.DiaForcedSource.value,
+                ApdbTables.DiaObject.value: objects,
+                ApdbTables.DiaSource.value: sources,
+                ApdbTables.DiaForcedSource.value: forced_sources,
             }
 
             # Loop over the table data and write each table to a Parquet file.
