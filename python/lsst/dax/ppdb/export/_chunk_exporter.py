@@ -96,8 +96,10 @@ class ChunkExporter(PpdbReplicaChunkSql):
         self.batch_size = batch_size or 10000
         self.compression_format = compression_format or "snappy"
 
+        # Authenticate with Google Cloud to set credentials and project ID.
         self.credentials, self.project_id = get_auth_default()
 
+        # Initialize the Pub/Sub publisher for tracking chunk exports.
         self.topic_name = topic_name if topic_name else "track-chunk-topic"
         self.publisher = Publisher(self.project_id, self.topic_name)
 
@@ -111,7 +113,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
             "chunk_id": str(replica_chunk.id),
             "unique_id": str(replica_chunk.unique_id),
             "schema_version": str(self.schema_version),
-            "exported_at": str(datetime.now(tz=timezone.utc)),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "last_update_time": str(replica_chunk.last_update_time),  # TAI value
             "table_data": {
                 table_name: {
@@ -245,4 +247,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
             },
         }
 
-        self.publisher.publish(message)
+        self.publisher.publish(message).result(timeout=60)
+        _LOG.info(
+            "Published message to track chunk topic for %s with status %s", replica_chunk.id, status.value
+        )

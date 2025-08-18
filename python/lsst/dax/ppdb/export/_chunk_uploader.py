@@ -24,14 +24,12 @@ import logging
 import posixpath
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from google.cloud import storage
-from lsst.dax.apdb.timer import Timer
 from lsst.dax.ppdbx.gcp.auth import get_auth_default
+from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
 from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from ..config import PpdbConfig
@@ -44,8 +42,10 @@ _LOG = logging.getLogger(__name__)
 
 
 class ChunkUploader:
-    """Scans a local directory tree for chunks that are ready to be uploaded
-    and copies their parquet files to the specified GCS bucket and prefix.
+    """Periodically queries a database to find APDB replica chunk data that is
+    ready to be uploaded to Google Cloud Storage (GCS), copies the chunk's
+    parquet files to the specified GCS bucket and prefix, and publishes a
+    message to a Pub/Sub topic to trigger the staging of the chunk in BigQuery.
 
     Parameters
     ----------
@@ -79,12 +79,13 @@ class ChunkUploader:
     Notes
     -----
     This class runs as a daemon process, continuously checking for new replica
-    chunks to upload by querying the ``PpdbReplicaChunk`` table in the PPDB
-    database. The internal ``exit_on_empty`` flag controls whether the process
-    exits if no new chunks are found after a scan. The process will also exit
-    if there is an exception and the ``exit_on_error`` flag is set to `True`.
-    The ``wait_interval`` controls how often the process will query for new
-    chunks, and the ``upload_interval`` controls how often chunks are uploaded.
+    chunks to upload by querying the ``PpdbReplicaChunk`` table in the "local"
+    PPDB database. The internal ``exit_on_empty`` flag controls whether the
+    process exits if no new chunks are found after a scan. The process will
+    also exit if there is an exception and the ``exit_on_error`` flag is set to
+    `True`. The ``wait_interval`` controls how often the process will query for
+    new chunks, and the ``upload_interval`` controls how often chunks are
+    uploaded.
     """
 
     def __init__(
@@ -108,11 +109,13 @@ class ChunkUploader:
         self.exit_on_empty = exit_on_empty
         self.exit_on_error = exit_on_error
 
+        # Authenticate with Google Cloud to set credentials and project ID.
         self.credentials, self.project_id = get_auth_default()
 
-        self.client = storage.Client()
-        self.bucket = self.client.bucket(self.bucket_name)
+        # Initialize the storage client for interacting with GCS.
+        self.storage = StorageClient(bucket_name=self.bucket_name)
 
+        # Initialize the Pub/Sub publisher for staging chunks in BigQuery.
         self.topic_name = topic if topic else "stage-chunk-topic"
         self.publisher = Publisher(self.project_id, self.topic_name)
 
@@ -124,12 +127,12 @@ class ChunkUploader:
         while True:
             _LOG.info("Checking for new replica chunks to upload...")
 
-            # Get replica chunks that have been exported and are ready for
-            # upload to cloud storage.
             try:
+                # Get replica chunks that have been exported and are ready for
+                # upload to cloud storage.
                 replica_chunks = self._sql.get_replica_chunks_by_status(status=ChunkStatus.EXPORTED)
             except Exception:
-                # Some problem occurred while retrieving replica chunks.
+                # Some problem occurred while retrieving replica chunk data.
                 # Log the error and continue to the next iteration or exit if
                 # configured to do so.
                 _LOG.exception("Failed to retrieve replica chunks from the database.")
@@ -172,11 +175,11 @@ class ChunkUploader:
             if self.wait_interval > 0:
                 # If wait_interval is set, wait a certain amount of time before
                 # checking for new replica chunks again.
-                _LOG.info("Sleeping for %d seconds before next scan...", self.wait_interval)
+                _LOG.info("Sleeping for %d seconds before checking for more chunks...", self.wait_interval)
                 time.sleep(self.wait_interval)
 
     def _process_chunk(self, replica_chunk: PpdbReplicaChunk) -> None:
-        """Process a replica chunk by uploading its Parquet files and a
+        """Process a replica chunk by uploading its parquet files and a
         JSON manifest to Google Cloud Storage.
 
         Parameters
@@ -220,16 +223,36 @@ class ChunkUploader:
             gcs_names = {file: posixpath.join(gcs_prefix, file.name) for file in parquet_files}
 
             # TODO: Check if any of the files already exist in GCS and raise an
-            # exception if they do.
+            # exception if they do. There should probably also be a flag to
+            # allow overwriting existing files for development and test envs.
 
-            # Upload Parquet files to GCS.
-            self._upload_files(gcs_names)
+            try:
+                # Upload Parquet files to GCS.
+                self.storage.upload_files(gcs_names)
+            except* UploadError as upload_errors:
+                # If any uploads failed, display the error that occurred for
+                # each upload, including the traceback, and then raise a single
+                # RuntimeError.
+                for upload_error in upload_errors.exceptions:
+                    _LOG.error(
+                        "%s",
+                        upload_error,
+                        exc_info=(type(upload_error), upload_error, upload_error.__traceback__),
+                    )
+                raise RuntimeError(
+                    f"{len(upload_errors.exceptions)} uploads failed for chunk {chunk_id}"
+                ) from upload_errors
 
             # Create the cloud manifest from the local one, update it, and then
             # upload it to GCS.
             manifest = self._update_manifest_uploaded(manifest_data)
             _LOG.info("Generated manifest: %s", manifest)
-            self._upload_manifest(manifest, posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json"))
+            try:
+                self.storage.upload_from_string(
+                    json.dumps(manifest), posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json")
+                )
+            except UploadError as e:
+                raise RuntimeError(f"Failed to upload manifest for chunk {chunk_id} to GCS: {e}") from e
 
             # Update the record for the replica chunk in the database to
             # indicate that it has been uploaded.
@@ -254,7 +277,15 @@ class ChunkUploader:
             try:
                 # Recursively delete objects under the GCS prefix if the upload
                 # fails.
-                self._delete_objects(gcs_prefix)
+                try:
+                    self.storage.delete_objects(gcs_prefix)
+                except DeleteError as delete_error:
+                    _LOG.error(
+                        "Failed to delete objects under prefix %s: %s",
+                        gcs_prefix,
+                        delete_error,
+                        exc_info=True,
+                    )
 
                 # Update the local manifest to indicate that a failure
                 # occurred.
@@ -285,79 +316,6 @@ class ChunkUploader:
         manifest_data["error"] = str(error) if isinstance(error, Exception) else error
         with open(manifest_path, "w") as f:
             json.dump(manifest_data, f, indent=4)
-
-    def _upload_files(self, gcs_names: dict[Path, str]) -> None:
-        """Upload files to GCS in parallel using a thread pool executor.
-
-        Parameters
-        ----------
-        gcs_names : `dict`
-            A dictionary mapping local file paths to GCS names.
-        """
-        with ThreadPoolExecutor() as executor:
-            futures = [
-                executor.submit(self._upload_single_file, file, path) for file, path in gcs_names.items()
-            ]
-            _LOG.debug("Uploading %d files to GCS", len(futures))
-            for future in as_completed(futures):
-                try:
-                    future.result()  # Trigger exception, if any.
-                except Exception:
-                    _LOG.exception("Error uploading file")
-                    raise
-
-    def _upload_single_file(self, file_path: Path, gcs_name: str) -> None:
-        """Upload a single file to GCS.
-
-        Parameters
-        ----------
-        file_path : `Path`
-            The local file path to upload.
-        gcs_name : `str`
-            The target GCS path.
-        """
-        blob = self.bucket.blob(gcs_name)
-        try:
-            with Timer("upload_parquet", _LOG, tags={"name": gcs_name}):
-                blob.upload_from_filename(file_path)
-        except Exception:
-            _LOG.exception("Failed to upload %s", file_path)
-            raise
-
-    def _upload_manifest(self, manifest: dict[str, str], gcs_name: str) -> None:
-        """Upload the manifest file to GCS.
-
-        Parameters
-        ----------
-        manifest : `dict`
-            The manifest data to upload.
-        gcs_name : `str`
-            The target GCS name for the manifest file.
-        """
-        blob = self.bucket.blob(gcs_name)
-        try:
-            blob.upload_from_string(json.dumps(manifest), content_type="application/json")
-            _LOG.info("Uploaded manifest to %s", gcs_name)
-        except Exception:
-            _LOG.exception("Failed to upload manifest")
-            raise
-
-    def _delete_objects(self, gcs_prefix: str) -> None:
-        """Recursively delete all objects under a GCS prefix.
-
-        Parameters
-        ----------
-        gcs_prefix : `str`
-            The GCS prefix to recursively delete.
-        """
-        try:
-            blobs = self.bucket.list_blobs(prefix=gcs_prefix)
-            for blob in blobs:
-                blob.delete()
-                _LOG.debug("Deleted GCS object: %s", blob.name)
-        except Exception as e:
-            raise RuntimeError(f"Failed to delete objects under prefix {gcs_prefix}") from e
-        _LOG.info("Deleted all objects under GCS prefix: %s", gcs_prefix)
 
     def _update_manifest_uploaded(self, manifest_data: dict[str, Any]) -> dict[str, Any]:
         """Generate a manifest file for the chunk.
