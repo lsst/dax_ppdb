@@ -19,15 +19,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 import json
 import logging
 import posixpath
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lsst.dax.apdb import monitor
+from lsst.dax.apdb.timer import Timer
 from lsst.dax.ppdbx.gcp.auth import get_auth_default
 from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
 from lsst.dax.ppdbx.gcp.pubsub import Publisher
@@ -36,9 +39,19 @@ from ..config import PpdbConfig
 from ..ppdb import PpdbReplicaChunk
 from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
 
-__all__ = ["ChunkUploader"]
+__all__ = ["ChunkUploader", "ChunkUploadError"]
 
 _LOG = logging.getLogger(__name__)
+
+_MON = monitor.MonAgent(__name__)
+
+
+class ChunkUploadError(RuntimeError):
+    """Top-level error for failures while processing a single chunk."""
+
+    def __init__(self, chunk_id: int, message: str) -> None:
+        self.chunk_id = chunk_id
+        super().__init__(f"[chunk_id={chunk_id}] {message}")
 
 
 class ChunkUploader:
@@ -49,8 +62,8 @@ class ChunkUploader:
 
     Parameters
     ----------
-    config : `str`
-        The PPDB database config file.
+    config : `PpdbConfig`
+        The configuration object containing database connection details.
     bucket_name : `str`
         The name of the Google Cloud Storage bucket for upload.
     prefix : `str`
@@ -135,48 +148,39 @@ class ChunkUploader:
                 # Some problem occurred while retrieving replica chunk data.
                 # Log the error and continue to the next iteration or exit if
                 # configured to do so.
-                _LOG.exception("Failed to retrieve replica chunks from the database.")
+                _LOG.exception("Failed to retrieve replica chunks from the database")
                 if self.exit_on_error:
-                    _LOG.error("Exiting due to error in retrieving replica chunks.")
-                    sys.exit(1)
+                    raise SystemExit(1)
+                self._sleep_if(self.wait_interval)
                 continue
 
-            replica_chunk_count = len(replica_chunks)
-            if replica_chunk_count > 0:
-                _LOG.info("Found %d chunks ready for upload", replica_chunk_count)
+            if replica_chunks:
+                _LOG.info("Found %d replica chunks ready for upload", len(replica_chunks))
                 for replica_chunk in replica_chunks:
                     try:
                         # Process each replica chunk
+                        _LOG.info("Processing %d", replica_chunk.id)
                         self._process_chunk(replica_chunk)
-                    except Exception:
-                        # Some error occurred while processing the chunk.
-                        # Log the error and continue to the next chunk or
-                        # exit if configured to do so.
-                        _LOG.exception("Failed to process replica chunk %s", replica_chunk.id)
+                    except ChunkUploadError:
+                        _LOG.exception("Processing failed for %s", replica_chunk.id)
                         if self.exit_on_error:
-                            _LOG.error(
-                                "Exiting due to error in processing replica chunk %s", replica_chunk.id
-                            )
-                            sys.exit(1)
-                    _LOG.info("Done processing %s", replica_chunk.id)
-                    if self.upload_interval > 0:
-                        # If upload_interval is set, wait a certain amount of
-                        # time before processing the next chunk.
-                        _LOG.info("Sleeping for %d seconds before next upload", self.upload_interval)
-                        time.sleep(self.upload_interval)
+                            raise SystemExit(1)
+                    except Exception:
+                        _LOG.exception("Unexpected error while processing %s", replica_chunk.id)
+                        if self.exit_on_error:
+                            raise SystemExit(1)
+                    else:
+                        _LOG.info("Finished processing %s", replica_chunk.id)
+                        self._sleep_if(self.upload_interval)
             else:
                 # No replica chunks were found for upload.
                 # Log the information and check if we should exit.
                 _LOG.info("No replica chunks were found for upload.")
                 if self.exit_on_empty:
-                    _LOG.info("Exiting as no ready replica chunks were found.")
+                    _LOG.info("Exiting: no ready replica chunks were found.")
                     break
 
-            if self.wait_interval > 0:
-                # If wait_interval is set, wait a certain amount of time before
-                # checking for new replica chunks again.
-                _LOG.info("Sleeping for %d seconds before checking for more chunks...", self.wait_interval)
-                time.sleep(self.wait_interval)
+            self._sleep_if(self.wait_interval)
 
     def _process_chunk(self, replica_chunk: PpdbReplicaChunk) -> None:
         """Process a replica chunk by uploading its parquet files and a
@@ -189,174 +193,131 @@ class ChunkUploader:
 
         Raises
         ------
-        RuntimeError
-            If no parquet files are found in the chunk directory or if the
-            processing fails for any reason.
+        ChunkUploadError
+            If there is an error during the upload process, such as missing
+            files, upload failures, or database update issues.
         """
-        # Get the information for the chunk.
         chunk_id = replica_chunk.id
 
         if replica_chunk.directory is None:
-            raise RuntimeError(f"Replica chunk {chunk_id} does not have a directory specified.")
+            raise ChunkUploadError(chunk_id, "No directory specified on replica chunk")
         chunk_dir = Path(replica_chunk.directory)
-        _LOG.info("Processing chunk %d in directory %s", chunk_id, chunk_dir)
 
-        # Get the local manifest file for the chunk.
         manifest_path = chunk_dir / f"chunk_{chunk_id}.manifest.json"
         if not manifest_path.exists():
-            raise RuntimeError(f"Manifest file {manifest_path} does not exist for chunk {chunk_id}")
-        manifest_data = json.loads(manifest_path.read_text())
+            raise ChunkUploadError(chunk_id, f"Manifest file does not exist: {manifest_path}")
 
-        # Set the GCS prefix for the chunk.
-        exported_at = datetime.fromisoformat(manifest_data.get("exported_at"))
-        gcs_prefix = posixpath.join(self.prefix, f"chunks/{exported_at.strftime('%Y/%m/%d')}/{chunk_id}")
-        _LOG.info("GCS path for chunk %d: %s", chunk_id, gcs_prefix)
-
-        # Get the Parquet files for the chunk and raise an error if there are
-        # no files found in the chunk directory.
-        parquet_files = list(chunk_dir.glob("*.parquet"))
-        if not parquet_files:
-            raise RuntimeError(f"No parquet files found in chunk directory {chunk_dir}")
+        manifest_data: dict[str, Any] | None = None
+        try:
+            manifest_data = json.loads(manifest_path.read_text())
+        except Exception as e:
+            raise ChunkUploadError(chunk_id, f"Failed to read/parse manifest: {manifest_path}") from e
 
         try:
-            # Create full object names for the Parquet files.
-            gcs_names = {file: posixpath.join(gcs_prefix, file.name) for file in parquet_files}
+            exported_at_raw = manifest_data["exported_at"]
+            exported_at = datetime.fromisoformat(exported_at_raw)
+        except Exception as e:
+            raise ChunkUploadError(chunk_id, "Invalid or missing 'exported_at' in manifest") from e
 
-            # TODO: Check if any of the files already exist in GCS and raise an
-            # exception if they do. There should probably also be a flag to
-            # allow overwriting existing files for development and test envs.
+        gcs_prefix = posixpath.join(self.prefix, f"chunks/{exported_at.strftime('%Y/%m/%d')}/{chunk_id}")
+        parquet_files = list(chunk_dir.glob("*.parquet"))
+        if not parquet_files:
+            raise ChunkUploadError(chunk_id, f"No parquet files found in {chunk_dir}")
 
+        uploads_completed = False
+
+        try:
+            # 1) Upload parquet files (may raise ExceptionGroup[UploadError]).
+            gcs_names = {path: posixpath.join(gcs_prefix, path.name) for path in parquet_files}
             try:
-                # Upload Parquet files to GCS.
-                self.storage.upload_files(gcs_names)
-            except* UploadError as upload_errors:
-                # If any uploads failed, display the error that occurred for
-                # each upload, including the traceback, and then raise a single
-                # RuntimeError.
-                for upload_error in upload_errors.exceptions:
-                    _LOG.error(
-                        "%s",
-                        upload_error,
-                        exc_info=(type(upload_error), upload_error, upload_error.__traceback__),
-                    )
-                raise RuntimeError(
-                    f"{len(upload_errors.exceptions)} uploads failed for chunk {chunk_id}"
-                ) from upload_errors
+                _LOG.info("Uploading %d parquet files to GCS under prefix: %s", len(gcs_names), gcs_prefix)
+                with Timer(
+                    "upload_files_time", _MON, tags={"prefix": str(gcs_prefix), "chunk_id": str(chunk_id)}
+                ) as timer:
+                    self.storage.upload_files(gcs_names)
+                    timer.add_values(file_count=len(gcs_names))
+            except* UploadError as eg:
+                raise ChunkUploadError(chunk_id, f"{len(eg.exceptions)} upload(s) failed") from eg
 
-            # Create the cloud manifest from the local one, update it, and then
-            # upload it to GCS.
+            uploads_completed = True
+
+            # 2) Upload manifest (single UploadError on failure).
             manifest = self._update_manifest_uploaded(manifest_data)
-            _LOG.info("Generated manifest: %s", manifest)
             try:
                 self.storage.upload_from_string(
-                    json.dumps(manifest), posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json")
+                    posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json"),
+                    json.dumps(manifest),
                 )
             except UploadError as e:
-                raise RuntimeError(f"Failed to upload manifest for chunk {chunk_id} to GCS: {e}") from e
+                raise ChunkUploadError(chunk_id, "Manifest upload failed") from e
 
-            # Update the record for the replica chunk in the database to
-            # indicate that it has been uploaded.
+            # 3) Update DB status.
             try:
                 with self._sql._engine.begin() as connection:
                     self._sql._store_insert_id(
                         replica_chunk,
                         connection,
-                        True,  # Update the chunk as exported
+                        True,
                         status=ChunkStatus.UPLOADED,
                     )
-            except Exception:
-                _LOG.exception("Failed to update replica chunk %s in database", replica_chunk.id)
-                raise
+            except Exception as e:
+                raise ChunkUploadError(chunk_id, "failed to update replica chunk status in database") from e
 
-            # Post to the Pub/Sub topic, triggering the staging of the chunk
-            # in BigQuery. This happens after the database to ensure state
-            # consistency.
-            self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix, chunk_id)
-
-        except Exception as e:
+            # 4) Publish Pub/Sub staging message.
             try:
-                # Recursively delete objects under the GCS prefix if the upload
-                # fails.
+                self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix, chunk_id)
+            except Exception as e:
+                raise ChunkUploadError(chunk_id, "failed to publish staging message") from e
+
+        except ChunkUploadError as err:
+            # Best-effort cleanup only if parquet uploads did not complete.
+            if not uploads_completed:
                 try:
-                    self.storage.delete_objects(gcs_prefix)
-                except DeleteError as delete_error:
-                    _LOG.error(
-                        "Failed to delete objects under prefix %s: %s",
-                        gcs_prefix,
-                        delete_error,
-                        exc_info=True,
+                    self.storage.delete_recursive(gcs_prefix)
+                except DeleteError as cleanup_err:
+                    # Note (Python 3.11+): annotate without masking the
+                    # original error.
+                    err.add_note(
+                        f"cleanup warning: failed to delete "
+                        f"gs://{posixpath.join(self.bucket_name, gcs_prefix)}: {cleanup_err}"
+                    )
+            # Try to mark the local manifest with the failure.
+            if manifest_data is not None:
+                try:
+                    self._update_manifest_failure(manifest_path, manifest_data, err)
+                except Exception as e:
+                    _LOG.warning(
+                        "Failed to update manifest %s with failure message: %s",
+                        manifest_path,
+                        e,
                     )
 
-                # Update the local manifest to indicate that a failure
-                # occurred.
-                self._update_manifest_failure(manifest_path, manifest_data, e)
-            except Exception:
-                _LOG.exception("Error cleaning up after failed upload")
-            finally:
-                raise RuntimeError(
-                    "Processing failed to upload chunk %s to %s",
-                    chunk_dir.name,
-                    f"gc://{self.bucket_name}/{gcs_prefix}",
-                ) from e
+            raise
 
     def _update_manifest_failure(
         self, manifest_path: Path, manifest_data: dict[str, Any], error: Exception | str
     ) -> None:
-        """Update the manifest file to indicate a failure.
-
-        Parameters
-        ----------
-        manifest_path : `Path`
-            The path to the manifest file.
-        error : `Exception`
-            The exception that occurred during processing.
-        """
-        if not manifest_path.exists():
-            raise RuntimeError(f"Manifest file {manifest_path} does not exist, cannot update failure")
-        manifest_data["error"] = str(error) if isinstance(error, Exception) else error
+        """Best-effort: mark the manifest with a failure message."""
+        manifest = dict(manifest_data)
+        manifest["error"] = str(error) if isinstance(error, Exception) else error
         with open(manifest_path, "w") as f:
-            json.dump(manifest_data, f, indent=4)
+            json.dump(manifest, f, indent=4)
 
     def _update_manifest_uploaded(self, manifest_data: dict[str, Any]) -> dict[str, Any]:
-        """Generate a manifest file for the chunk.
-
-        This just copies the local manifest data and updates it with some
-        additional information.
-
-        Parameters
-        ----------
-        manifest data : `dict`
-            The manifest data for the chunk, including when it was exported and
-            other relevant information.
-
-        Returns
-        -------
-        manifest : `dict`
-            The manifest data.
-        """
-        manifest = manifest_data.copy()
+        manifest = dict(manifest_data)
         manifest["uploaded_at"] = datetime.now(tz=timezone.utc).isoformat()
         return manifest
 
     def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_prefix: str, chunk_id: int) -> None:
-        """Publish a message to the 'stage-chunk-topic' Pub/Sub topic.
-
-        This will trigger the staging of the chunk in BigQuery.
-
-        Parameters
-        ----------
-        bucket_name : str
-            The name of the GCS bucket.
-        chunk_prefix : str
-            The prefix to the chunk in the bucket.
-        chunk_id : int
-            The ID of the chunk being staged.
-        """
-        # Construct the message payload
         message = {
             "dataset": self.dataset,
             "chunk_id": str(chunk_id),
             "folder": f"gs://{posixpath.join(bucket_name, chunk_prefix)}",
         }
+        self.publisher.publish(message).result(timeout=60)
 
-        self.publisher.publish(message)
+    @staticmethod
+    def _sleep_if(seconds: int) -> None:
+        if seconds > 0:
+            _LOG.debug("Sleeping for %d seconds...", seconds)
+            time.sleep(seconds)
