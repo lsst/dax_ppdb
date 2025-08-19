@@ -78,6 +78,8 @@ def _onSqlite3Connect(
 
 
 class PpdbSqlConfig(PpdbConfig):
+    """Configuration for the `PpdbSql` class."""
+
     db_url: str
     """SQLAlchemy database connection URI."""
 
@@ -107,6 +109,8 @@ class PpdbSqlConfig(PpdbConfig):
 
 
 class PpdbSql(Ppdb):
+    """Implementation of `Ppdb` using a SQL database."""
+
     default_felis_schema_file = "${SDM_SCHEMAS_DIR}/yml/apdb.yaml"
 
     meta_schema_version_key = "version:schema"
