@@ -63,12 +63,6 @@ tables:
     datatype: float
     description: Parallax.
     mysql:datatype: FLOAT
-  - name: lastNonForcedSource
-    "@id": "#DiaObject.lastNonForcedSource"
-    datatype: timestamp
-    nullable: false
-    description: Last time when non-forced DIASource was seen for this object.
-    mysql:datatype: DATETIME
   - name: nDiaSources
     "@id": "#DiaObject.nDiaSources"
     datatype: int
@@ -341,12 +335,6 @@ tables:
     description: Decl-coordinate of the position of the object at time radecTai.
     ivoa:ucd: pos.eq.dec
     fits:tunit: deg
-  - name: lastNonForcedSource
-    "@id": "#DiaObjectLast.lastNonForcedSource"
-    datatype: timestamp
-    nullable: false
-    description: Last time when non-forced DIASource was seen for this object.
-    mysql:datatype: DATETIME
   - name: nDiaSources
     "@id": "#DiaObjectLast.nDiaSources"
     datatype: int
