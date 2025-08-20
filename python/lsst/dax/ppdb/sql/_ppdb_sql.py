@@ -131,6 +131,12 @@ class PpdbSql(Ppdb):
         # Check schema version compatibility
         self._versionCheck(self._metadata, schema_version)
 
+        # Check if schema uses MJD TAI for timestamps (DM-52215).
+        self._use_mjd_tai = False
+        for table in self._sa_metadata.tables.values():
+            if table.name == "DiaObject":
+                self._use_mjd_tai = "validityStartMjdTai" in table.columns
+
     @classmethod
     def init_database(
         cls,
@@ -296,6 +302,22 @@ class PpdbSql(Ppdb):
         converter = ModelToSql(metadata=metadata)
         converter.make_tables(schema.tables)
 
+        # Check if schema uses MJD TAI for timestamps (DM-52215). This is not
+        # super-efficient, but I do not want to improve dax_apdb at this point.
+        use_mjd_tai = False
+        for schema_table in schema.tables:
+            if schema_table.name == "DiaObject":
+                for column in schema_table.columns:
+                    if column.name == "validityStartMjdTai":
+                        use_mjd_tai = True
+                        break
+                break
+
+        if use_mjd_tai:
+            validity_end_column = "validityEndMjdTai"
+        else:
+            validity_end_column = "validityEnd"
+
         # Add an additional index to DiaObject table to speed up replication.
         # This is a partial index (Postgres-only), we do not have support for
         # partial indices in ModelToSql, so we have to do it using sqlalchemy.
@@ -304,11 +326,11 @@ class PpdbSql(Ppdb):
             table: sqlalchemy.schema.Table | None = None
             for table in metadata.tables.values():
                 if table.name == "DiaObject":
-                    name = "IDX_DiaObject_diaObjectId_validityEnd_IS_NULL"
+                    name = f"IDX_DiaObject_diaObjectId_{validity_end_column}_IS_NULL"
                     sqlalchemy.schema.Index(
                         name,
                         table.columns["diaObjectId"],
-                        postgresql_where=table.columns["validityEnd"].is_(None),
+                        postgresql_where=table.columns[validity_end_column].is_(None),
                     )
                     break
             else:
@@ -544,6 +566,13 @@ class PpdbSql(Ppdb):
 
         table = self._get_table("DiaObject")
 
+        if self._use_mjd_tai:
+            validity_start_column = "validityStartMjdTai"
+            validity_end_column = "validityEndMjdTai"
+        else:
+            validity_start_column = "validityStart"
+            validity_end_column = "validityEnd"
+
         with Timer("update_validity_time", _MON, tags={"table": table.name}) as timer:
             # We need to fill validityEnd column for the previously stored
             # objects that have new records. Window function is used here to
@@ -556,41 +585,41 @@ class PpdbSql(Ppdb):
                 select_cte = sqlalchemy.cte(
                     sqlalchemy.select(
                         table.columns["diaObjectId"],
-                        table.columns["validityStart"],
-                        table.columns["validityEnd"],
+                        table.columns[validity_start_column],
+                        table.columns[validity_end_column],
                         sqlalchemy.func.rank()
                         .over(
                             partition_by=table.columns["diaObjectId"],
-                            order_by=table.columns["validityStart"],
+                            order_by=table.columns[validity_start_column],
                         )
                         .label("rank"),
                     ).where(
                         sqlalchemy.and_(
                             table.columns["diaObjectId"].in_(chunk),
-                            table.columns["validityEnd"] == None,  # noqa: E711
+                            table.columns[validity_end_column] == None,  # noqa: E711
                         )
                     )
                 )
                 sub1 = select_cte.alias("s1")
                 sub2 = select_cte.alias("s2")
-                new_end = sql.select(sub2.columns["validityStart"]).select_from(
+                new_end = sql.select(sub2.columns[validity_start_column]).select_from(
                     sub1.join(
                         sub2,
                         sqlalchemy.and_(
                             sub1.columns["diaObjectId"] == sub2.columns["diaObjectId"],
                             sub1.columns["rank"] + sqlalchemy.literal(1) == sub2.columns["rank"],
                             sub1.columns["diaObjectId"] == table.columns["diaObjectId"],
-                            sub1.columns["validityStart"] == table.columns["validityStart"],
+                            sub1.columns[validity_start_column] == table.columns[validity_start_column],
                         ),
                     )
                 )
                 stmt = (
                     table.update()
-                    .values(validityEnd=new_end.scalar_subquery())
+                    .values(**{validity_end_column: new_end.scalar_subquery()})
                     .where(
                         sqlalchemy.and_(
                             table.columns["diaObjectId"].in_(chunk),
-                            table.columns["validityEnd"] == None,  # noqa: E711
+                            table.columns[validity_end_column] == None,  # noqa: E711
                         )
                     )
                 )
