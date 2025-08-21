@@ -68,12 +68,12 @@ def create_arrow_schema(
     ----------
     column_defs : sequence of (str, DataType)
         Column name and type pairs.
-    exclude_columns : list of str, optional
+    exclude_columns : `set` [`str`], optional
         Column names to exclude from the schema.
 
     Returns
     -------
-    pyarrow.Schema
+    schema : `pyarrow.Schema`
         The resulting schema.
     """
     if exclude_columns is None:
@@ -96,16 +96,26 @@ def write_parquet(
 
     Parameters
     ----------
-    table_name : str
+    table_name : `str`
         Logical table name (for logging and error messages).
-    table_data : ApdbTableData
+    table_data : `lsst.dax.apdb.ApdbTableData`
         The APDB table data to write.
-    file_path : Path
+    file_path : `pathlib.Path`
         Destination Parquet file path.
-    excluded_columns : set[str], optional
+    excluded_columns : `set` [ `str` ], optional
         Set of column names to exclude from the Parquet file. These
         exclusions apply to all of the tables. Default is an empty set,
         meaning no columns are excluded.
+    batch_size : `int`, optional
+        Number of rows to write in each batch. If `None`, defaults to 1000
+    compression_format : `str`, optional
+        Compression format to use for the Parquet file. If `None`, defaults
+        to "snappy".
+
+    Returns
+    -------
+    total : `int`
+        Total number of rows written to the Parquet file.
     """
     rows = list(table_data.rows())
     if not rows:
