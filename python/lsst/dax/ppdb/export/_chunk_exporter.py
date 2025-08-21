@@ -190,14 +190,14 @@ class ChunkExporter(PpdbReplicaChunkSql):
                 manifest_data = self._generate_manifest_data(replica_chunk, table_dict)
                 _LOG.info("Created manifest for %s: %s", replica_chunk.id, manifest_data)
             except Exception:
-                _LOG.exception("Failed to create manifest for %s", table_name)
+                _LOG.exception("Failed to create manifest for %d", replica_chunk.id)
                 raise
 
             # Write manifest data to a JSON file.
             try:
                 ChunkExporter._write_manifest(manifest_data, chunk_dir, replica_chunk)
             except Exception:
-                _LOG.exception("Failed to write manifest file for %s", table_name)
+                _LOG.exception("Failed to write manifest file for %d", replica_chunk.id)
                 raise
         except Exception:
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
