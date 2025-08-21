@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import posixpath
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -152,7 +153,7 @@ class ChunkUploader:
                 # configured to do so.
                 _LOG.exception("Failed to retrieve replica chunks from the database")
                 if self.exit_on_error:
-                    raise SystemExit(1)
+                    sys.exit(1)
                 self._sleep_if(self.wait_interval)
                 continue
 
@@ -166,11 +167,11 @@ class ChunkUploader:
                     except ChunkUploadError:
                         _LOG.exception("Processing failed for %s", replica_chunk.id)
                         if self.exit_on_error:
-                            raise SystemExit(1)
+                            sys.exit(1)
                     except Exception:
                         _LOG.exception("Unexpected error while processing %s", replica_chunk.id)
                         if self.exit_on_error:
-                            raise SystemExit(1)
+                            sys.exit(1)
                     else:
                         _LOG.info("Finished processing %s", replica_chunk.id)
                         self._sleep_if(self.upload_interval)
