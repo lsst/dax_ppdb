@@ -33,7 +33,7 @@ _FELIS_TYPE_MAP = {
     DataType.char: pyarrow.string(),
     DataType.double: pyarrow.float64(),
     DataType.int: pyarrow.int32(),
-    DataType.float: pyarrow.float64(),
+    DataType.float: pyarrow.float32(),
     DataType.short: pyarrow.int16(),
     DataType.timestamp: pyarrow.timestamp("ms", tz="UTC"),
     DataType.string: pyarrow.string(),
