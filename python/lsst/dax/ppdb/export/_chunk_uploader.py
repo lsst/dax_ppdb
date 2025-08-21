@@ -91,14 +91,16 @@ class ChunkUploader:
 
     Notes
     -----
-    This class runs as a daemon process, continuously checking for new replica
-    chunks to upload by querying the ``PpdbReplicaChunk`` table in the "local"
-    PPDB database. The internal ``exit_on_empty`` flag controls whether the
-    process exits if no new chunks are found after a scan. The process will
-    also exit if there is an exception and the ``exit_on_error`` flag is set to
-    `True`. The ``wait_interval`` controls how often the process will query for
-    new chunks, and the ``upload_interval`` controls how often chunks are
-    uploaded.
+    This class checks for new APDB replica chunks to upload by querying the
+    ``PpdbReplicaChunk`` table in the PPDB (Postgres) database. Chunks with a
+    status of "exported", meaning their table data has been written locally
+    to parquet files, will be uploaded to a Google Cloud Storage (GCS) bucket.
+    The `exit_on_empty` flag controls whether the process exits if no new
+    chunks are found after a query. The process will also exit if there is an
+    exception and the `exit_on_error` flag is set to `True`. The
+    `wait_interval` controls how often the process will query the database for
+    new chunks, and the `upload_interval` controls the wait interval between
+    uploading the files for a single chunk.
     """
 
     def __init__(

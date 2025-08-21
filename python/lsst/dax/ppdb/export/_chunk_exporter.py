@@ -224,9 +224,8 @@ class ChunkExporter(PpdbReplicaChunkSql):
     ) -> None:
         """Publish a message to the 'track-chunk-topic' Pub/Sub topic.
 
-        This will add a new record to the chunk tracking database with status
-        of 'exported'. The chunk uploader process will then pick up this record
-        and copy the chunk into cloud storage.
+        This will add a new record to the ``PpdbReplicaChunk`` table in the
+        Postgres database used to track APDB replica chunks.
         """
         # Convert last_update_time and replica_time to UTC datetime
         last_update_time = datetime.fromtimestamp(replica_chunk.last_update_time.unix_tai, tz=timezone.utc)
