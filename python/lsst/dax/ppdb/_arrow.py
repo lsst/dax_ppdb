@@ -146,7 +146,7 @@ def write_parquet(
         raise ValueError(f"{table_name}: missing columns in data: {missing}")
 
     total = len(rows)
-    batch_size = max(1, int(batch_size))
+    batch_size = max(1, batch_size)
 
     with parquet.ParquetWriter(file_path, schema, compression=compression_format) as writer:
         for start in range(0, total, batch_size):
