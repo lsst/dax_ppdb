@@ -25,7 +25,6 @@ __all__ = ["PpdbTest"]
 
 import unittest
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import astropy.time
@@ -116,9 +115,7 @@ class PpdbTest(TestCaseMixin, ABC):
             apdb.store(visit_time, objects, sources, fsources)
             start_id += nobj
 
-    def _check_chunks(
-        self, apdb_chunks: Sequence[ReplicaChunk], ppdb_chunks: Sequence[PpdbReplicaChunk]
-    ) -> None:
+    def _check_chunks(self, apdb_chunks: list[ReplicaChunk], ppdb_chunks: list[PpdbReplicaChunk]) -> None:
         """Check PPDB replica chunks against APDB chunks."""
         self.assertLessEqual(len(ppdb_chunks), len(apdb_chunks))
         for i in range(len(ppdb_chunks)):
