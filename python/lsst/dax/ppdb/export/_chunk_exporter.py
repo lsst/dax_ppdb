@@ -125,7 +125,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
     @staticmethod
     def _write_manifest(manifest_data: dict[str, Any], chunk_dir: Path, replica_chunk: ReplicaChunk) -> None:
         """Write the manifest data to a JSON file."""
-        final_path = chunk_dir / f"chunk_{str(replica_chunk.id)}.manifest.json"
+        final_path = chunk_dir / f"chunk_{replica_chunk.id}.manifest.json"
         tmp_path = final_path.with_suffix(".tmp")
         with open(tmp_path, "w") as meta_file:
             json.dump(manifest_data, meta_file, indent=4)
