@@ -53,9 +53,9 @@ def _felis_to_arrow_type(felis_type: DataType) -> pyarrow.DataType:
     arrow_type : `pyarrow.DataType`
         Corresponding Arrow data type.
     """
-    if felis_type not in _FELIS_TYPE_MAP:
-        raise ValueError(f"Unsupported Felis type: {felis_type}")
-    return _FELIS_TYPE_MAP.get(felis_type)
+    if arrow_type := _FELIS_TYPE_MAP.get(felis_type):
+        return arrow_type
+    raise ValueError(f"Unsupported Felis type: {felis_type}")
 
 
 def create_arrow_schema(
