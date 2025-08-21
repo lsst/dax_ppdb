@@ -90,8 +90,6 @@ class ChunkExporter(PpdbReplicaChunkSql):
         super().__init__(config)
         self.schema_version = schema_version
         self.directory = directory
-        if self.directory == Path("/"):
-            raise ValueError("Export directory cannot be the root directory ('/').")
         _LOG.info("Directory for chunk export: %s", self.directory)
         self.batch_size = batch_size or 10000
         self.compression_format = compression_format or "snappy"
