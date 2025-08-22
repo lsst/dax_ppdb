@@ -26,6 +26,7 @@ __all__ = ["Ppdb"]
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 import astropy.time
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
@@ -60,6 +61,20 @@ class PpdbReplicaChunk(ReplicaChunk):
     directory: str | None
     """Directory where the exported replica chunk data is stored. This may be
     ``None`` in older versions of the ``PpdbReplicaChunk`` table."""
+
+    @property
+    def file_name(self) -> str:
+        """Filename of the manifest file for this chunk."""
+        return f"chunk_{self.id}.manifest.json"
+
+    @property
+    def file_path(self) -> Path:
+        """Path to the manifest file for this chunk, or `None` if directory is
+        not set.
+        """
+        if self.directory is None:
+            raise ValueError(f"directory for replica chunk {self.id} is not set")
+        return Path(self.directory) / self.file_name
 
 
 class Ppdb(ABC):

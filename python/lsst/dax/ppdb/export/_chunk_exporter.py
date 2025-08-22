@@ -19,13 +19,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import json
 import logging
-import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import astropy
 from lsst.dax.apdb import ApdbTableData, ApdbTables, ReplicaChunk, monitor
@@ -38,6 +35,7 @@ from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import ChunkStatus
 from ..sql._ppdb_replica_chunk_sql import PpdbReplicaChunkSql
+from ._manifest import Manifest, TableStats
 
 __all__ = ["ChunkExporter"]
 
@@ -103,34 +101,21 @@ class ChunkExporter(PpdbReplicaChunkSql):
 
         self.delete_existing = delete_existing
 
-    def _generate_manifest_data(
+    def _generate_manifest(
         self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
-    ) -> dict[str, Any]:
+    ) -> Manifest:
         """Generate the manifest data for the replica chunk."""
-        return {
-            "chunk_id": str(replica_chunk.id),
-            "unique_id": str(replica_chunk.unique_id),
-            "schema_version": str(self.schema_version),
-            "exported_at": datetime.now(timezone.utc).isoformat(),
-            "last_update_time": str(replica_chunk.last_update_time),  # TAI value
-            "table_data": {
-                table_name: {
-                    "row_count": len(data.rows()),
-                }
-                for table_name, data in table_dict.items()
+        return Manifest(
+            replica_chunk_id=str(replica_chunk.id),
+            unique_id=replica_chunk.unique_id,
+            schema_version=str(self.schema_version),
+            exported_at=datetime.now(timezone.utc),
+            last_update_time=str(replica_chunk.last_update_time),  # TAI value
+            table_data={
+                table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
             },
-            "compression_format": self.compression_format,
-        }
-
-    @staticmethod
-    def _write_manifest(manifest_data: dict[str, Any], chunk_dir: Path, replica_chunk: ReplicaChunk) -> None:
-        """Write the manifest data to a JSON file."""
-        final_path = chunk_dir / f"chunk_{replica_chunk.id}.manifest.json"
-        tmp_path = final_path.with_suffix(".tmp")
-        with open(tmp_path, "w") as meta_file:
-            json.dump(manifest_data, meta_file, indent=4)
-        os.rename(tmp_path, final_path)
-        _LOG.info("Wrote manifest file for %s: %s", replica_chunk.id, final_path)
+            compression_format=self.compression_format,
+        )
 
     def store(
         self,
@@ -187,17 +172,17 @@ class ChunkExporter(PpdbReplicaChunkSql):
 
             # Create manifest for the replica chunk.
             try:
-                manifest_data = self._generate_manifest_data(replica_chunk, table_dict)
-                _LOG.info("Created manifest for %s: %s", replica_chunk.id, manifest_data)
+                manifest = self._generate_manifest(replica_chunk, table_dict)
+                _LOG.info("Generated manifest for %s: %s", replica_chunk.id, manifest.model_dump_json())
             except Exception:
-                _LOG.exception("Failed to create manifest for %d", replica_chunk.id)
+                _LOG.exception("Failed to generate manifest for %d", replica_chunk.id)
                 raise
 
             # Write manifest data to a JSON file.
             try:
-                ChunkExporter._write_manifest(manifest_data, chunk_dir, replica_chunk)
+                manifest.write_json_file(chunk_dir)
             except Exception:
-                _LOG.exception("Failed to write manifest file for %d", replica_chunk.id)
+                _LOG.exception("Failed to write manifest file for %d to %s", replica_chunk.id, chunk_dir)
                 raise
         except Exception:
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)

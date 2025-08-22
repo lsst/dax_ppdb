@@ -21,14 +21,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import posixpath
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from lsst.dax.apdb import monitor
 from lsst.dax.apdb.timer import Timer
@@ -39,6 +36,7 @@ from lsst.dax.ppdbx.gcp.pubsub import Publisher
 from ..config import PpdbConfig
 from ..ppdb import PpdbReplicaChunk
 from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
+from ._manifest import Manifest
 
 __all__ = ["ChunkUploader", "ChunkUploadError"]
 
@@ -206,23 +204,21 @@ class ChunkUploader:
             raise ChunkUploadError(chunk_id, "No directory specified on replica chunk")
         chunk_dir = Path(replica_chunk.directory)
 
-        manifest_path = chunk_dir / f"chunk_{chunk_id}.manifest.json"
-        if not manifest_path.exists():
-            raise ChunkUploadError(chunk_id, f"Manifest file does not exist: {manifest_path}")
-
-        manifest_data: dict[str, Any] | None = None
+        # Read the manifest file to get metadata about the chunk.
+        manifest: Manifest | None = None
         try:
-            manifest_data = json.loads(manifest_path.read_text())
+            if not replica_chunk.file_path.exists():
+                raise ChunkUploadError(chunk_id, f"Manifest file does not exist: {replica_chunk.file_path}")
+            manifest = Manifest.from_json_file(replica_chunk.file_path)
         except Exception as e:
-            raise ChunkUploadError(chunk_id, f"Failed to read/parse manifest: {manifest_path}") from e
+            raise ChunkUploadError(chunk_id, f"Failed to read manifest file for: {replica_chunk.id}") from e
 
-        try:
-            exported_at_raw = manifest_data["exported_at"]
-            exported_at = datetime.fromisoformat(exported_at_raw)
-        except Exception as e:
-            raise ChunkUploadError(chunk_id, "Invalid or missing 'exported_at' in manifest") from e
+        # Construct the GCS prefix for this chunk's files.
+        gcs_prefix = posixpath.join(
+            self.prefix, f"chunks/{manifest.exported_at.strftime('%Y/%m/%d')}/{chunk_id}"
+        )
 
-        gcs_prefix = posixpath.join(self.prefix, f"chunks/{exported_at.strftime('%Y/%m/%d')}/{chunk_id}")
+        # Make a list of local parquet files to upload.
         parquet_files = list(chunk_dir.glob("*.parquet"))
         if not parquet_files:
             raise ChunkUploadError(chunk_id, f"No parquet files found in {chunk_dir}")
@@ -244,12 +240,11 @@ class ChunkUploader:
 
             uploads_completed = True
 
-            # 2) Upload manifest (single UploadError on failure).
-            manifest = self._update_manifest_uploaded(manifest_data)
+            # 2) Upload manifest (catch single UploadError on failure).
             try:
                 self.storage.upload_from_string(
-                    posixpath.join(gcs_prefix, f"chunk_{chunk_id}.manifest.json"),
-                    json.dumps(manifest),
+                    posixpath.join(gcs_prefix, replica_chunk.file_name),
+                    manifest.model_dump_json(),
                 )
             except UploadError as e:
                 raise ChunkUploadError(chunk_id, "Manifest upload failed") from e
@@ -284,32 +279,7 @@ class ChunkUploader:
                         f"cleanup warning: failed to delete "
                         f"gs://{posixpath.join(self.bucket_name, gcs_prefix)}: {cleanup_err}"
                     )
-            # Try to mark the local manifest with the failure.
-            if manifest_data is not None:
-                try:
-                    self._update_manifest_failure(manifest_path, manifest_data, err)
-                except Exception as e:
-                    _LOG.warning(
-                        "Failed to update manifest %s with failure message: %s",
-                        manifest_path,
-                        e,
-                    )
-
             raise
-
-    def _update_manifest_failure(
-        self, manifest_path: Path, manifest_data: dict[str, Any], error: Exception | str
-    ) -> None:
-        """Best-effort: mark the manifest with a failure message."""
-        manifest = dict(manifest_data)
-        manifest["error"] = str(error) if isinstance(error, Exception) else error
-        with open(manifest_path, "w") as f:
-            json.dump(manifest, f, indent=4)
-
-    def _update_manifest_uploaded(self, manifest_data: dict[str, Any]) -> dict[str, Any]:
-        manifest = dict(manifest_data)
-        manifest["uploaded_at"] = datetime.now(tz=timezone.utc).isoformat()
-        return manifest
 
     def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_prefix: str, chunk_id: int) -> None:
         message = {
