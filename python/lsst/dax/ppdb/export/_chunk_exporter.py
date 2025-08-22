@@ -162,7 +162,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
                             parquet_file_path,
                             batch_size=self.batch_size,
                             compression_format=self.compression_format,
-                            exclude_columns={"apdb_replica_chunk", "apdb_replica_subchunk"},
+                            exclude_columns={"apdb_replica_subchunk"},
                         )
                         timer.add_values(row_count=row_count)
                     _LOG.info("Wrote %s with %d rows to %s", table_name, row_count, parquet_file_path)
