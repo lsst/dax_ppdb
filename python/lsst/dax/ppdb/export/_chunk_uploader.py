@@ -223,6 +223,9 @@ class ChunkUploader:
         if not parquet_files:
             raise ChunkUploadError(chunk_id, f"No parquet files found in {chunk_dir}")
 
+        # Calculate total size of files to upload in bytes.
+        total_bytes = sum(p.stat().st_size for p in parquet_files)
+
         uploads_completed = False
 
         try:
@@ -234,7 +237,7 @@ class ChunkUploader:
                     "upload_files_time", _MON, tags={"prefix": str(gcs_prefix), "chunk_id": str(chunk_id)}
                 ) as timer:
                     self.storage.upload_files(gcs_names)
-                    timer.add_values(file_count=len(gcs_names))
+                    timer.add_values(file_count=len(gcs_names), total_bytes=total_bytes)
             except* UploadError as eg:
                 raise ChunkUploadError(chunk_id, f"{len(eg.exceptions)} upload(s) failed") from eg
 
