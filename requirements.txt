@@ -1,5 +1,6 @@
 astropy
 pyarrow
+pydantic >=2,<3
 pyyaml >= 5.1
 sqlalchemy
 lsst-dax-apdb @ git+https://github.com/lsst/dax_apdb@main
