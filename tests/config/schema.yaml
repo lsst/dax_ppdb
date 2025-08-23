@@ -30,18 +30,16 @@ tables:
     description: Unique id.
     mysql:datatype: BIGINT
     ivoa:ucd: meta.id;src
-  - name: validityStart
-    "@id": "#DiaObject.validityStart"
-    datatype: timestamp
+  - name: validityStartMjdTai
+    "@id": "#DiaObject.validityStartMjdTai"
+    datatype: double
     nullable: false
     description: Time when validity of this diaObject starts.
-    mysql:datatype: DATETIME
-  - name: validityEnd
-    "@id": "#DiaObject.validityEnd"
-    datatype: timestamp
+  - name: validityEndMjdTai
+    "@id": "#DiaObject.validityEndMjdTai"
+    datatype: double
     nullable: true
     description: Time when validity of this diaObject ends.
-    mysql:datatype: DATETIME
   - name: ra
     "@id": "#DiaObject.ra"
     datatype: double
@@ -63,12 +61,6 @@ tables:
     datatype: float
     description: Parallax.
     mysql:datatype: FLOAT
-  - name: lastNonForcedSource
-    "@id": "#DiaObject.lastNonForcedSource"
-    datatype: timestamp
-    nullable: false
-    description: Last time when non-forced DIASource was seen for this object.
-    mysql:datatype: DATETIME
   - name: nDiaSources
     "@id": "#DiaObject.nDiaSources"
     datatype: int
@@ -76,12 +68,12 @@ tables:
     description: Total number of DiaSources associated with this DiaObject.
   primaryKey:
   - "#DiaObject.diaObjectId"
-  - "#DiaObject.validityStart"
+  - "#DiaObject.validityStartMjdTai"
   indexes:
-  - name: IDX_DiaObject_validityStart
-    "@id": "#IDX_DiaObject_validityStart"
+  - name: IDX_DiaObject_validityStartMjdTai
+    "@id": "#IDX_DiaObject_validityStartMjdTai"
     columns:
-    - "#DiaObject.validityStart"
+    - "#DiaObject.validityStartMjdTai"
 - name: SSObject
   "@id": "#SSObject"
   description: The SSObject table contains description of the Solar System (moving)
@@ -175,12 +167,11 @@ tables:
     mysql:datatype: DOUBLE
     fits:tunit: deg
     ivoa:ucd: pos.eq.dec
-  - name: ssObjectReassocTime
-    "@id": "#DiaSource.ssObjectReassocTime"
-    datatype: timestamp
+  - name: ssObjectReassocTimeMjdTai
+    "@id": "#DiaSource.ssObjectReassocTimeMjdTai"
+    datatype: double
     description: Time when this diaSource was reassociated from diaObject to ssObject
       (if such reassociation happens, otherwise NULL).
-    mysql:datatype: DATETIME
   - name: midpointMjdTai
     "@id": "#DiaSource.midpointMjdTai"
     datatype: double
@@ -197,9 +188,9 @@ tables:
     value: 0
     mysql:datatype: BIGINT
     ivoa:ucd: meta.code
-  - name: time_processed
-    "@id": "#DiaSource.time_processed"
-    datatype: timestamp
+  - name: timeProcessedMjdTai
+    "@id": "#DiaSource.timeProcessedMjdTai"
+    datatype: double
     nullable: false
     description: Time when the image was processed and this DiaSource record was generated.
   primaryKey: "#DiaSource.diaSourceId"
@@ -270,9 +261,9 @@ tables:
     value: 0
     mysql:datatype: BIGINT
     ivoa:ucd: meta.code
-  - name: time_processed
-    "@id": "#DiaForcedSource.time_processed"
-    datatype: timestamp
+  - name: timeProcessedMjdTai
+    "@id": "#DiaForcedSource.timeProcessedMjdTai"
+    datatype: double
     nullable: false
     description: Time when this record was generated.
   primaryKey:
@@ -341,12 +332,6 @@ tables:
     description: Decl-coordinate of the position of the object at time radecTai.
     ivoa:ucd: pos.eq.dec
     fits:tunit: deg
-  - name: lastNonForcedSource
-    "@id": "#DiaObjectLast.lastNonForcedSource"
-    datatype: timestamp
-    nullable: false
-    description: Last time when non-forced DIASource was seen for this object.
-    mysql:datatype: DATETIME
   - name: nDiaSources
     "@id": "#DiaObjectLast.nDiaSources"
     datatype: int
