@@ -45,6 +45,16 @@ class PpdbReplicaChunkSql(PpdbSql):
     for managing PPDB replica chunks.
     """
 
+    def get_schema_version(self) -> VersionTuple:
+        """Retrieve version number from given metadata key."""
+        version_str = self.metadata.get(self.meta_schema_version_key)
+        if version_str is None:
+            # Should not happen with existing metadata table.
+            raise RuntimeError(
+                f"Version key {self.meta_schema_version_key!r} does not exist in metadata table."
+            )
+        return VersionTuple.fromString(version_str)
+
     @classmethod
     def _create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
         """Create the ``PpdbReplicaChunk`` table with additional fields for

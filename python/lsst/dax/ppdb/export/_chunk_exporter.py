@@ -68,19 +68,19 @@ class ChunkExporter(PpdbReplicaChunkSql):
     def __init__(
         self,
         config: PpdbConfig,
-        # FIXME: Do not have access to this anymore unless we push it into
-        # the Ppdb from APDB via the Replicator.
-        # schema_version: VersionTuple,
     ):
         # DM-52173: Parent class needs PpdbSqlConfig parameters. This should
         # eventually go away after refactoring.
         super().__init__(config)
-        # self.schema_version = schema_version
 
         # Check for correct config type
         if not isinstance(config, PpdbBigQueryConfig):
             raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
         self.config = config
+
+        # Read schema version from metadata table
+        self.schema_version = self.get_schema_version()
+        _LOG.info("Using schema version: %s", self.schema_version)
 
         # Read parameters from config
         self.directory = self.config.directory
@@ -104,9 +104,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
         return Manifest(
             replica_chunk_id=str(replica_chunk.id),
             unique_id=replica_chunk.unique_id,
-            # FIXME: Can't access this anymore without altering some interfaces
-            # though it should probably be stored in the manifest.
-            # schema_version=str(self.schema_version),
+            schema_version=str(self.schema_version),
             exported_at=datetime.now(timezone.utc),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
             table_data={
