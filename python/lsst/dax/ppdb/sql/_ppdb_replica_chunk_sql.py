@@ -56,7 +56,7 @@ class PpdbReplicaChunkSql(PpdbSql):
         return VersionTuple.fromString(version_str)
 
     @classmethod
-    def _create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
+    def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
         """Create the ``PpdbReplicaChunk`` table with additional fields for
         status and directory.
 
@@ -71,7 +71,7 @@ class PpdbReplicaChunkSql(PpdbSql):
         This overrides the base method to add additional columns for
         ``status`` and ``directory`` to the replica chunk table schema.
         """
-        replica_chunk_table = super()._create_replica_chunk_table()
+        replica_chunk_table = super().create_replica_chunk_table()
         replica_chunk_table.columns.extend(
             [
                 schema_model.Column(
@@ -170,4 +170,4 @@ class PpdbReplicaChunkSql(PpdbSql):
             # Add directory to the values to be inserted.
             values["directory"] = directory
         row = {"apdb_replica_chunk": replica_chunk.id} | values
-        self._upsert(connection, update, table, values, row)
+        self.upsert(connection, update, table, values, row)

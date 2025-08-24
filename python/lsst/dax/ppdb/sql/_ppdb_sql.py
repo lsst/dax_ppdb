@@ -193,7 +193,7 @@ class PpdbSql(Ppdb):
         return config
 
     @classmethod
-    def _create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
+    def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
         """Create the ``PpdbReplicaChunk`` table which will be added to the
         schema.
 
@@ -308,7 +308,7 @@ class PpdbSql(Ppdb):
             schema.name = schema_name
 
         # Create the PpdbReplicaChunk table and add it to the schema.
-        replica_chunk_table = cls._create_replica_chunk_table()
+        replica_chunk_table = cls.create_replica_chunk_table()
         schema.tables.append(replica_chunk_table)
 
         if schema.version is not None:
@@ -544,7 +544,7 @@ class PpdbSql(Ppdb):
             self._store_table_data(sources, connection, update, "DiaSource", 100)
             self._store_table_data(forced_sources, connection, update, "DiaForcedSource", 1000)
 
-    def _upsert(
+    def upsert(
         self,
         connection: Connection,
         update: bool,
@@ -601,7 +601,7 @@ class PpdbSql(Ppdb):
 
         values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
         row = {"apdb_replica_chunk": replica_chunk.id} | values
-        self._upsert(connection, update, table, values, row)
+        self.upsert(connection, update, table, values, row)
 
     def _store_objects(
         self, objects: ApdbTableData, connection: sqlalchemy.engine.Connection, update: bool
