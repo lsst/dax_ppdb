@@ -255,7 +255,7 @@ class ChunkUploader:
             # 3) Update DB status.
             try:
                 with self._sql._engine.begin() as connection:
-                    self._sql._store_insert_id(
+                    self._sql.store_chunk(
                         replica_chunk,
                         connection,
                         True,

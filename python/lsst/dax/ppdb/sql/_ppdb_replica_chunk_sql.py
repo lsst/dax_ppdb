@@ -131,7 +131,7 @@ class PpdbReplicaChunkSql(PpdbSql):
                 )
         return ids
 
-    def _store_insert_id(
+    def store_chunk(
         self,
         replica_chunk: ReplicaChunk,
         connection: sqlalchemy.engine.Connection,
