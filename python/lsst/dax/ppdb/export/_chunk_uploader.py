@@ -35,9 +35,9 @@ from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from ..config import PpdbConfig
 from ..ppdb import PpdbReplicaChunk
-from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
 from ._config import PpdbBigQueryConfig
 from ._manifest import Manifest
+from ._replica_chunk import ChunkStatus, PpdbReplicaChunkSql
 
 __all__ = ["ChunkUploader", "ChunkUploadError"]
 

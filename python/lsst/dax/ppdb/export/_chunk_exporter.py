@@ -32,10 +32,9 @@ from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from .._arrow import write_parquet
 from ..config import PpdbConfig
-from ..ppdb import ChunkStatus
-from ..sql._ppdb_replica_chunk_sql import PpdbReplicaChunkSql
 from ._config import PpdbBigQueryConfig
 from ._manifest import Manifest, TableStats
+from ._replica_chunk import ChunkStatus, PpdbReplicaChunkSql
 
 __all__ = ["ChunkExporter"]
 

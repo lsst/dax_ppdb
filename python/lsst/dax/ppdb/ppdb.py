@@ -25,8 +25,6 @@ __all__ = ["Ppdb"]
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import StrEnum
-from pathlib import Path
 
 import astropy.time
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
@@ -36,45 +34,12 @@ from ._factory import ppdb_type
 from .config import PpdbConfig
 
 
-class ChunkStatus(StrEnum):
-    """Status of a replica chunk in the PPDB."""
-
-    EXPORTED = "exported"
-    """Chunk has been exported from the APDB to a local parquet file."""
-    UPLOADED = "uploaded"
-    """Chunk has been uploaded to cloud storage."""
-    FAILED = "failed"
-    """Chunk processing failed and an error occurred."""
-
-
 @dataclass(frozen=True)
 class PpdbReplicaChunk(ReplicaChunk):
     """ReplicaChunk with additional PPDB-specific info."""
 
     replica_time: astropy.time.Time
     """Time when this bucket was replicated (`astropy.time.Time`)."""
-
-    status: ChunkStatus | None
-    """Status of the replica chunk. This may be ``None`` in older versions of
-    the ``PpdbReplicaChunk`` table."""
-
-    directory: str | None
-    """Directory where the exported replica chunk data is stored. This may be
-    ``None`` in older versions of the ``PpdbReplicaChunk`` table."""
-
-    @property
-    def file_name(self) -> str:
-        """Filename of the manifest file for this chunk."""
-        return f"chunk_{self.id}.manifest.json"
-
-    @property
-    def file_path(self) -> Path:
-        """Path to the manifest file for this chunk, or `None` if directory is
-        not set.
-        """
-        if self.directory is None:
-            raise ValueError(f"directory for replica chunk {self.id} is not set")
-        return Path(self.directory) / self.file_name
 
 
 class Ppdb(ABC):

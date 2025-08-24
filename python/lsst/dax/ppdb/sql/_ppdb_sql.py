@@ -510,8 +510,6 @@ class PpdbSql(Ppdb):
                         last_update_time=last_update_time,
                         unique_id=row[2],
                         replica_time=replica_time,
-                        status=None,  # Not present in this version of the database.
-                        directory=None,  # Not present in this version of the database.
                     )
                 )
             return ids

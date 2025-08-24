@@ -24,6 +24,9 @@ from __future__ import annotations
 __all__ = ["PpdbReplicaChunkSql"]
 
 import datetime
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
 
 import astropy.time
 import felis
@@ -31,13 +34,46 @@ import sqlalchemy
 from lsst.dax.apdb import ReplicaChunk, VersionTuple, schema_model
 from sqlalchemy import sql
 
-from ..ppdb import ChunkStatus, PpdbReplicaChunk
-from ._ppdb_sql import PpdbSql
+from ..ppdb import PpdbReplicaChunk
+from ..sql._ppdb_sql import PpdbSql
 
-VERSION = VersionTuple(0, 1, 1)
-"""Version for the code defined in this module. This needs to be updated
-(following compatibility rules) when schema produced by this code changes.
-"""
+
+class ChunkStatus(StrEnum):
+    """Status of a replica chunk in the PPDB."""
+
+    EXPORTED = "exported"
+    """Chunk has been exported from the APDB to a local parquet file."""
+    UPLOADED = "uploaded"
+    """Chunk has been uploaded to cloud storage."""
+    FAILED = "failed"
+    """Chunk processing failed and an error occurred."""
+
+
+@dataclass(frozen=True)
+class PpdbReplicaChunkExtended(PpdbReplicaChunk):
+    """ReplicaChunk with additional PPDB-specific info."""
+
+    status: ChunkStatus | None
+    """Status of the replica chunk. This may be ``None`` in older versions of
+    the ``PpdbReplicaChunk`` table."""
+
+    directory: str | None
+    """Directory where the exported replica chunk data is stored. This may be
+    ``None`` in older versions of the ``PpdbReplicaChunk`` table."""
+
+    @property
+    def file_name(self) -> str:
+        """Filename of the manifest file for this chunk."""
+        return f"chunk_{self.id}.manifest.json"
+
+    @property
+    def file_path(self) -> Path:
+        """Path to the manifest file for this chunk, or `None` if directory is
+        not set.
+        """
+        if self.directory is None:
+            raise ValueError(f"directory for replica chunk {self.id} is not set")
+        return Path(self.directory) / self.file_name
 
 
 class PpdbReplicaChunkSql(PpdbSql):
@@ -90,7 +126,7 @@ class PpdbReplicaChunkSql(PpdbSql):
         )
         return replica_chunk_table
 
-    def get_replica_chunks_by_status(self, status: ChunkStatus) -> list[PpdbReplicaChunk]:
+    def get_replica_chunks_by_status(self, status: ChunkStatus) -> list[PpdbReplicaChunkExtended]:
         """Return collection of replica chunks known to the database with a
         given status.
 
@@ -120,7 +156,7 @@ class PpdbReplicaChunkSql(PpdbSql):
             table.columns["directory"],  # New directory field
         ).order_by(table.columns["last_update_time"])
         query = query.where(table.columns["status"] == status.value)
-        ids: list[PpdbReplicaChunk] = []
+        ids: list[PpdbReplicaChunkExtended] = []
         with self._engine.connect() as conn:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
             for row in result:
@@ -130,7 +166,7 @@ class PpdbReplicaChunkSql(PpdbSql):
                 last_update_time = astropy.time.Time(row[1], format="datetime", scale="tai")
                 replica_time = astropy.time.Time(row[3], format="datetime", scale="tai")
                 ids.append(
-                    PpdbReplicaChunk(
+                    PpdbReplicaChunkExtended(
                         id=row[0],
                         last_update_time=last_update_time,
                         unique_id=row[2],
