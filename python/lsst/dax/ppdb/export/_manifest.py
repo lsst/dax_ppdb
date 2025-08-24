@@ -79,7 +79,7 @@ class Manifest(BaseModel):
 
     replica_chunk_id: str
     unique_id: UUID
-    schema_version: str
+    # schema_version: str
     exported_at: datetime = Field(default_factory=_utc_now)
     last_update_time: str
     table_data: dict[str, TableStats]

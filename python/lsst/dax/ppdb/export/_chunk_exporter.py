@@ -27,7 +27,6 @@ from pathlib import Path
 import astropy
 from lsst.dax.apdb import ApdbTableData, ApdbTables, ReplicaChunk, monitor
 from lsst.dax.apdb.timer import Timer
-from lsst.dax.apdb.versionTuple import VersionTuple
 from lsst.dax.ppdbx.gcp.auth import get_auth_default
 from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
@@ -35,6 +34,7 @@ from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import ChunkStatus
 from ..sql._ppdb_replica_chunk_sql import PpdbReplicaChunkSql
+from ._config import PpdbBigQueryConfig
 from ._manifest import Manifest, TableStats
 
 __all__ = ["ChunkExporter"]
@@ -50,18 +50,8 @@ class ChunkExporter(PpdbReplicaChunkSql):
     Parameters
     ----------
     config : `PpdbConfig`
-        Configuration object for PPDB.
-    directory : `Path`
-        Directory where the exported chunks will be stored.
-    schema_version : `VersionTuple`
-        Version of the APDB schema to use for the export.
-    batch_size : `int`, optional
-        Number of rows to process in each batch. Default is 1000.
-    compression_format : `str`, optional
-        Compression format for Parquet files. Default is "snappy".
-    delete_existing : `bool`, optional
-        If `True`, existing directories for chunks will be deleted before
-        export. Default is `False`.
+        Configuration object for PPDB. This should have the type
+        `PpdbBigQueryConfig`.
 
     Notes
     -----
@@ -69,37 +59,43 @@ class ChunkExporter(PpdbReplicaChunkSql):
     chunks. This is designed to prevent accidental data loss or ingestion of
     duplicate data. In the production system, if a chunk directory already
     exists, it may indicate that there is an error in the ETL process which
-    needs to be resolved or cleared before proceeding. The `delete_existing`
-    option can be used to override this behavior, but it should be used with
-    caution as it will remove any existing data in the specified directory. It
-    may be useful for testing and development purposes.
+    needs to be resolved or cleared before proceeding. The ``delete_existing``
+    configuration option can be used to override this behavior, but it should
+    be used with caution as it will remove any existing data in the specified
+    directory. It may be useful for testing and development purposes.
     """
 
     def __init__(
         self,
         config: PpdbConfig,
-        schema_version: VersionTuple,
-        directory: Path,
-        topic_name: str | None = None,
-        batch_size: int | None = None,
-        compression_format: str | None = None,
-        delete_existing: bool = False,
+        # FIXME: Do not have access to this anymore unless we push it into
+        # the Ppdb from APDB via the Replicator.
+        # schema_version: VersionTuple,
     ):
+        # DM-52173: Parent class needs PpdbSqlConfig parameters. This should
+        # eventually go away after refactoring.
         super().__init__(config)
-        self.schema_version = schema_version
-        self.directory = directory
+        # self.schema_version = schema_version
+
+        # Check for correct config type
+        if not isinstance(config, PpdbBigQueryConfig):
+            raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
+        self.config = config
+
+        # Read parameters from config
+        self.directory = self.config.directory
         _LOG.info("Directory for chunk export: %s", self.directory)
-        self.batch_size = batch_size or 10000
-        self.compression_format = compression_format or "snappy"
+        self.batch_size = self.config.batch_size
+        self.compression_format = self.config.compression_format
+        self.delete_existing = self.config.delete_existing
+        self.topic_name = self.config.topic_name
 
         # Authenticate with Google Cloud to set credentials and project ID.
         self.credentials, self.project_id = get_auth_default()
 
         # Initialize the Pub/Sub publisher for tracking chunk exports.
-        self.topic_name = topic_name if topic_name else "track-chunk-topic"
+        # FIXME: This should eventually go away in favor of direct db writes.
         self.publisher = Publisher(self.project_id, self.topic_name)
-
-        self.delete_existing = delete_existing
 
     def _generate_manifest(
         self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
@@ -108,7 +104,9 @@ class ChunkExporter(PpdbReplicaChunkSql):
         return Manifest(
             replica_chunk_id=str(replica_chunk.id),
             unique_id=replica_chunk.unique_id,
-            schema_version=str(self.schema_version),
+            # FIXME: Can't access this anymore without altering some interfaces
+            # though it should probably be stored in the manifest.
+            # schema_version=str(self.schema_version),
             exported_at=datetime.now(timezone.utc),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
             table_data={
