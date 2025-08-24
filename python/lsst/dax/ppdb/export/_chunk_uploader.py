@@ -36,6 +36,7 @@ from lsst.dax.ppdbx.gcp.pubsub import Publisher
 from ..config import PpdbConfig
 from ..ppdb import PpdbReplicaChunk
 from ..sql._ppdb_replica_chunk_sql import ChunkStatus, PpdbReplicaChunkSql
+from ._config import PpdbBigQueryConfig
 from ._manifest import Manifest
 
 __all__ = ["ChunkUploader", "ChunkUploadError"]
@@ -63,14 +64,6 @@ class ChunkUploader:
     ----------
     config : `PpdbConfig`
         The configuration object containing database connection details.
-    bucket_name : `str`
-        The name of the Google Cloud Storage bucket for upload.
-    prefix : `str`
-        The base prefix of the uploaded objects, e.g., 'data/staging'.
-    dataset : `str`
-        The name of the target BigQuery dataset. This may also include the
-        project name, e.g., 'my_project:my_dataset'. If the project name is
-        not specified, the project name from the environment will be used.
     topic : `str`
         The name of the Pub/Sub topic to which the message will be published.
         Publishing a message to this topic will trigger the staging of the
@@ -105,19 +98,26 @@ class ChunkUploader:
     def __init__(
         self,
         config: PpdbConfig,
-        bucket_name: str,
-        prefix: str,
-        dataset: str,
         topic: str | None = None,
         wait_interval: int = 30,
         upload_interval: int = 0,
         exit_on_empty: bool = False,
         exit_on_error: bool = False,
     ) -> None:
+        # Check for correct config type
+        if not isinstance(config, PpdbBigQueryConfig):
+            raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
+        self.config = config
+
+        # Setup SQL interface for accessing replica chunk data.
         self._sql = PpdbReplicaChunkSql(config)
-        self.prefix = prefix
-        self.bucket_name = bucket_name
-        self.dataset = dataset
+
+        # Read parameters from config
+        self.prefix = self.config.prefix
+        self.bucket_name = self.config.bucket
+        self.dataset = self.config.dataset
+
+        # Command line parameters
         self.wait_interval = wait_interval
         self.upload_interval = upload_interval
         self.exit_on_empty = exit_on_empty

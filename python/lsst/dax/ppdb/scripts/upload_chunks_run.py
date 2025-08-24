@@ -25,9 +25,6 @@ from ..sql._ppdb_sql import PpdbSqlConfig
 
 def upload_chunks_run(
     ppdb_config: str,
-    bucket: str,
-    prefix: str,
-    dataset: str,
     topic: str,
     wait_interval: int,
     upload_interval: int,
@@ -40,12 +37,6 @@ def upload_chunks_run(
     ----------
     directory : `str`
         Directory containing the chunks to upload.
-    bucket : `str`
-        Name of the bucket to upload the chunks to.
-    prefix : `str`, optional
-        Prefix within the bucket for object naming.
-    dataset : `str`
-        Target BigQuery dataset.
     topic : `str`
         Pub/Sub topic for publishing upload events.
     wait_interval : `int`
@@ -55,12 +46,9 @@ def upload_chunks_run(
     exit_on_empty : `bool`
         If `True`, exit the process if there are no chunks to upload.
     """
-    ppdb_sql_config = PpdbSqlConfig.from_uri(ppdb_config)
+    config = PpdbSqlConfig.from_uri(ppdb_config)
     chunk_exporter = ChunkUploader(
-        ppdb_sql_config,
-        bucket,
-        prefix,
-        dataset,
+        config,
         topic=topic,
         wait_interval=wait_interval,
         upload_interval=upload_interval,

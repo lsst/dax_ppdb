@@ -26,3 +26,13 @@ class PpdbBigQueryConfig(PpdbSqlConfig):
     """If `True`, existing directories for chunks will be deleted before
     export. If `False`, an error will be raised if the directory already
     exists."""
+
+    bucket: str
+    """Name of Google Cloud Storage bucket for uploading chunks."""
+
+    prefix: str
+    """Base prefix for the object in cloud storage."""
+
+    dataset: str
+    """Target BigQuery dataset, e.g., 'my_project:my_dataset'. If not provided
+    the project will be derived from the environment."""
