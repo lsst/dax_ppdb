@@ -48,7 +48,7 @@ def ppdb_type(config: PpdbConfig) -> type[PpdbSql]:
     TypeError
         Raised if type of ``config`` does not match any known types.
     """
-    from .export._chunk_exporter import PpdbBigQueryConfig
+    from .export._config import PpdbBigQueryConfig
     from .sql import PpdbSqlConfig
 
     if type(config) is PpdbSqlConfig:
