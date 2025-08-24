@@ -24,17 +24,15 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-import astropy
 from lsst.dax.apdb import ApdbTableData, ApdbTables, ReplicaChunk, monitor
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.ppdbx.gcp.auth import get_auth_default
-from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ._config import PpdbBigQueryConfig
 from ._manifest import Manifest, TableStats
-from ._replica_chunk import ChunkStatus, PpdbReplicaChunkSql
+from ._replica_chunk import ChunkStatus, PpdbReplicaChunkExtended, PpdbReplicaChunkSql
 
 __all__ = ["ChunkExporter"]
 
@@ -87,14 +85,9 @@ class ChunkExporter(PpdbReplicaChunkSql):
         self.batch_size = self.config.batch_size
         self.compression_format = self.config.compression_format
         self.delete_existing = self.config.delete_existing
-        self.topic_name = self.config.topic_name
 
         # Authenticate with Google Cloud to set credentials and project ID.
         self.credentials, self.project_id = get_auth_default()
-
-        # Initialize the Pub/Sub publisher for tracking chunk exports.
-        # FIXME: This should eventually go away in favor of direct db writes.
-        self.publisher = Publisher(self.project_id, self.topic_name)
 
     def _generate_manifest(
         self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
@@ -183,11 +176,17 @@ class ChunkExporter(PpdbReplicaChunkSql):
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
             raise
 
+        # Store the replica chunk info in the database, including status and
+        # directory.
+        replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(
+            replica_chunk, ChunkStatus.EXPORTED, chunk_dir
+        )
         try:
-            self._post_to_track_chunk_topic(replica_chunk, ChunkStatus.EXPORTED, chunk_dir)
-        except Exception:
-            _LOG.exception("Failed to post to track chunk topic for %s", replica_chunk.id)
-            raise
+            with self._engine.begin() as connection:
+                self.store_chunk(replica_chunk_ext, connection, False)
+        except Exception as e:
+            _LOG.exception("Failed to store replica chunk info in database for %s", replica_chunk.id)
+            raise e
 
         _LOG.info("Done processing %s", replica_chunk.id)
 
@@ -198,33 +197,3 @@ class ChunkExporter(PpdbReplicaChunkSql):
             str(chunk_id),
         )
         return path
-
-    def _post_to_track_chunk_topic(
-        self, replica_chunk: ReplicaChunk, status: ChunkStatus, directory: Path
-    ) -> None:
-        """Publish a message to the 'track-chunk-topic' Pub/Sub topic.
-
-        This will add a new record to the ``PpdbReplicaChunk`` table in the
-        Postgres database used to track APDB replica chunks.
-        """
-        # Convert last_update_time and replica_time to UTC datetime
-        last_update_time = datetime.fromtimestamp(replica_chunk.last_update_time.unix_tai, tz=timezone.utc)
-        now = datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=timezone.utc)
-
-        # Construct the message payload
-        message = {
-            "operation": "insert",
-            "apdb_replica_chunk": replica_chunk.id,
-            "values": {
-                "last_update_time": str(last_update_time),
-                "unique_id": str(replica_chunk.unique_id),
-                "replica_time": str(now),
-                "status": status.value,
-                "directory": str(directory),
-            },
-        }
-
-        self.publisher.publish(message).result(timeout=60)
-        _LOG.info(
-            "Published message to track chunk topic for %s with status %s", replica_chunk.id, status.value
-        )

@@ -23,8 +23,9 @@ from __future__ import annotations
 
 __all__ = ["PpdbReplicaChunkSql"]
 
-import datetime
+import dataclasses
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
 
@@ -53,11 +54,11 @@ class ChunkStatus(StrEnum):
 class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     """ReplicaChunk with additional PPDB-specific info."""
 
-    status: ChunkStatus | None
+    status: ChunkStatus
     """Status of the replica chunk. This may be ``None`` in older versions of
     the ``PpdbReplicaChunk`` table."""
 
-    directory: str | None
+    directory: str
     """Directory where the exported replica chunk data is stored. This may be
     ``None`` in older versions of the ``PpdbReplicaChunk`` table."""
 
@@ -74,6 +75,61 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         if self.directory is None:
             raise ValueError(f"directory for replica chunk {self.id} is not set")
         return Path(self.directory) / self.file_name
+
+    @property
+    def replica_time_dt(self) -> datetime:
+        """Return the replica_time as a `datetime` in UTC."""
+        return datetime.fromtimestamp(self.replica_time.unix_tai, tz=timezone.utc)
+
+    @property
+    def last_update_time_dt(self) -> datetime:
+        """Return the last_update_time as a `datetime` in UTC."""
+        return datetime.fromtimestamp(self.last_update_time.unix_tai, tz=timezone.utc)
+
+    @classmethod
+    def from_replica_chunk(
+        cls, replica_chunk: ReplicaChunk, status: ChunkStatus, directory: Path
+    ) -> PpdbReplicaChunkExtended:
+        """Create a `PpdbReplicaChunkExtended` from a `ReplicaChunk`.
+
+        Parameters
+        ----------
+        replica_chunk : `ReplicaChunk`
+            The `ReplicaChunk` to convert.
+        status : `ChunkStatus`
+            Status of the replica chunk.
+        directory : `Path`
+            Directory where the replica chunk data is stored.
+
+        Returns
+        -------
+        extended_chunk : `PpdbReplicaChunkExtended`
+            The converted `PpdbReplicaChunkExtended`.
+        """
+        return PpdbReplicaChunkExtended(
+            id=replica_chunk.id,
+            unique_id=replica_chunk.unique_id,
+            last_update_time=replica_chunk.last_update_time,
+            replica_time=astropy.time.Time.now(),
+            status=status,
+            directory=directory,
+        )
+
+    def with_new_status(self, new_status: ChunkStatus) -> PpdbReplicaChunkExtended:
+        """Create a new `PpdbReplicaChunkExtended` with the same properties as
+        this one, but with a different status.
+
+        Parameters
+        ----------
+        new_status : `ChunkStatus`
+            The new status to set.
+
+        Returns
+        -------
+        new_chunk : `PpdbReplicaChunkExtended`
+            The new chunk with the updated status.
+        """
+        return dataclasses.replace(self, status=new_status)
 
 
 class PpdbReplicaChunkSql(PpdbSql):
@@ -178,32 +234,19 @@ class PpdbReplicaChunkSql(PpdbSql):
         return ids
 
     def store_chunk(
-        self,
-        replica_chunk: ReplicaChunk,
-        connection: sqlalchemy.engine.Connection,
-        update: bool,
-        status: ChunkStatus | None = None,
-        directory: str | None = None,
+        self, replica_chunk: PpdbReplicaChunkExtended, connection: sqlalchemy.engine.Connection, update: bool
     ) -> None:
         """Insert or replace single record in PpdbReplicaChunk table, including
         the status and directory of the replica chunk.
         """
-        # `astropy.Time.datetime` returns naive datetime, even though all
-        # astropy times are in UTC. Add UTC timezone to timestamp so that
-        # the correct value is stored in the database.
-        insert_dt = datetime.datetime.fromtimestamp(
-            replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
-        )
-        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
-
         table = self._get_table("PpdbReplicaChunk")
 
-        values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
-        if status is not None:
-            # Add status to the values to be inserted.
-            values["status"] = status.value
-        if directory is not None:
-            # Add directory to the values to be inserted.
-            values["directory"] = directory
+        values = {
+            "last_update_time": replica_chunk.last_update_time_dt,
+            "unique_id": replica_chunk.unique_id,
+            "replica_time": replica_chunk.replica_time_dt,
+            "status": replica_chunk.status,
+            "directory": str(replica_chunk.directory),
+        }
         row = {"apdb_replica_chunk": replica_chunk.id} | values
         self.upsert(connection, update, table, values, row)

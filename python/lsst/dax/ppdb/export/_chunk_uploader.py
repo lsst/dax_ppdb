@@ -34,10 +34,9 @@ from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
 from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from ..config import PpdbConfig
-from ..ppdb import PpdbReplicaChunk
 from ._config import PpdbBigQueryConfig
 from ._manifest import Manifest
-from ._replica_chunk import ChunkStatus, PpdbReplicaChunkSql
+from ._replica_chunk import ChunkStatus, PpdbReplicaChunkExtended, PpdbReplicaChunkSql
 
 __all__ = ["ChunkUploader", "ChunkUploadError"]
 
@@ -183,7 +182,7 @@ class ChunkUploader:
 
             self._sleep_if(self.wait_interval)
 
-    def _process_chunk(self, replica_chunk: PpdbReplicaChunk) -> None:
+    def _process_chunk(self, replica_chunk: PpdbReplicaChunkExtended) -> None:
         """Process a replica chunk by uploading its parquet files and a
         JSON manifest to Google Cloud Storage.
 
@@ -256,10 +255,7 @@ class ChunkUploader:
             try:
                 with self._sql._engine.begin() as connection:
                     self._sql.store_chunk(
-                        replica_chunk,
-                        connection,
-                        True,
-                        status=ChunkStatus.UPLOADED,
+                        replica_chunk.with_new_status(ChunkStatus.UPLOADED), connection, True
                     )
             except Exception as e:
                 raise ChunkUploadError(chunk_id, "failed to update replica chunk status in database") from e
