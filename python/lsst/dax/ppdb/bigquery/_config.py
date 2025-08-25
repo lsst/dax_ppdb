@@ -9,7 +9,7 @@ from ..sql._ppdb_sql import PpdbSqlConfig
 class PpdbBigQueryConfig(PpdbSqlConfig):
     """Configuration for BigQuery-based PPDB."""
 
-    directory: Path
+    directory: Path | None = None
     """Directory where the exported chunks will be stored."""
 
     delete_existing: bool = False
@@ -26,12 +26,12 @@ class PpdbBigQueryConfig(PpdbSqlConfig):
     compression_format: str = "snappy"
     """Compression format for Parquet files."""
 
-    bucket: str
+    bucket: str | None = None
     """Name of Google Cloud Storage bucket for uploading chunks."""
 
-    prefix: str
+    prefix: str | None = None
     """Base prefix for the object in cloud storage."""
 
-    dataset: str
+    dataset: str | None = None
     """Target BigQuery dataset, e.g., 'my_project:my_dataset'. If not provided
     the project will be derived from the environment."""

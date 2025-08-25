@@ -80,10 +80,13 @@ class ChunkExporter(PpdbReplicaChunkSql):
         _LOG.info("Using schema version: %s", self.schema_version)
 
         # Read parameters from config
-        self.directory = self.config.directory
-        _LOG.info("Directory for chunk export: %s", self.directory)
+        if self.config.directory is None:
+            raise ValueError("Directory for chunk export is not set in configuration.")
+        self.directory: Path = self.config.directory
         self.batch_size = self.config.batch_size
         self.compression_format = self.config.compression_format
+        if self.compression_format is None:
+            raise ValueError("Compression format is not set in configuration.")
         self.delete_existing = self.config.delete_existing
 
         # Authenticate with Google Cloud to set credentials and project ID.

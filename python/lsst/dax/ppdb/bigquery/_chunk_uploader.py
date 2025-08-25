@@ -106,9 +106,15 @@ class ChunkUploader:
         self._sql = PpdbReplicaChunkSql(config)
 
         # Read parameters from config
-        self.prefix = self.config.prefix
-        self.bucket_name = self.config.bucket
-        self.dataset = self.config.dataset
+        if self.config.prefix is None:
+            raise ValueError("GCS prefix is not set in configuration.")
+        self.prefix: str = self.config.prefix
+        if self.config.bucket is None:
+            raise ValueError("GCS bucket name is not set in configuration.")
+        self.bucket_name: str = self.config.bucket
+        if self.config.dataset is None:
+            raise ValueError("BigQuery dataset is not set in configuration.")
+        self.dataset: str = self.config.dataset
         self.topic_name = self.config.stage_chunk_topic
 
         # Command line parameters
