@@ -66,7 +66,7 @@ def create_arrow_schema(
 
     Parameters
     ----------
-    column_defs : sequence of (str, DataType)
+    column_defs : `Sequence` [ `tuple` [ `str`, `felis.datamodel.DataType` ] ]
         Column name and type pairs.
     exclude_columns : `set` [`str`], optional
         Column names to exclude from the schema.

@@ -5,7 +5,7 @@ from ..sql._ppdb_sql import PpdbSqlConfig
 
 # DM-52173: Due to the class structure of ChunkExporter, the config needs to
 # inherit from PpdbSqlConfig. This should be refactored in the future so that
-# it is is standalone.
+# it is standalone.
 class PpdbBigQueryConfig(PpdbSqlConfig):
     """Configuration for BigQuery-based PPDB."""
 

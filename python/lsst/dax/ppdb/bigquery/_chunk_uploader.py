@@ -62,7 +62,8 @@ class ChunkUploader:
     Parameters
     ----------
     config : `PpdbConfig`
-        The configuration object containing database connection details.
+        The configuration object which should have the type
+        `PpdbBigQueryConfig`.
     wait_interval : `int`
         The time in seconds to wait between scans for new chunks.
     upload_interval : `int`
