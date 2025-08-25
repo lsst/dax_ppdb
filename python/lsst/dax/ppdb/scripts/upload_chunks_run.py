@@ -25,7 +25,6 @@ from ..sql._ppdb_sql import PpdbSqlConfig
 
 def upload_chunks_run(
     ppdb_config: str,
-    topic: str,
     wait_interval: int,
     upload_interval: int,
     exit_on_empty: bool,
@@ -37,8 +36,6 @@ def upload_chunks_run(
     ----------
     directory : `str`
         Directory containing the chunks to upload.
-    topic : `str`
-        Pub/Sub topic for publishing upload events.
     wait_interval : `int`
         Time in seconds to wait before checking for new chunks to upload.
     upload_interval : `int`
@@ -49,7 +46,6 @@ def upload_chunks_run(
     config = PpdbSqlConfig.from_uri(ppdb_config)
     chunk_exporter = ChunkUploader(
         config,
-        topic=topic,
         wait_interval=wait_interval,
         upload_interval=upload_interval,
         exit_on_empty=exit_on_empty,

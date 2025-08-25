@@ -58,7 +58,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     """Status of the replica chunk. This may be ``None`` in older versions of
     the ``PpdbReplicaChunk`` table."""
 
-    directory: str
+    directory: Path
     """Directory where the exported replica chunk data is stored. This may be
     ``None`` in older versions of the ``PpdbReplicaChunk`` table."""
 
@@ -77,12 +77,12 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         return Path(self.directory) / self.file_name
 
     @property
-    def replica_time_dt(self) -> datetime:
+    def replica_time_dt_utc(self) -> datetime:
         """Return the replica_time as a `datetime` in UTC."""
         return datetime.fromtimestamp(self.replica_time.unix_tai, tz=timezone.utc)
 
     @property
-    def last_update_time_dt(self) -> datetime:
+    def last_update_time_dt_utc(self) -> datetime:
         """Return the last_update_time as a `datetime` in UTC."""
         return datetime.fromtimestamp(self.last_update_time.unix_tai, tz=timezone.utc)
 
@@ -242,9 +242,9 @@ class PpdbReplicaChunkSql(PpdbSql):
         table = self._get_table("PpdbReplicaChunk")
 
         values = {
-            "last_update_time": replica_chunk.last_update_time_dt,
+            "last_update_time": replica_chunk.last_update_time_dt_utc,
             "unique_id": replica_chunk.unique_id,
-            "replica_time": replica_chunk.replica_time_dt,
+            "replica_time": replica_chunk.replica_time_dt_utc,
             "status": replica_chunk.status,
             "directory": str(replica_chunk.directory),
         }

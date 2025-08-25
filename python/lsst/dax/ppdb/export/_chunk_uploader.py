@@ -63,11 +63,6 @@ class ChunkUploader:
     ----------
     config : `PpdbConfig`
         The configuration object containing database connection details.
-    topic : `str`
-        The name of the Pub/Sub topic to which the message will be published.
-        Publishing a message to this topic will trigger the staging of the
-        chunk in BigQuery. If not specified, the default topic name
-        'stage-chunk-topic' will be used.
     wait_interval : `int`
         The time in seconds to wait between scans for new chunks.
     upload_interval : `int`
@@ -97,7 +92,6 @@ class ChunkUploader:
     def __init__(
         self,
         config: PpdbConfig,
-        topic: str | None = None,
         wait_interval: int = 30,
         upload_interval: int = 0,
         exit_on_empty: bool = False,
@@ -115,6 +109,7 @@ class ChunkUploader:
         self.prefix = self.config.prefix
         self.bucket_name = self.config.bucket
         self.dataset = self.config.dataset
+        self.topic_name = self.config.stage_chunk_topic
 
         # Command line parameters
         self.wait_interval = wait_interval
@@ -129,7 +124,6 @@ class ChunkUploader:
         self.storage = StorageClient(bucket_name=self.bucket_name)
 
         # Initialize the Pub/Sub publisher for staging chunks in BigQuery.
-        self.topic_name = topic if topic else "stage-chunk-topic"
         self.publisher = Publisher(self.project_id, self.topic_name)
 
     def run(self) -> None:

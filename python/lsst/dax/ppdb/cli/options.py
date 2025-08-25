@@ -120,9 +120,6 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
     """Define CLI options for Google Cloud Storage upload."""
     group = parser.add_argument_group("upload chunk options")
     group.add_argument(
-        "--topic", help="Pub/Sub topic for publishing upload events.", default=None, required=False
-    )
-    group.add_argument(
         "--wait-interval",
         type=int,
         help="Number of seconds to wait between file scans.",

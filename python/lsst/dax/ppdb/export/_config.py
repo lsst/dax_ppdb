@@ -12,20 +12,19 @@ class PpdbBigQueryConfig(PpdbSqlConfig):
     directory: Path
     """Directory where the exported chunks will be stored."""
 
-    # FIXME: This should go away in favor of direct db writes.
-    topic_name: str = "track-chunk-topic"
-    """Pub/Sub topic name for tracking chunk exports."""
+    delete_existing: bool = False
+    """If `True`, existing directories for chunks will be deleted before
+    export. If `False`, an error will be raised if the directory already
+    exists."""
+
+    stage_chunk_topic: str = "stage-chunk-topic"
+    """Pub/Sub topic name for triggering chunk staging process."""
 
     batch_size: int = 1000
     """Number of rows to process in each batch when writing parquet files."""
 
     compression_format: str = "snappy"
     """Compression format for Parquet files."""
-
-    delete_existing: bool = False
-    """If `True`, existing directories for chunks will be deleted before
-    export. If `False`, an error will be raised if the directory already
-    exists."""
 
     bucket: str
     """Name of Google Cloud Storage bucket for uploading chunks."""
