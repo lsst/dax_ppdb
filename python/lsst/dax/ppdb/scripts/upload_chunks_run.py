@@ -20,7 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from ..bigquery._chunk_uploader import ChunkUploader
-from ..sql._ppdb_sql import PpdbSqlConfig
+from ..ppdb import PpdbConfig
 
 
 def upload_chunks_run(
@@ -43,7 +43,7 @@ def upload_chunks_run(
     exit_on_empty : `bool`
         If `True`, exit the process if there are no chunks to upload.
     """
-    config = PpdbSqlConfig.from_uri(ppdb_config)
+    config = PpdbConfig.from_uri(ppdb_config)
     chunk_exporter = ChunkUploader(
         config,
         wait_interval=wait_interval,
