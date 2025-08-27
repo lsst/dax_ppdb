@@ -135,7 +135,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
             # Loop over the table data and write each table to a Parquet file.
             for table_name, table_data in table_dict.items():
                 if not table_data.rows():
-                    _LOG.warning("No data for %s in %s, skipping export", table_name, replica_chunk.id)
+                    _LOG.debug("No data for %s in %s, skipping export", table_name, replica_chunk.id)
                     continue
                 parquet_file_path = chunk_dir / f"{table_name}.parquet"
                 try:
