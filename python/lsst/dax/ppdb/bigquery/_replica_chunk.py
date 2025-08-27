@@ -194,7 +194,8 @@ class PpdbReplicaChunkSql(PpdbSql):
         Returns
         -------
         chunks : `list` [`PpdbReplicaChunkExtended`]
-            List of chunks with the specified status.
+            List of chunks with the specified status. Chunks are ordered by
+            their ``last_update_time``.
 
         Notes
         -----
@@ -239,6 +240,9 @@ class PpdbReplicaChunkSql(PpdbSql):
         """Insert or replace single record in PpdbReplicaChunk table, including
         the status and directory of the replica chunk.
         """
+        # DM-52173: This method was copied and modified from the
+        # ``_store_insert_id_`` method in `PpdbSql`. Refactoring should be done
+        # to avoid this code duplication.
         table = self._get_table("PpdbReplicaChunk")
 
         values = {
@@ -249,4 +253,20 @@ class PpdbReplicaChunkSql(PpdbSql):
             "directory": str(replica_chunk.directory),
         }
         row = {"apdb_replica_chunk": replica_chunk.id} | values
-        self.upsert(connection, update, table, values, row)
+        if update:
+            # We need UPSERT which is dialect-specific construct
+            if connection.dialect.name == "sqlite":
+                insert_sqlite = sqlalchemy.dialects.sqlite.insert(table)
+                insert_sqlite = insert_sqlite.on_conflict_do_update(
+                    index_elements=table.primary_key, set_=values
+                )
+                connection.execute(insert_sqlite, row)
+            elif connection.dialect.name == "postgresql":
+                insert_pg = sqlalchemy.dialects.postgresql.dml.insert(table)
+                insert_pg = insert_pg.on_conflict_do_update(constraint=table.primary_key, set_=values)
+                connection.execute(insert_pg, row)
+            else:
+                raise TypeError(f"Unsupported dialect {connection.dialect.name} for upsert.")
+        else:
+            insert = table.insert()
+            connection.execute(insert, row)

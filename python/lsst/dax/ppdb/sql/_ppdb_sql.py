@@ -50,9 +50,7 @@ from lsst.dax.apdb.timer import Timer
 from lsst.resources import ResourcePath
 from lsst.utils.iteration import chunk_iterable
 from sqlalchemy import sql
-from sqlalchemy.engine import Connection
 from sqlalchemy.pool import NullPool
-from sqlalchemy.sql.schema import Table
 
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
@@ -542,29 +540,22 @@ class PpdbSql(Ppdb):
             self._store_table_data(sources, connection, update, "DiaSource", 100)
             self._store_table_data(forced_sources, connection, update, "DiaForcedSource", 1000)
 
-    def upsert(
-        self,
-        connection: Connection,
-        update: bool,
-        table: Table,
-        values: dict[str, Any],
-        row: dict[str, Any],
+    def _store_insert_id(
+        self, replica_chunk: ReplicaChunk, connection: sqlalchemy.engine.Connection, update: bool
     ) -> None:
-        """Insert or upsert a row depending on `update` flag.
+        """Insert or replace single record in PpdbReplicaChunk table"""
+        # `astropy.Time.datetime` returns naive datetime, even though all
+        # astropy times are in UTC. Add UTC timezone to timestampt so that
+        # database can store a correct value.
+        insert_dt = datetime.datetime.fromtimestamp(
+            replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
+        )
+        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
 
-        Parameters
-        ----------
-        connection : sqlalchemy.engine.Connection
-            Active database connection.
-        update : bool
-            Whether to perform an upsert (True) or plain insert (False).
-        table : sqlalchemy.sql.schema.Table
-            The SQLAlchemy table object.
-        values : dict[str, Any]
-            The column-to-value mapping used for the `SET` clause in upsert.
-        row : dict[str, Any]
-            The full row to insert.
-        """
+        table = self._get_table("PpdbReplicaChunk")
+
+        values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
+        row = {"apdb_replica_chunk": replica_chunk.id} | values
         if update:
             # We need UPSERT which is dialect-specific construct
             if connection.dialect.name == "sqlite":
@@ -582,24 +573,6 @@ class PpdbSql(Ppdb):
         else:
             insert = table.insert()
             connection.execute(insert, row)
-
-    def _store_insert_id(
-        self, replica_chunk: ReplicaChunk, connection: sqlalchemy.engine.Connection, update: bool
-    ) -> None:
-        """Insert or replace single record in PpdbReplicaChunk table"""
-        # `astropy.Time.datetime` returns naive datetime, even though all
-        # astropy times are in UTC. Add UTC timezone to timestampt so that
-        # database can store a correct value.
-        insert_dt = datetime.datetime.fromtimestamp(
-            replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
-        )
-        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
-
-        table = self._get_table("PpdbReplicaChunk")
-
-        values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
-        row = {"apdb_replica_chunk": replica_chunk.id} | values
-        self.upsert(connection, update, table, values, row)
 
     def _store_objects(
         self, objects: ApdbTableData, connection: sqlalchemy.engine.Connection, update: bool
