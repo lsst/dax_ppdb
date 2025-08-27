@@ -82,8 +82,6 @@ class ChunkExporter(PpdbReplicaChunkSql):
         self.directory: Path = self.config.directory
         self.batch_size = self.config.batch_size
         self.compression_format = self.config.compression_format
-        if self.compression_format is None:
-            raise ValueError("Compression format is not set in configuration.")
         self.delete_existing = self.config.delete_existing
 
         # Authenticate with Google Cloud to set credentials and project ID.
