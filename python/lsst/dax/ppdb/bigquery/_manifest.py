@@ -70,7 +70,7 @@ class Manifest(BaseModel):
         as string to avoid any precision issues).
     table_data: `dict` [ `str`, `TableStats` ]
         Mapping of table name to per-table statistics.
-    compression_format
+    compression_format: `str`
         Name of the compression format used for artifacts (e.g., "gzip",
         "zstd", "snappy", etc.).
     """
@@ -109,12 +109,12 @@ class Manifest(BaseModel):
 
         Parameters
         ----------
-        file_path: `str`
+        file_path: `pathlib.Path`
             Path to the JSON file containing the manifest.
 
         Returns
         -------
-        `Manifest`
+        manifest: `Manifest`
             The loaded manifest object.
         """
         with open(file_path, "r", encoding="utf-8") as f:

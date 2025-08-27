@@ -48,7 +48,7 @@ _MON = monitor.MonAgent(__name__)
 class ChunkUploadError(RuntimeError):
     """Top-level error for failures while processing a single chunk."""
 
-    def __init__(self, chunk_id: int, message: str) -> None:
+    def __init__(self, chunk_id: int, message: str):
         self.chunk_id = chunk_id
         super().__init__(f"[chunk_id={chunk_id}] {message}")
 
@@ -62,8 +62,7 @@ class ChunkUploader:
     Parameters
     ----------
     config : `PpdbConfig`
-        The configuration object which should have the type
-        `PpdbBigQueryConfig`.
+        The configuration object which must have the type `PpdbBigQueryConfig`.
     wait_interval : `int`
         The time in seconds to wait between scans for new chunks.
     upload_interval : `int`
@@ -97,7 +96,7 @@ class ChunkUploader:
         upload_interval: int = 0,
         exit_on_empty: bool = False,
         exit_on_error: bool = False,
-    ) -> None:
+    ):
         # Check for correct config type
         if not isinstance(config, PpdbBigQueryConfig):
             raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
@@ -195,8 +194,8 @@ class ChunkUploader:
         Raises
         ------
         ChunkUploadError
-            If there is an error during the upload process, such as missing
-            files, upload failures, or database update issues.
+            Raised if there is an error during the upload process, such as
+            missing files, upload failures, or database update issues.
         """
         chunk_id = replica_chunk.id
 

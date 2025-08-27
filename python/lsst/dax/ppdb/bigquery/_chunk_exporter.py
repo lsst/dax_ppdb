@@ -62,10 +62,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
     directory. It may be useful for testing and development purposes.
     """
 
-    def __init__(
-        self,
-        config: PpdbConfig,
-    ):
+    def __init__(self, config: PpdbConfig):
         # DM-52173: Parent class needs PpdbSqlConfig parameters. This should
         # eventually go away after refactoring.
         super().__init__(config)

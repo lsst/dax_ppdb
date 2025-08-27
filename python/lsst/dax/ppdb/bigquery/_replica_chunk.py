@@ -183,8 +183,8 @@ class PpdbReplicaChunkSql(PpdbSql):
         return replica_chunk_table
 
     def get_replica_chunks_by_status(self, status: ChunkStatus) -> list[PpdbReplicaChunkExtended]:
-        """Return collection of replica chunks known to the database with a
-        given status.
+        """Return an ordered collection of replica chunks known to the database
+        with a given status.
 
         Parameters
         ----------
@@ -193,7 +193,7 @@ class PpdbReplicaChunkSql(PpdbSql):
 
         Returns
         -------
-        chunks : `list` [`PpdbReplicaChunk`] or `None`
+        chunks : `list` [`PpdbReplicaChunkExtended`]
             List of chunks with the specified status.
 
         Notes
