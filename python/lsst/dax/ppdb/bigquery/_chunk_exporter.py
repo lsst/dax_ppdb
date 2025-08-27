@@ -123,7 +123,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
                 _LOG.warning("Overwriting existing directory for %s: %s", replica_chunk.id, chunk_dir)
                 shutil.rmtree(chunk_dir)
 
-            chunk_dir.mkdir(parents=True, exist_ok=True)
+            chunk_dir.mkdir(parents=True)
             _LOG.info("Created directory for %s: %s", replica_chunk.id, chunk_dir)
 
             table_dict = {
