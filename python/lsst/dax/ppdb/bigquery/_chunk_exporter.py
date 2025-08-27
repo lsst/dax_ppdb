@@ -63,14 +63,14 @@ class ChunkExporter(PpdbReplicaChunkSql):
     """
 
     def __init__(self, config: PpdbConfig):
-        # DM-52173: Parent class needs PpdbSqlConfig parameters. This should
-        # eventually go away after refactoring.
-        super().__init__(config)
-
         # Check for correct config type
         if not isinstance(config, PpdbBigQueryConfig):
             raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
         self.config = config
+
+        # DM-52173: Parent class needs PpdbSqlConfig parameters. This should
+        # eventually go away after refactoring.
+        super().__init__(self.config)
 
         # Read schema version from metadata table
         self.schema_version = self.get_schema_version()
