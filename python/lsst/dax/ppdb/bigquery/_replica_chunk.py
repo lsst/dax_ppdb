@@ -63,18 +63,18 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     ``None`` in older versions of the ``PpdbReplicaChunk`` table."""
 
     @property
-    def file_name(self) -> str:
+    def manifest_name(self) -> str:
         """Filename of the manifest file for this chunk."""
         return f"chunk_{self.id}.manifest.json"
 
     @property
-    def file_path(self) -> Path:
+    def manifest_path(self) -> Path:
         """Path to the manifest file for this chunk, or `None` if directory is
         not set.
         """
         if self.directory is None:
             raise ValueError(f"directory for replica chunk {self.id} is not set")
-        return Path(self.directory) / self.file_name
+        return Path(self.directory) / self.manifest_name
 
     @property
     def replica_time_dt_utc(self) -> datetime:

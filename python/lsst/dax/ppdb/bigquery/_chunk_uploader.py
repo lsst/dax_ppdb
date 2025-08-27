@@ -206,9 +206,11 @@ class ChunkUploader:
         # Read the manifest file to get metadata about the chunk.
         manifest: Manifest | None = None
         try:
-            if not replica_chunk.file_path.exists():
-                raise ChunkUploadError(chunk_id, f"Manifest file does not exist: {replica_chunk.file_path}")
-            manifest = Manifest.from_json_file(replica_chunk.file_path)
+            if not replica_chunk.manifest_path.exists():
+                raise ChunkUploadError(
+                    chunk_id, f"Manifest file does not exist: {replica_chunk.manifest_path}"
+                )
+            manifest = Manifest.from_json_file(replica_chunk.manifest_path)
         except Exception as e:
             raise ChunkUploadError(chunk_id, f"Failed to read manifest file for: {replica_chunk.id}") from e
 
@@ -245,7 +247,7 @@ class ChunkUploader:
             # 2) Upload manifest (catch single UploadError on failure).
             try:
                 self.storage.upload_from_string(
-                    posixpath.join(gcs_prefix, replica_chunk.file_name),
+                    posixpath.join(gcs_prefix, replica_chunk.manifest_name),
                     manifest.model_dump_json(),
                 )
             except UploadError as e:
