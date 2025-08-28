@@ -38,55 +38,54 @@ def _utc_now() -> datetime:
 
 
 class TableStats(BaseModel):
-    """
-    Per-table file statistics.
-
-    Attributes
-    ----------
-    row_count: `int`
-        Number of rows written for this table (must be non-negative).
-    """
+    """Per-table file statistics."""
 
     row_count: int = Field(ge=0, description="Non-negative count of rows written for this table.")
+    """Number of rows written for this table (must be non-negative)."""
 
 
 class Manifest(BaseModel):
     """
     Manifest record for replica chunk data that has been extracted into
     parquet files.
-
-    Attributes
-    ----------
-    chunk_id: `str`
-        Identifier of the replica chunk.
-    unique_id: `UUID`
-        Globally unique identifier for the export operation or replica.
-    schema_version: `str`
-        Version string of the schema used to produce this export.
-    exported_at: `datetime`
-        Timestamp when the export was produced (UTC). Serialized as ISO 8601.
-    last_update_time: `str`
-        Source system's last-update timestamp for the replica (TAI value, kept
-        as string to avoid any precision issues).
-    table_data: `dict` [ `str`, `TableStats` ]
-        Mapping of table name to per-table statistics.
     compression_format: `str`
-        Name of the compression format used for artifacts (e.g., "gzip",
-        "zstd", "snappy", etc.).
     """
 
     model_config = ConfigDict(extra="forbid")
+    """Pydantic model configuration."""
 
     replica_chunk_id: str
+    """Sequential identifier of the replica chunk being exporter (`str`)."""
+
     unique_id: UUID
+    """Globally unique opaque identifier for the export operation or replica
+    (`UUID`).
+    """
+
     schema_version: str
+    """Version string of the schema used to produce this export (`str`)."""
+
     exported_at: datetime = Field(default_factory=_utc_now)
+    """Timestamp when the export was produced (UTC). Serialized as ISO 8601
+    (`datetime`)."""
+
     last_update_time: str
+    """Source system's last-update timestamp for the replica; TAI value, kept
+    as string to avoid any precision issues (`str`)."""
+
     table_data: dict[str, TableStats]
+    """Mapping of table name to per-table statistics
+    (`dict`[`str`,`TableStats`])."""
+
     compression_format: str
+    """Name of the compression format used for artifacts (e.g., "gzip",
+    "zstd", "snappy", etc.)."""
 
     @property
     def filename(self) -> str:
+        """Generate the filename for this manifest based on the replica chunk
+        ID (`str`).
+        """
         return f"chunk_{self.replica_chunk_id}.manifest.json"
 
     def write_json_file(self, dir_path: Path) -> None:
