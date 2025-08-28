@@ -19,19 +19,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from ..export._chunk_uploader import ChunkUploader
+from ..bigquery._chunk_uploader import ChunkUploader
+from ..ppdb import PpdbConfig
 
 
 def upload_chunks_run(
-    directory: str,
-    bucket: str,
-    prefix: str,
-    dataset: str,
-    topic: str,
+    ppdb_config: str,
     wait_interval: int,
     upload_interval: int,
     exit_on_empty: bool,
-    delete_chunks: bool,
     exit_on_error: bool,
 ) -> None:
     """Upload chunks to the specified bucket and prefix.
@@ -40,33 +36,19 @@ def upload_chunks_run(
     ----------
     directory : `str`
         Directory containing the chunks to upload.
-    bucket : `str`
-        Name of the bucket to upload the chunks to.
-    prefix : `str`, optional
-        Prefix within the bucket for object naming.
-    dataset : `str`
-        Target BigQuery dataset.
-    topic : `str`
-        Pub/Sub topic for publishing upload events.
     wait_interval : `int`
         Time in seconds to wait before checking for new chunks to upload.
     upload_interval : `int`
         Time in seconds to wait between uploads of chunks.
     exit_on_empty : `bool`
         If `True`, exit the process if there are no chunks to upload.
-    delete_chunks : `bool`
-        If `True`, delete the chunks after they have been uploaded.
     """
+    config = PpdbConfig.from_uri(ppdb_config)
     chunk_exporter = ChunkUploader(
-        directory,
-        bucket,
-        prefix,
-        dataset,
-        topic=topic,
+        config,
         wait_interval=wait_interval,
         upload_interval=upload_interval,
         exit_on_empty=exit_on_empty,
-        delete_chunks=delete_chunks,
         exit_on_error=exit_on_error,
     )
     chunk_exporter.run()

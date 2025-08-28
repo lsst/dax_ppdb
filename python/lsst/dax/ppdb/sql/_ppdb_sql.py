@@ -76,6 +76,8 @@ def _onSqlite3Connect(
 
 
 class PpdbSqlConfig(PpdbConfig):
+    """Configuration for the `PpdbSql` class."""
+
     db_url: str
     """SQLAlchemy database connection URI."""
 
@@ -105,6 +107,8 @@ class PpdbSqlConfig(PpdbConfig):
 
 
 class PpdbSql(Ppdb):
+    """Implementation of `Ppdb` using a SQL database."""
+
     default_felis_schema_file = "${SDM_SCHEMAS_DIR}/yml/apdb.yaml"
 
     meta_schema_version_key = "version:schema"
@@ -187,6 +191,67 @@ class PpdbSql(Ppdb):
         return config
 
     @classmethod
+    def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
+        """Create the ``PpdbReplicaChunk`` table which will be added to the
+        schema.
+
+        Parameters
+        ----------
+        table_name : `str` or `None`
+            Name of the table to create. If not provided, defaults to
+            "PpdbReplicaChunk".
+        """
+        table_name = table_name or "PpdbReplicaChunk"
+        columns = [
+            schema_model.Column(
+                name="apdb_replica_chunk",
+                id=f"#{table_name}.apdb_replica_chunk",
+                datatype=felis.datamodel.DataType.long,
+            ),
+            schema_model.Column(
+                name="last_update_time",
+                id=f"#{table_name}.last_update_time",
+                datatype=felis.datamodel.DataType.timestamp,
+                nullable=False,
+            ),
+            schema_model.Column(
+                name="unique_id",
+                id=f"#{table_name}.unique_id",
+                datatype=schema_model.ExtraDataTypes.UUID,
+                nullable=False,
+            ),
+            schema_model.Column(
+                name="replica_time",
+                id=f"#{table_name}.replica_time",
+                datatype=felis.datamodel.DataType.timestamp,
+                nullable=False,
+            ),
+        ]
+        indices = [
+            schema_model.Index(
+                name="PpdbInsertId_idx_last_update_time",
+                id="#PpdbInsertId_idx_last_update_time",
+                columns=[columns[1]],
+            ),
+            schema_model.Index(
+                name="PpdbInsertId_idx_replica_time",
+                id="#PpdbInsertId_idx_replica_time",
+                columns=[columns[3]],
+            ),
+        ]
+
+        # Add table for replication support.
+        chunks_table = schema_model.Table(
+            name=table_name,
+            id=f"#{table_name}",
+            columns=columns,
+            primary_key=[columns[0]],
+            indexes=indices,
+            constraints=[],
+        )
+        return chunks_table
+
+    @classmethod
     def _read_schema(
         cls, schema_file: str | None, schema_name: str | None, felis_schema: str | None, db_url: str
     ) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
@@ -240,56 +305,9 @@ class PpdbSql(Ppdb):
         if schema_name:
             schema.name = schema_name
 
-        # Add replica chunk table.
-        table_name = "PpdbReplicaChunk"
-        columns = [
-            schema_model.Column(
-                name="apdb_replica_chunk",
-                id=f"#{table_name}.apdb_replica_chunk",
-                datatype=felis.datamodel.DataType.long,
-            ),
-            schema_model.Column(
-                name="last_update_time",
-                id=f"#{table_name}.last_update_time",
-                datatype=felis.datamodel.DataType.timestamp,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="unique_id",
-                id=f"#{table_name}.unique_id",
-                datatype=schema_model.ExtraDataTypes.UUID,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="replica_time",
-                id=f"#{table_name}.replica_time",
-                datatype=felis.datamodel.DataType.timestamp,
-                nullable=False,
-            ),
-        ]
-        indices = [
-            schema_model.Index(
-                name="PpdbInsertId_idx_last_update_time",
-                id="#PpdbInsertId_idx_last_update_time",
-                columns=[columns[1]],
-            ),
-            schema_model.Index(
-                name="PpdbInsertId_idx_replica_time",
-                id="#PpdbInsertId_idx_replica_time",
-                columns=[columns[3]],
-            ),
-        ]
-
-        # Add table for replication support.
-        chunks_table = schema_model.Table(
-            name=table_name,
-            id=f"#{table_name}",
-            columns=columns,
-            primary_key=[columns[0]],
-            indexes=indices,
-            constraints=[],
-        )
-        schema.tables.append(chunks_table)
+        # Create the PpdbReplicaChunk table and add it to the schema.
+        replica_chunk_table = cls.create_replica_chunk_table()
+        schema.tables.append(replica_chunk_table)
 
         if schema.version is not None:
             version = VersionTuple.fromString(schema.version.current)
@@ -450,8 +468,7 @@ class PpdbSql(Ppdb):
             )
         if not VERSION.checkCompatibility(db_code_version):
             raise IncompatibleVersionError(
-                f"Current code version {VERSION} "
-                f"is not compatible with database version {db_code_version}"
+                f"Current code version {VERSION} is not compatible with database version {db_code_version}"
             )
 
     def _get_table(self, name: str) -> sqlalchemy.schema.Table:

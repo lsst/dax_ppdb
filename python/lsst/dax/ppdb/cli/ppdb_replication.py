@@ -52,7 +52,6 @@ def main() -> None:
     _list_chunks_apdb_subcommand(subparsers)
     _list_chunks_ppdb_subcommand(subparsers)
     _run_subcommand(subparsers)
-    _export_chunks_subcommand(subparsers)
     _upload_chunks_subcommand(subparsers)
 
     args = parser.parse_args()
@@ -94,16 +93,8 @@ def _run_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(method=scripts.replication_run)
 
 
-def _export_chunks_subcommand(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("export-chunks", help="Export data from APDB to Parquet files.")
-    parser.add_argument("apdb_config", help="Path to the APDB configuration.")
-    parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
-    options.replication_options(parser)
-    options.export_options(parser)
-    parser.set_defaults(method=scripts.export_chunks_run)
-
-
 def _upload_chunks_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser("upload-chunks", help="Upload data from Parquet files to GCS.")
+    parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
     options.upload_options(parser)
     parser.set_defaults(method=scripts.upload_chunks_run)

@@ -38,6 +38,7 @@ def main() -> None:
 
     subparsers = parser.add_subparsers(title="available subcommands", required=True)
     _create_sql_subcommand(subparsers)
+    _create_bigquery_replica_chunk_sql_subcommand(subparsers)
 
     args = parser.parse_args()
     log_cli.process_args(args)
@@ -57,3 +58,17 @@ def _create_sql_subcommand(subparsers: argparse._SubParsersAction) -> None:
         "--drop", help="If True then drop existing tables.", default=False, action="store_true"
     )
     parser.set_defaults(method=scripts.create_sql)
+
+
+def _create_bigquery_replica_chunk_sql_subcommand(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "create-bq-replica-chunk-sql", help="Create database for tracking replica chunks in BigQuery."
+    )
+    parser.add_argument("db_url", help="Database URL in SQLAlchemy format.")
+    parser.add_argument("output_config", help="Name of the new BigQuery PPDB configuration file.")
+    options.felis_schema_options(parser)
+    options.sql_db_options(parser)
+    parser.add_argument(
+        "--drop", help="If True then drop existing tables.", default=False, action="store_true"
+    )
+    parser.set_defaults(method=scripts.create_bigquery_replica_chunk_sql)

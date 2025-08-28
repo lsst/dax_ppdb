@@ -19,9 +19,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from .create_bigquery_replica_chunk_sql import create_bigquery_replica_chunk_sql
-from .create_sql import create_sql
-from .replication_list_chunks_apdb import replication_list_chunks_apdb
-from .replication_list_chunks_ppdb import replication_list_chunks_ppdb
-from .replication_run import replication_run
-from .upload_chunks_run import upload_chunks_run
+# Check for required GCP dependencies.
+# All modules in lsst.dax.ppdb.export require the lsst.dax.ppdbx.gcp module.
+try:
+    import lsst.dax.ppdbx.gcp
+except ImportError:
+    raise ImportError(
+        "The lsst.dax.ppdbx.gcp module is required for BigQuery support.\n"
+        "Please 'pip install' the lsst-ppdb-gcp package from:\n"
+        "https://github.com/lsst-dm/dax_ppdbx_gcp"
+    )

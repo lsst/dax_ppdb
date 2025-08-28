@@ -48,12 +48,17 @@ def ppdb_type(config: PpdbConfig) -> type[PpdbSql]:
     TypeError
         Raised if type of ``config`` does not match any known types.
     """
+    from .bigquery._config import PpdbBigQueryConfig
     from .sql import PpdbSqlConfig
 
     if type(config) is PpdbSqlConfig:
         from .sql import PpdbSql
 
         return PpdbSql
+    elif type(config) is PpdbBigQueryConfig:
+        from .bigquery._chunk_exporter import ChunkExporter
+
+        return ChunkExporter
 
     raise TypeError(f"Unknown type of config object: {type(config)}")
 
@@ -80,6 +85,10 @@ def ppdb_type_for_name(type_name: str) -> type[PpdbSql]:
         from .sql import PpdbSql
 
         return PpdbSql
+    elif type_name == "bigquery":
+        from .bigquery._chunk_exporter import ChunkExporter
+
+        return ChunkExporter
 
     raise TypeError(f"Unknown type name: {type_name}")
 
@@ -106,5 +115,9 @@ def config_type_for_name(type_name: str) -> type[PpdbConfig]:
         from .sql import PpdbSqlConfig
 
         return PpdbSqlConfig
+    elif type_name == "bigquery":
+        from .bigquery._config import PpdbBigQueryConfig
+
+        return PpdbBigQueryConfig
 
     raise TypeError(f"Unknown type name: {type_name}")

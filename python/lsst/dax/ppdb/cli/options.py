@@ -116,40 +116,9 @@ def replication_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def export_options(parser: argparse.ArgumentParser) -> None:
-    group = parser.add_argument_group("chunk export options")
-    group.add_argument("--directory", help="Directory for local file storage.", required=True)
-    group.add_argument(
-        "--batch-size",
-        type=int,
-        help="Number of records to write in each batch.",
-    )
-    group.add_argument(
-        "--compression-format",
-        help="Compression format for Parquet files.",
-        default="snappy",
-        choices=["snappy", "gzip", "brotli", "zstd", "lz4", "none"],
-    )
-
-
 def upload_options(parser: argparse.ArgumentParser) -> None:
     """Define CLI options for Google Cloud Storage upload."""
-    group = parser.add_argument_group("Google Cloud Storage upload options")
-    group.add_argument("--directory", help="Directory to scan for chunk files.", default=None, required=True)
-    group.add_argument("--bucket", help="GCS bucket name.", default=None, required=True)
-    group.add_argument(
-        "--prefix", help="GCS base prefix for the object, e.g., 'data/staging'.", default=None, required=True
-    )
-    group.add_argument(
-        "--dataset",
-        help="Target BigQuery dataset, e.g., 'my_project:my_dataset'."
-        "If not provided the project will be derived from the environment.",
-        default=None,
-        required=True,
-    )
-    group.add_argument(
-        "--topic", help="Pub/Sub topic for publishing upload events.", default=None, required=False
-    )
+    group = parser.add_argument_group("upload chunk options")
     group.add_argument(
         "--wait-interval",
         type=int,
@@ -165,12 +134,6 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--exit-on-empty",
         help="Exit if no new files are found after scanning.",
-        default=False,
-        action="store_true",
-    )
-    group.add_argument(
-        "--delete-chunks",
-        help="Delete chunks after they are successfully uploaded.",
         default=False,
         action="store_true",
     )
