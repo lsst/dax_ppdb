@@ -43,7 +43,7 @@ test = [
     "pytest-openfiles >= 0.5.0"
 ]
 gcp = [
-    "lsst-dax-ppdbx-gcp @ git+https://github.com/lsst-dm/dax_ppdbx_gcp@main"
+    "lsst-dax-ppdbx-gcp"
 ]
 
 [tool.setuptools.packages.find]
