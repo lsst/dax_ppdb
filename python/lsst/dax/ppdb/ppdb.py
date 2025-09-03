@@ -27,6 +27,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import astropy.time
+
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
 from lsst.resources import ResourcePathExpression
 
@@ -91,6 +92,8 @@ class Ppdb(ABC):
         """
         raise NotImplementedError()
 
+    # TODO: Change return type to Sequence so that we can support variadic
+    # types
     @abstractmethod
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
         """Return collection of replica chunks known to the database.

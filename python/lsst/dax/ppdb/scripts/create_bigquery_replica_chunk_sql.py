@@ -25,7 +25,7 @@ __all__ = ["create_bigquery_replica_chunk_sql"]
 
 import yaml
 
-from ..bigquery._replica_chunk import PpdbReplicaChunkSql
+from ..sql._ppdb_sql import PpdbSql
 
 
 def create_bigquery_replica_chunk_sql(
@@ -67,7 +67,7 @@ def create_bigquery_replica_chunk_sql(
     # the tables needed for tracking BigQuery replica chunks, including the
     # PpdbReplicaChunk and metadata tables. Currently, it includes the entire
     # PPDB Postgres representation plus some extra columns.
-    config = PpdbReplicaChunkSql.init_database(
+    config = PpdbSql.init_database(
         db_url=db_url,
         schema_name=schema,
         schema_file=felis_path,

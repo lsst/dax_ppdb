@@ -255,10 +255,7 @@ class ChunkUploader:
 
             # 3) Update DB status.
             try:
-                with self._sql._engine.begin() as connection:
-                    self._sql.store_chunk(
-                        replica_chunk.with_new_status(ChunkStatus.UPLOADED), connection, True
-                    )
+                self._sql.store_chunk(replica_chunk.with_new_status(ChunkStatus.UPLOADED), True)
             except Exception as e:
                 raise ChunkUploadError(chunk_id, "failed to update replica chunk status in database") from e
 

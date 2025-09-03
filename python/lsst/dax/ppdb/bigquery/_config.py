@@ -30,6 +30,12 @@ from ..sql._ppdb_sql import PpdbSqlConfig
 class PpdbBigQueryConfig(PpdbSqlConfig):
     """Configuration for BigQuery-based PPDB."""
 
+    apdb_schema_uri: str = "resource://lsst.sdm.schemas/apdb.yaml"
+    """URI of the APDB schema definition."""
+
+    replica_chunk_table: str = "PpdbReplicaChunk"
+    """Name of the table used to track replica chunks."""
+
     directory: Path | None = None
     """Directory where the exported chunks will be stored."""
 

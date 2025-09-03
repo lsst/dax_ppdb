@@ -24,12 +24,13 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from lsst.dax.apdb import ApdbTableData, ApdbTables, ReplicaChunk, monitor
+from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ApdbTables, ReplicaChunk, monitor
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.ppdbx.gcp.auth import get_auth_default
 
 from .._arrow import write_parquet
 from ..config import PpdbConfig
+from ..ppdb import Ppdb, PpdbReplicaChunk
 from ._config import PpdbBigQueryConfig
 from ._manifest import Manifest, TableStats
 from ._replica_chunk import ChunkStatus, PpdbReplicaChunkExtended, PpdbReplicaChunkSql
@@ -41,7 +42,7 @@ _LOG = logging.getLogger(__name__)
 _MON = monitor.MonAgent(__name__)
 
 
-class ChunkExporter(PpdbReplicaChunkSql):
+class ChunkExporter(Ppdb):
     """Exports data from Cassandra to local Parquet files.
 
     Parameters
@@ -70,11 +71,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
 
         # DM-52173: Parent class needs PpdbSqlConfig parameters. This should
         # eventually go away after refactoring.
-        super().__init__(self.config)
-
-        # Read schema version from metadata table
-        self.schema_version = self.get_schema_version()
-        _LOG.info("Using schema version: %s", self.schema_version)
+        self._sql = PpdbReplicaChunkSql(self.config)
 
         # Read parameters from config
         if self.config.directory is None:
@@ -87,6 +84,16 @@ class ChunkExporter(PpdbReplicaChunkSql):
         # Authenticate with Google Cloud to set credentials and project ID.
         self.credentials, self.project_id = get_auth_default()
 
+    @property
+    def metadata(self) -> ApdbMetadata:
+        """Implement `Ppdb` interface to return APDB metadata object."""
+        # docstring is inherited from a base class
+        return self._sql.metadata
+
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
+        # docstring is inherited from a base class
+        return self._sql.get_replica_chunks(start_chunk_id)
+
     def _generate_manifest(
         self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
     ) -> Manifest:
@@ -94,7 +101,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
         return Manifest(
             replica_chunk_id=str(replica_chunk.id),
             unique_id=replica_chunk.unique_id,
-            schema_version=str(self.schema_version),
+            schema_version=str(self._sql.schema_version),
             exported_at=datetime.now(timezone.utc),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
             table_data={
@@ -180,8 +187,7 @@ class ChunkExporter(PpdbReplicaChunkSql):
             replica_chunk, ChunkStatus.EXPORTED, chunk_dir
         )
         try:
-            with self._engine.begin() as connection:
-                self.store_chunk(replica_chunk_ext, connection, False)
+            self._sql.store_chunk(replica_chunk_ext, False)
         except Exception as e:
             _LOG.exception("Failed to store replica chunk info in database for %s", replica_chunk.id)
             raise e
