@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 import astropy.time
 import felis
@@ -200,6 +201,18 @@ class PpdbReplicaChunkSql:
         raise LookupError(f"Unknown table {name}")
 
     @classmethod
+    def _to_astropy_tai(cls, obj: Any) -> astropy.time.Time:
+        """Convert a database object to `astropy.time.Time` in TAI scale.
+
+        Parameters
+        ----------
+        obj : `Any`
+            The object to convert, expected to be a `datetime` in UTC.
+            The type signature is generic to match astropy's typing.
+        """
+        return astropy.time.Time(obj, format="datetime", scale="tai")
+
+    @classmethod
     def _create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
         """Create the ``PpdbReplicaChunk`` table with additional fields for
         status and directory.
@@ -272,11 +285,8 @@ class PpdbReplicaChunkSql:
         with self._engine.connect() as conn:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
             for row in result:
-                # When we store these timestamps we convert astropy Time to
-                # unix_tai and then to `datetime` in UTC. This conversion
-                # reverses that process,
-                last_update_time = astropy.time.Time(row[1], format="datetime", scale="tai")
-                replica_time = astropy.time.Time(row[3], format="datetime", scale="tai")
+                last_update_time = self._to_astropy_tai(row[1])
+                replica_time = self._to_astropy_tai(row[3])
                 ids.append(
                     PpdbReplicaChunkExtended(
                         id=row[0],
@@ -304,11 +314,8 @@ class PpdbReplicaChunkSql:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
             ids = []
             for row in result:
-                # When we store these timestamps we convert astropy Time to
-                # unix_tai and then to `datetime` in UTC. This conversion
-                # reverses that process,
-                last_update_time = astropy.time.Time(row[1], format="datetime", scale="tai")
-                replica_time = astropy.time.Time(row[3], format="datetime", scale="tai")
+                last_update_time = self._to_astropy_tai(row[1])
+                replica_time = self._to_astropy_tai(row[3])
                 ids.append(
                     PpdbReplicaChunk(
                         id=row[0],
