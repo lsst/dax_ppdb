@@ -48,7 +48,7 @@ class ChunkExporter(Ppdb):
     Parameters
     ----------
     config : `PpdbConfig`
-        Configuration object for PPDB. This should have the type
+        Configuration object for PPDB, which must have the type
         `PpdbBigQueryConfig`.
 
     Notes
@@ -64,22 +64,22 @@ class ChunkExporter(Ppdb):
     """
 
     def __init__(self, config: PpdbConfig):
-        # Check for correct config type
+        # Check for correct config type.
         if not isinstance(config, PpdbBigQueryConfig):
             raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
-        self.config = config
 
-        # DM-52173: Parent class needs PpdbSqlConfig parameters. This should
-        # eventually go away after refactoring.
-        self._sql = PpdbReplicaChunkSql(self.config)
+        # Initialize the SQL interface.
+        self._sql = PpdbReplicaChunkSql(config)
+        self._metadata = self._sql.metadata  # APDB metadata object (not SQA)
+        self._schema_version = self._sql.schema_version  # Database schema version
 
-        # Read parameters from config
-        if self.config.directory is None:
+        # Read parameters from config.
+        if config.directory is None:
             raise ValueError("Directory for chunk export is not set in configuration.")
-        self.directory: Path = self.config.directory
-        self.batch_size = self.config.batch_size
-        self.compression_format = self.config.compression_format
-        self.delete_existing = self.config.delete_existing
+        self.directory: Path = config.directory
+        self.batch_size = config.batch_size
+        self.compression_format = config.compression_format
+        self.delete_existing = config.delete_existing
 
         # Authenticate with Google Cloud to set credentials and project ID.
         self.credentials, self.project_id = get_auth_default()
@@ -88,7 +88,7 @@ class ChunkExporter(Ppdb):
     def metadata(self) -> ApdbMetadata:
         """Implement `Ppdb` interface to return APDB metadata object."""
         # docstring is inherited from a base class
-        return self._sql.metadata
+        return self._metadata
 
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
@@ -101,7 +101,7 @@ class ChunkExporter(Ppdb):
         return Manifest(
             replica_chunk_id=str(replica_chunk.id),
             unique_id=replica_chunk.unique_id,
-            schema_version=str(self._sql.schema_version),
+            schema_version=str(self._schema_version),
             exported_at=datetime.now(timezone.utc),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
             table_data={

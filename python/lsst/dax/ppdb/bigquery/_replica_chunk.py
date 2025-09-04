@@ -24,6 +24,7 @@ from __future__ import annotations
 __all__ = ["ChunkStatus", "PpdbReplicaChunkExtended", "PpdbReplicaChunkSql"]
 
 import dataclasses
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -38,8 +39,10 @@ from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from sqlalchemy import Table, sql
 
 from ..ppdb import PpdbReplicaChunk
-from ..sql._ppdb_sql import PpdbSql
+from ..sql.ppdb_sql_utils import PpdbSqlUtils
 from ._config import PpdbBigQueryConfig
+
+_LOG = logging.getLogger(__name__)
 
 
 class ChunkStatus(StrEnum):
@@ -131,35 +134,35 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         return dataclasses.replace(self, status=new_status)
 
 
-_DEFAULT_VERSION = VersionTuple(0, 1, 0)
-
-
 class PpdbReplicaChunkSql:
-    """Implementation of `Ppdb` to provide only replica chunk management
-    functionality, using a SQL database as the backend.
+    """Provides replica chunk management functionality with the
+    ``PpdbReplicaChunk`` table, using a SQL database as the backend.
 
     This is needed by the data processing pipeline for BigQuery to manage the
-    export and upload of replica chunks.
+    export and upload of replica chunks. It can be used to implement the
+    `Ppdb` interface but does not sub-class it directly.
     """
 
     def __init__(self, config: PpdbBigQueryConfig):
-        # Set the config
+        # Check for required schema name, which is defined as optional in the
+        # config.
         if config.schema_name is None:
             raise ValueError("schema_name must be provided in config")
-        self._config = config
 
-        # Create the SQLAlchemy engine and metadata
-        self._engine = PpdbSql._make_engine(config)
-        self._sa_metadata = sqlalchemy.MetaData(schema=self._config.schema_name)
+        # Set the replica chunk table name.
+        self._replica_chunk_table_name = config.replica_chunk_table
 
-        # Initialize the APDB metadata table
-        self._init_apdb_metadata()
+        # Read the APDB schema to get the version and SQA metadata.
+        self._sa_metadata, self._schema_version = self._read_schema(config)
 
-        # Read the APDB schema to get its version
-        self._read_schema()
+        # Make the SQA engine.
+        self._engine = PpdbSqlUtils.make_engine(config)
 
-        # Create the replica chunk table
-        self._init_replica_chunk_table()
+        # Initialize the APDB metadata interface.
+        meta_table = sqlalchemy.schema.Table(
+            "metadata", sqlalchemy.MetaData(schema=config.schema_name), autoload_with=self._engine
+        )
+        self._metadata = ApdbMetadataSql(self._engine, meta_table)
 
     @property
     def schema_version(self) -> VersionTuple:
@@ -169,36 +172,42 @@ class PpdbReplicaChunkSql:
     @property
     def replica_chunk_table(self) -> Table:
         """The `~sqlalchemy.Table` used to track replica chunks."""
-        return self._get_table(self._config.replica_chunk_table)
+        return PpdbSqlUtils.get_table(self._sa_metadata, self._replica_chunk_table_name)
 
     @property
     def metadata(self) -> ApdbMetadata:
         """The `ApdbMetadata` object for satisfying the `Ppdb` interface."""
-        return self._apdb_metadata
+        return self._metadata
 
     @classmethod
-    def _get_schema_version(cls, schema: schema_model.Schema) -> VersionTuple:
-        return VersionTuple.fromString(schema.version.current) if schema.version else _DEFAULT_VERSION
-
-    def _init_apdb_metadata(self) -> ApdbMetadataSql:
-        meta_table = sqlalchemy.schema.Table("metadata", self._sa_metadata, autoload_with=self._engine)
-        self._apdb_metadata = ApdbMetadataSql(self._engine, meta_table)
-
-    def _read_schema(self) -> None:
-        felis_schema = felis.Schema.from_uri(self._config.apdb_schema_uri)
+    def _read_schema(cls, config: PpdbBigQueryConfig) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
+        # Get the APDB schema from the URI.
+        felis_schema = felis.Schema.from_uri(config.apdb_schema_uri)
         schema = schema_model.Schema.from_felis(felis_schema)
-        self._schema_version = self._get_schema_version(schema)
 
-    def _init_replica_chunk_table(self) -> None:
-        converter = ModelToSql(metadata=self._sa_metadata)
-        replica_chunk_table = self._create_replica_chunk_table()
-        converter.make_tables([replica_chunk_table])
+        # Determine the version of the schema.
+        if schema.version is not None:
+            version = VersionTuple.fromString(schema.version.current)
+        else:
+            raise ValueError(f"Schema version is not defined in {config.apdb_schema_uri}")
 
-    def _get_table(self, name: str) -> sqlalchemy.schema.Table:
-        for table in self._sa_metadata.tables.values():
-            if table.name == name:
-                return table
-        raise LookupError(f"Unknown table {name}")
+        # Keep only the metadata table from the APDB schema, as the BigQuery
+        # PPDB does not need the other table definitions here.
+        schema.tables = [table for table in schema.tables if table.name in ("metadata")]
+
+        # Add the PpdbReplicaChunk table to the schema with several additional
+        # fields.
+        replica_chunk_table = cls._make_replica_chunk_table()
+        schema.tables.append(replica_chunk_table)
+
+        # Create SQA metadata from the schema.
+        sa_metadata = sqlalchemy.MetaData(schema=config.schema_name)
+
+        # Create the tables in the SQA metadata.
+        converter = ModelToSql(metadata=sa_metadata)
+        converter.make_tables(schema.tables)
+
+        return (sa_metadata, version)
 
     @classmethod
     def _to_astropy_tai(cls, obj: Any) -> astropy.time.Time:
@@ -213,7 +222,7 @@ class PpdbReplicaChunkSql:
         return astropy.time.Time(obj, format="datetime", scale="tai")
 
     @classmethod
-    def _create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
+    def _make_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
         """Create the ``PpdbReplicaChunk`` table with additional fields for
         status and directory.
 
@@ -225,13 +234,14 @@ class PpdbReplicaChunkSql:
 
         Notes
         -----
-        This adds the ``status`` and ``directory`` columns to the standard
-        ``PpdbReplicaChunk`` table definition.
+        This method adds the ``status`` and ``directory`` columns to the
+        standard ``PpdbReplicaChunk`` table definition.
         """
-        # Create the base table
-        replica_chunk_table = PpdbSql.create_replica_chunk_table()
+        # Create the default base table.
+        replica_chunk_table = PpdbSqlUtils.make_replica_chunk_table(table_name)
 
-        # Extend the table with additional columns
+        # Extend the table with a few additional columns for tracking status
+        # and directory of the replica chunk.
         replica_chunk_table.columns.extend(
             [
                 schema_model.Column(
@@ -361,3 +371,21 @@ class PpdbReplicaChunkSql:
             else:
                 insert = table.insert()
                 connection.execute(insert, row)
+
+    @classmethod
+    def init_database(
+        cls,
+        config: PpdbBigQueryConfig,
+        drop: bool = False,
+    ) -> None:
+        """Initialize the database by creating the necessary tables.
+
+        Parameters
+        ----------
+        config : `PpdbBigQueryConfig`
+            Configuration for the PPDB.
+        drop : `bool`, optional
+            If `True` then drop existing tables before creating new ones.
+        """
+        sa_metadata, version = cls._read_schema(config)
+        PpdbSqlUtils.make_database(config, sa_metadata, version, drop=drop)

@@ -21,28 +21,35 @@
 
 from __future__ import annotations
 
-__all__ = ["create_bigquery_replica_chunk_sql"]
-
-from ..bigquery._config import PpdbBigQueryConfig
-from ..bigquery._replica_chunk import PpdbReplicaChunkSql
 from ..ppdb import PpdbConfig
 
 
-def create_bigquery_replica_chunk_sql(
-    ppdb_config: str,
-    drop: bool,
-) -> None:
-    """Create new SQL database for tracking replica chunks.
+class PpdbSqlConfig(PpdbConfig):
+    """Configuration for the `PpdbSql` class."""
 
-    Parameters
-    ----------
-    ppdb_config : `str`
-        Path to the PPDB configuration which must be of type
-        `PpdbBigQueryConfig`.
-    drop : `bool`
-        If `True` then drop existing tables.
+    db_url: str
+    """SQLAlchemy database connection URI."""
+
+    schema_name: str | None = None
+    """Database schema name, if `None` then default schema is used."""
+
+    felis_path: str | None = None
+    """Name of YAML file with ``felis`` schema, if `None` then default schema
+    file is used.
     """
-    config = PpdbConfig.from_uri(ppdb_config)
-    if not isinstance(config, PpdbBigQueryConfig):
-        raise ValueError(f"PPDB configuration must be of type 'bigquery': {ppdb_config}")
-    PpdbReplicaChunkSql.init_database(config, drop=drop)
+
+    felis_schema: str | None = None
+    """Name of the schema in YAML file, if `None` then file has to contain
+    single schema.
+    """
+
+    use_connection_pool: bool = True
+    """If True then allow use of connection pool."""
+
+    isolation_level: str | None = None
+    """Transaction isolation level, if unset then backend-default value is
+    used.
+    """
+
+    connection_timeout: float | None = None
+    """Maximum connection timeout in seconds."""

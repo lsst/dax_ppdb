@@ -56,7 +56,8 @@ class Ppdb(ABC):
 
         Notes
         -----
-        This is a no-op to satisfy typing in the ``from_config`` class method.
+        This is a no-op initializer to satisfy typing in the ``from_config``
+        class method. Child classes do not need to call this.
         """
         pass
 
@@ -105,8 +106,6 @@ class Ppdb(ABC):
         """
         raise NotImplementedError()
 
-    # TODO: Change return type to Sequence so that we can support variadic
-    # types
     @abstractmethod
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
         """Return collection of replica chunks known to the database.
