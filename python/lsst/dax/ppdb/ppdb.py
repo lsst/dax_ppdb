@@ -27,7 +27,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import astropy.time
-
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
 from lsst.resources import ResourcePathExpression
 
@@ -44,7 +43,22 @@ class PpdbReplicaChunk(ReplicaChunk):
 
 
 class Ppdb(ABC):
-    """Class defining an interface for PPDB management operations."""
+    """Class defining an interface for PPDB management operations.
+
+    Parameters
+    ----------
+    config : `PpdbConfig`
+        Configuration object used to initialize the implementation.
+    """
+
+    def __init__(self, config: PpdbConfig) -> None:
+        """Initialize the Ppdb instance.
+
+        Notes
+        -----
+        This is a no-op to satisfy typing in the ``from_config`` class method.
+        """
+        pass
 
     @classmethod
     def from_config(cls, config: PpdbConfig) -> Ppdb:
@@ -62,7 +76,6 @@ class Ppdb(ABC):
             Instance of `Ppdb` class.
         """
         # Dispatch to actual implementation class based on config type.
-
         ppdb_class = ppdb_type(config)
         return ppdb_class(config)
 
