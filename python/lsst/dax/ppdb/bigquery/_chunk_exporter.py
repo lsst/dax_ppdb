@@ -70,7 +70,7 @@ class ChunkExporter(Ppdb):
             raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
 
         # Initialize the SQL interface.
-        self._sql = PpdbReplicaChunkSql(config)
+        self._sql = PpdbReplicaChunkSql(config.sql)
         self._metadata = self._sql.metadata  # APDB metadata object (not SQA)
         self._schema_version = self._sql.schema_version  # Database schema version
 

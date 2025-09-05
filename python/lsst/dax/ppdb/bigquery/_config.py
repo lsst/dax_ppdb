@@ -21,30 +21,16 @@
 
 from pathlib import Path
 
+from ..ppdb import PpdbConfig
 from ..sql.ppdb_sql_config import PpdbSqlConfig
 
 
-class PpdbBigQueryConfig(PpdbSqlConfig):
+class PpdbBigQueryConfig(PpdbConfig):
     """Configuration for BigQuery-based PPDB.
 
-    Notes
-    -----
-    This class inherits from `PpdbSqlConfig`, as it needs to share the database
-    connection parameters, typically for a Postgres instance, which is required
-    by both the 'sql' and 'bigquery' implementations of the PPDB. Various SQL
-    utilities expect a `PpdbSqlConfig` instance, so this is the easiest way to
-    type it for now without changing them.
-
-    This class uses the new `PpdbSqlConfig` from `ppdb_sql_config`, which is
-    intended to be public, instead of the one from `_ppdb_sql`. That module
-    may be removed sometime in the future so we don't want to depend on it.
+    This also includes configuration for the SQL database used to track
+    replica chunks under the `sql` attribute.
     """
-
-    apdb_schema_uri: str = "resource://lsst.sdm.schemas/apdb.yaml"
-    """URI of the APDB schema definition (`str`)."""
-
-    replica_chunk_table: str = "PpdbReplicaChunk"
-    """Name of the table used to track replica chunks (`str`)."""
 
     directory: Path | None = None
     """Directory where the exported chunks will be stored
@@ -75,3 +61,6 @@ class PpdbBigQueryConfig(PpdbSqlConfig):
     """Target BigQuery dataset, e.g., 'my_project:my_dataset'
     (`str` or `None`). If not provided the project will be derived from the
     Google Cloud environment at runtime."""
+
+    sql: PpdbSqlConfig | None = None
+    """SQL database configuration (`SqlConfig` or `None`)."""

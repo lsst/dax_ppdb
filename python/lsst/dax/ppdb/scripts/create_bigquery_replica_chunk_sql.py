@@ -42,7 +42,10 @@ def create_bigquery_replica_chunk_sql(
     drop : `bool`
         If `True` then drop existing tables.
     """
-    config = PpdbConfig.from_uri(ppdb_config)
-    if not isinstance(config, PpdbBigQueryConfig):
+    bq_config = PpdbConfig.from_uri(ppdb_config)
+    if not isinstance(bq_config, PpdbBigQueryConfig):
         raise ValueError(f"PPDB configuration must be of type 'bigquery': {ppdb_config}")
-    PpdbReplicaChunkSql.init_database(config, drop=drop)
+    sql_config = bq_config.sql
+    if sql_config is None:
+        raise ValueError("SQL configuration is not provided in the PPDB configuration")
+    PpdbReplicaChunkSql.init_database(sql_config, drop=drop)

@@ -33,15 +33,11 @@ class PpdbSqlConfig(PpdbConfig):
     schema_name: str | None = None
     """Database schema name, if `None` then default schema is used."""
 
-    felis_path: str | None = None
-    """Name of YAML file with ``felis`` schema, if `None` then default schema
-    file is used.
-    """
+    apdb_schema_uri: str = "resource://lsst.sdm.schemas/apdb.yaml"
+    """URI of the APDB schema definition (`str`)."""
 
-    felis_schema: str | None = None
-    """Name of the schema in YAML file, if `None` then file has to contain
-    single schema.
-    """
+    replica_chunk_table: str = "PpdbReplicaChunk"
+    """Name of the table used to track replica chunks (`str`)."""
 
     use_connection_pool: bool = True
     """If True then allow use of connection pool."""
