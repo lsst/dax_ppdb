@@ -143,7 +143,7 @@ class ChunkUploader:
             try:
                 # Get replica chunks that have been exported and are ready for
                 # upload to cloud storage.
-                replica_chunks = self._sql.get_replica_chunks_by_status(status=ChunkStatus.EXPORTED)
+                replica_chunks = self._sql.get_replica_chunks_ext(status=ChunkStatus.EXPORTED)
             except Exception:
                 # Some problem occurred while retrieving replica chunk data.
                 # Log the error and continue to the next iteration or exit if

@@ -25,6 +25,7 @@ __all__ = ["ChunkStatus", "PpdbReplicaChunkExtended", "PpdbReplicaChunkSql"]
 
 import dataclasses
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -260,26 +261,32 @@ class PpdbReplicaChunkSql:
         )
         return replica_chunk_table
 
-    def get_replica_chunks_by_status(self, status: ChunkStatus) -> list[PpdbReplicaChunkExtended]:
-        """Return an ordered collection of replica chunks known to the database
-        with a given status.
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
+        # docstring is inherited from a base class
+        return self.get_replica_chunks_ext(start_chunk_id=start_chunk_id)
+
+    def get_replica_chunks_ext(
+        self, status: ChunkStatus | None = None, start_chunk_id: int | None = None
+    ) -> Sequence[PpdbReplicaChunkExtended]:
+        """Find replica chunks having the specified status with the option to
+        start from a specific chunk ID.
+
+        If neither argument is provided, all chunks are returned.
 
         Parameters
         ----------
         status : `ChunkStatus`
             Status of the replica chunks to return.
+        start_chunk_id : `int`, optional
+            If provided, only return chunks with ID greater than or equal to
+            this value.
 
         Returns
         -------
-        chunks : `list` [`PpdbReplicaChunkExtended`]
+        chunks : `list` [ `PpdbReplicaChunkExtended` ]
             List of chunks with the specified status. Chunks are ordered by
-            their ``last_update_time``.
-
-        Notes
-        -----
-        This is an alternative to `get_replica_chunks` that allows retrieving
-        chunks by their status. The original method is left for backward
-        compatibility, as it is used internally by the replication process.
+            their ``last_update_time`` and include the ``directory`` and
+            ``status`` fields.
         """
         table = self.replica_chunk_table
         query = sql.select(
@@ -290,7 +297,10 @@ class PpdbReplicaChunkSql:
             table.columns["status"],  # Extended column
             table.columns["directory"],  # Extended column
         ).order_by(table.columns["last_update_time"])
-        query = query.where(table.columns["status"] == status.value)
+        if start_chunk_id is not None:
+            query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)
+        if status is not None:
+            query = query.where(table.columns["status"] == status.value)
         ids: list[PpdbReplicaChunkExtended] = []
         with self._engine.connect() as conn:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
@@ -309,65 +319,32 @@ class PpdbReplicaChunkSql:
                 )
         return ids
 
-    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
-        # docstring is inherited from a base class
-        table = self.replica_chunk_table
-        query = sql.select(
-            table.columns["apdb_replica_chunk"],
-            table.columns["last_update_time"],
-            table.columns["unique_id"],
-            table.columns["replica_time"],
-        ).order_by(table.columns["last_update_time"])
-        if start_chunk_id is not None:
-            query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)
-        with self._engine.connect() as conn:
-            result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
-            ids = []
-            for row in result:
-                last_update_time = self._to_astropy_tai(row[1])
-                replica_time = self._to_astropy_tai(row[3])
-                ids.append(
-                    PpdbReplicaChunk(
-                        id=row[0],
-                        last_update_time=last_update_time,
-                        unique_id=row[2],
-                        replica_time=replica_time,
-                    )
-                )
-            return ids
-
     def store_chunk(self, replica_chunk: PpdbReplicaChunkExtended, update: bool) -> None:
         """Insert or replace single record in PpdbReplicaChunk table, including
         the status and directory of the replica chunk.
+
+        Parameters
+        ----------
+        replica_chunk : `PpdbReplicaChunkExtended`
+            The replica chunk to store.
+        update : `bool`
+            If `True` then perform an UPSERT operation to update existing
+            records. If `False` then only INSERT is performed and an error is
+            raised if the record already exists.
         """
-        # DM-52173: This method was copied and modified from the
-        # ``_store_insert_id_`` method in `PpdbSql`. Refactoring should be done
-        # to avoid this code duplication.
         with self._engine.begin() as connection:
             table = self.replica_chunk_table
 
-            values = {
+            row = {
+                "apdb_replica_chunk": replica_chunk.id,
                 "last_update_time": replica_chunk.last_update_time_dt_utc,
                 "unique_id": replica_chunk.unique_id,
                 "replica_time": replica_chunk.replica_time_dt_utc,
                 "status": replica_chunk.status,
                 "directory": str(replica_chunk.directory),
             }
-            row = {"apdb_replica_chunk": replica_chunk.id} | values
             if update:
-                # We need UPSERT which is dialect-specific construct
-                if connection.dialect.name == "sqlite":
-                    insert_sqlite = sqlalchemy.dialects.sqlite.insert(table)
-                    insert_sqlite = insert_sqlite.on_conflict_do_update(
-                        index_elements=table.primary_key, set_=values
-                    )
-                    connection.execute(insert_sqlite, row)
-                elif connection.dialect.name == "postgresql":
-                    insert_pg = sqlalchemy.dialects.postgresql.dml.insert(table)
-                    insert_pg = insert_pg.on_conflict_do_update(constraint=table.primary_key, set_=values)
-                    connection.execute(insert_pg, row)
-                else:
-                    raise TypeError(f"Unsupported dialect {connection.dialect.name} for upsert.")
+                PpdbSqlUtils.upsert_replica_chunk(connection, table, row)
             else:
                 insert = table.insert()
                 connection.execute(insert, row)

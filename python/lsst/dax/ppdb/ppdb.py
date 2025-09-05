@@ -24,6 +24,7 @@ from __future__ import annotations
 __all__ = ["Ppdb"]
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import astropy.time
@@ -107,7 +108,7 @@ class Ppdb(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         """Return collection of replica chunks known to the database.
 
         Parameters

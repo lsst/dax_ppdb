@@ -21,6 +21,7 @@
 
 import logging
 import shutil
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -90,7 +91,7 @@ class ChunkExporter(Ppdb):
         # docstring is inherited from a base class
         return self._metadata
 
-    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
         return self._sql.get_replica_chunks(start_chunk_id)
 
