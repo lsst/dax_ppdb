@@ -103,6 +103,8 @@ class ChunkUploader:
         self.config = config
 
         # Setup SQL interface for accessing replica chunk data.
+        if config.sql is None:
+            raise ValueError("SQL configuration is not set in configuration.")
         self._sql = PpdbReplicaChunkSql(config.sql)
 
         # Read parameters from config
