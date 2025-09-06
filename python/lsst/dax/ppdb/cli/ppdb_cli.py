@@ -64,10 +64,7 @@ def _create_bigquery_replica_chunk_sql_subcommand(subparsers: argparse._SubParse
     parser = subparsers.add_parser(
         "create-bq-replica-chunk-sql", help="Create database for tracking replica chunks in BigQuery."
     )
-    parser.add_argument("db_url", help="Database URL in SQLAlchemy format.")
-    parser.add_argument("output_config", help="Name of the new BigQuery PPDB configuration file.")
-    options.felis_schema_options(parser)
-    options.sql_db_options(parser)
+    parser.add_argument("ppdb_config", help="Path to the PPDB configuration.")
     parser.add_argument(
         "--drop", help="If True then drop existing tables.", default=False, action="store_true"
     )

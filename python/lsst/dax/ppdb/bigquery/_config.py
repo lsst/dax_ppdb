@@ -21,17 +21,20 @@
 
 from pathlib import Path
 
-from ..sql._ppdb_sql import PpdbSqlConfig
+from ..ppdb import PpdbConfig
+from ..sql.ppdb_sql_config import PpdbSqlConfig
 
 
-# DM-52173: Due to the class structure of ChunkExporter, the config needs to
-# inherit from PpdbSqlConfig. This should be refactored in the future so that
-# it is standalone.
-class PpdbBigQueryConfig(PpdbSqlConfig):
-    """Configuration for BigQuery-based PPDB."""
+class PpdbBigQueryConfig(PpdbConfig):
+    """Configuration for BigQuery-based PPDB.
+
+    This also includes configuration for the SQL database used to track
+    replica chunks under the `sql` attribute.
+    """
 
     directory: Path | None = None
-    """Directory where the exported chunks will be stored."""
+    """Directory where the exported chunks will be stored
+    (`Path` or `None`)."""
 
     delete_existing: bool = False
     """If `True`, existing directories for chunks will be deleted before
@@ -39,20 +42,25 @@ class PpdbBigQueryConfig(PpdbSqlConfig):
     exists."""
 
     stage_chunk_topic: str = "stage-chunk-topic"
-    """Pub/Sub topic name for triggering chunk staging process."""
+    """Pub/Sub topic name for triggering chunk staging process (`str`)."""
 
     batch_size: int = 1000
-    """Number of rows to process in each batch when writing parquet files."""
+    """Number of rows to process in each batch when writing parquet files
+    (`int`, defaults to 1000)."""
 
     compression_format: str = "snappy"
-    """Compression format for Parquet files."""
+    """Compression format for Parquet files (`str`, defaults to "snappy")."""
 
     bucket: str | None = None
-    """Name of Google Cloud Storage bucket for uploading chunks."""
+    """Name of Google Cloud Storage bucket for uploading chunks (`str`)."""
 
     prefix: str | None = None
-    """Base prefix for the object in cloud storage."""
+    """Base prefix for the object in cloud storage (`str`)."""
 
     dataset: str | None = None
-    """Target BigQuery dataset, e.g., 'my_project:my_dataset'. If not provided
-    the project will be derived from the environment."""
+    """Target BigQuery dataset, e.g., 'my_project:my_dataset'
+    (`str` or `None`). If not provided the project will be derived from the
+    Google Cloud environment at runtime."""
+
+    sql: PpdbSqlConfig | None = None
+    """SQL database configuration (`SqlConfig` or `None`)."""

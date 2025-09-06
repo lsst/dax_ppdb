@@ -103,7 +103,9 @@ class ChunkUploader:
         self.config = config
 
         # Setup SQL interface for accessing replica chunk data.
-        self._sql = PpdbReplicaChunkSql(config)
+        if config.sql is None:
+            raise ValueError("SQL configuration is not set in configuration.")
+        self._sql = PpdbReplicaChunkSql(config.sql)
 
         # Read parameters from config
         if self.config.prefix is None:
@@ -143,7 +145,7 @@ class ChunkUploader:
             try:
                 # Get replica chunks that have been exported and are ready for
                 # upload to cloud storage.
-                replica_chunks = self._sql.get_replica_chunks_by_status(status=ChunkStatus.EXPORTED)
+                replica_chunks = self._sql.get_replica_chunks_ext(status=ChunkStatus.EXPORTED)
             except Exception:
                 # Some problem occurred while retrieving replica chunk data.
                 # Log the error and continue to the next iteration or exit if
@@ -255,10 +257,7 @@ class ChunkUploader:
 
             # 3) Update DB status.
             try:
-                with self._sql._engine.begin() as connection:
-                    self._sql.store_chunk(
-                        replica_chunk.with_new_status(ChunkStatus.UPLOADED), connection, True
-                    )
+                self._sql.store_chunk(replica_chunk.with_new_status(ChunkStatus.UPLOADED), True)
             except Exception as e:
                 raise ChunkUploadError(chunk_id, "failed to update replica chunk status in database") from e
 

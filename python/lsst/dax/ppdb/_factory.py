@@ -27,10 +27,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .config import PpdbConfig
-    from .sql import PpdbSql
+    from .ppdb import Ppdb
 
 
-def ppdb_type(config: PpdbConfig) -> type[PpdbSql]:
+def ppdb_type(config: PpdbConfig) -> type[Ppdb]:
     """Return Ppdb class matching Ppdb configuration type.
 
     Parameters
@@ -63,7 +63,7 @@ def ppdb_type(config: PpdbConfig) -> type[PpdbSql]:
     raise TypeError(f"Unknown type of config object: {type(config)}")
 
 
-def ppdb_type_for_name(type_name: str) -> type[PpdbSql]:
+def ppdb_type_for_name(type_name: str) -> type[Ppdb]:
     """Return Ppdb class matching type name.
 
     Parameters

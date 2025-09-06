@@ -24,6 +24,7 @@ from __future__ import annotations
 __all__ = ["Ppdb"]
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import astropy.time
@@ -43,7 +44,23 @@ class PpdbReplicaChunk(ReplicaChunk):
 
 
 class Ppdb(ABC):
-    """Class defining an interface for PPDB management operations."""
+    """Class defining an interface for PPDB management operations.
+
+    Parameters
+    ----------
+    config : `PpdbConfig`
+        Configuration object used to initialize the implementation.
+    """
+
+    def __init__(self, config: PpdbConfig) -> None:
+        """Initialize the Ppdb instance.
+
+        Notes
+        -----
+        This is a no-op initializer to satisfy typing in the ``from_config``
+        class method. Child classes do not need to call this.
+        """
+        pass
 
     @classmethod
     def from_config(cls, config: PpdbConfig) -> Ppdb:
@@ -61,7 +78,6 @@ class Ppdb(ABC):
             Instance of `Ppdb` class.
         """
         # Dispatch to actual implementation class based on config type.
-
         ppdb_class = ppdb_type(config)
         return ppdb_class(config)
 
@@ -92,7 +108,7 @@ class Ppdb(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         """Return collection of replica chunks known to the database.
 
         Parameters
