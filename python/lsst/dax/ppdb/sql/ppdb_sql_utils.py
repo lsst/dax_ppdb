@@ -162,6 +162,9 @@ class PpdbSqlUtils:
         """Create the default ``PpdbReplicaChunk`` table in its APDB
         `schema_model` representation.
 
+        This includes fields for the chunk's status and the directory
+        containing its exported data, both declared as nullable.
+
         Parameters
         ----------
         table_name : `str` or `None`
@@ -192,6 +195,18 @@ class PpdbSqlUtils:
                 id=f"#{table_name}.replica_time",
                 datatype=felis.datamodel.DataType.timestamp,
                 nullable=False,
+            ),
+            schema_model.Column(
+                name="status",
+                id=f"#{table_name}.status",
+                datatype=felis.datamodel.DataType.string,
+                nullable=True,
+            ),
+            schema_model.Column(
+                name="directory",
+                id=f"#{table_name}.directory",
+                datatype=felis.datamodel.DataType.string,
+                nullable=True,
             ),
         ]
         indices = [

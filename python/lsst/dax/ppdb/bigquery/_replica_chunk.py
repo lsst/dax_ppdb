@@ -41,7 +41,7 @@ from sqlalchemy import Table, sql
 
 from ..ppdb import PpdbReplicaChunk
 from ..sql.ppdb_sql_utils import PpdbSqlUtils
-from ._config import PpdbBigQueryConfig
+from ._config import PpdbSqlConfig
 
 _LOG = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ class PpdbReplicaChunkSql:
     `Ppdb` interface but does not sub-class it directly.
     """
 
-    def __init__(self, config: PpdbBigQueryConfig):
+    def __init__(self, config: PpdbSqlConfig):
         # Check for required schema name, which is defined as optional in the
         # config.
         if config.schema_name is None:
@@ -181,7 +181,7 @@ class PpdbReplicaChunkSql:
         return self._metadata
 
     @classmethod
-    def _read_schema(cls, config: PpdbBigQueryConfig) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
+    def _read_schema(cls, config: PpdbSqlConfig) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
         # Get the APDB schema from the URI.
         felis_schema = felis.Schema.from_uri(config.apdb_schema_uri)
         schema = schema_model.Schema.from_felis(felis_schema)
@@ -196,9 +196,8 @@ class PpdbReplicaChunkSql:
         # PPDB does not need the other table definitions here.
         schema.tables = [table for table in schema.tables if table.name in ("metadata")]
 
-        # Add the PpdbReplicaChunk table to the schema with several additional
-        # fields.
-        replica_chunk_table = cls._make_replica_chunk_table()
+        # Add the PpdbReplicaChunk table to the schema.
+        replica_chunk_table = PpdbSqlUtils.make_replica_chunk_table()
         schema.tables.append(replica_chunk_table)
 
         # Create SQA metadata from the schema.
@@ -221,45 +220,6 @@ class PpdbReplicaChunkSql:
             The type signature is generic to match astropy's typing.
         """
         return astropy.time.Time(obj, format="datetime", scale="tai")
-
-    @classmethod
-    def _make_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
-        """Create the ``PpdbReplicaChunk`` table with additional fields for
-        status and directory.
-
-        Parameters
-        ----------
-        table_name : `str`, optional
-            Name of the table to create. If not provided, defaults to
-            "PpdbReplicaChunk".
-
-        Notes
-        -----
-        This method adds the ``status`` and ``directory`` columns to the
-        standard ``PpdbReplicaChunk`` table definition.
-        """
-        # Create the default base table.
-        replica_chunk_table = PpdbSqlUtils.make_replica_chunk_table(table_name)
-
-        # Extend the table with a few additional columns for tracking status
-        # and directory of the replica chunk.
-        replica_chunk_table.columns.extend(
-            [
-                schema_model.Column(
-                    name="status",
-                    id=f"#{table_name}.status",
-                    datatype=felis.datamodel.DataType.string,
-                    nullable=True,
-                ),
-                schema_model.Column(
-                    name="directory",
-                    id=f"#{table_name}.directory",
-                    datatype=felis.datamodel.DataType.string,
-                    nullable=True,
-                ),
-            ]
-        )
-        return replica_chunk_table
 
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
@@ -352,7 +312,7 @@ class PpdbReplicaChunkSql:
     @classmethod
     def init_database(
         cls,
-        config: PpdbBigQueryConfig,
+        config: PpdbSqlConfig,
         drop: bool = False,
     ) -> None:
         """Initialize the database by creating the necessary tables.
