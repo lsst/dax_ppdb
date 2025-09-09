@@ -168,6 +168,9 @@ class PpdbReplicaChunkSql:
         )
         self._metadata = ApdbMetadataSql(self._engine, meta_table)
 
+        # Set the maximum row buffer size for streaming queries.
+        self._max_row_buffer = config.max_row_buffer
+
     @property
     def schema_version(self) -> VersionTuple:
         """Version of the APDB schema used by this PPDB (`VersionTuple`)."""
@@ -237,7 +240,9 @@ class PpdbReplicaChunkSql:
             query = query.where(table.columns["status"] == status.value)
         ids: list[PpdbReplicaChunkExtended] = []
         with self._engine.connect() as conn:
-            result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
+            result = conn.execution_options(stream_results=True, max_row_buffer=self._max_row_buffer).execute(
+                query
+            )
             for row in result:
                 last_update_time = self._to_astropy_tai(row[1])
                 replica_time = self._to_astropy_tai(row[3])

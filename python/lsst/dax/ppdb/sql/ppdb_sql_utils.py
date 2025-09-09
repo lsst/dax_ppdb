@@ -107,7 +107,6 @@ class PpdbSqlUtils:
         sa_metadata: sqlalchemy.schema.MetaData,
         schema_version: VersionTuple | None,
         drop: bool,
-        include_tables: list[str] | None = None,
     ) -> None:
         """Initialize database schema.
 
@@ -140,7 +139,7 @@ class PpdbSqlUtils:
         _LOG.info("creating all tables")
         sa_metadata.create_all(engine)
 
-        # Need metadata table to store few items in it, if table exists.
+        # Find the metadata table to use for storing schema version.
         meta_table = cls.find_table_by_name(sa_metadata, cls.metadata_table_name)
 
         apdb_meta = ApdbMetadataSql(engine, meta_table)

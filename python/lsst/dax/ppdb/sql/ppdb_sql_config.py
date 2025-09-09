@@ -49,3 +49,7 @@ class PpdbSqlConfig(PpdbConfig):
 
     connection_timeout: float | None = None
     """Maximum connection timeout in seconds."""
+
+    max_row_buffer: int = 1000
+    """Maximum number of rows to buffer in memory when streaming query
+    results."""
