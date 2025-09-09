@@ -35,7 +35,7 @@ from lsst.dax.apdb import (
     VersionTuple,
     schema_model,
 )
-from lsst.dax.apdb.sql import ApdbMetadataSql
+from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from sqlalchemy.pool import NullPool
 
 from .ppdb_sql_config import PpdbSqlConfig
@@ -57,13 +57,16 @@ class PpdbSqlUtils:
 
     Notes
     -----
-    These utilities were extracted from the `PpdbSql` class to avoid
+    These utilities were extracted from the ``PpdbSql`` class to avoid
     dependencies on it. That class was not modified to use these functions to
     avoid changing its behavior.
     """
 
     meta_schema_version_key = "version:schema"
-    """Name of the metadata key to store schema version number."""
+    """Name of the metadata key to store schema version number (`str`)."""
+
+    metadata_table_name = "metadata"
+    """Name of the metadata table in the database (`str`)."""
 
     @classmethod
     def make_engine(cls, config: PpdbSqlConfig) -> sqlalchemy.engine.Engine:
@@ -104,6 +107,7 @@ class PpdbSqlUtils:
         sa_metadata: sqlalchemy.schema.MetaData,
         schema_version: VersionTuple | None,
         drop: bool,
+        include_tables: list[str] | None = None,
     ) -> None:
         """Initialize database schema.
 
@@ -136,26 +140,15 @@ class PpdbSqlUtils:
         _LOG.info("creating all tables")
         sa_metadata.create_all(engine)
 
-        # TODO: Code below here dealing with APDB metadata should probably go
-        # into a separate function.
-
         # Need metadata table to store few items in it, if table exists.
-        meta_table: sqlalchemy.schema.Table
-        for table in sa_metadata.tables.values():
-            if table.name == "metadata":
-                meta_table = table
-                break
-        else:
-            raise LookupError("Metadata table does not exist.")
+        meta_table = cls.find_table_by_name(sa_metadata, cls.metadata_table_name)
 
         apdb_meta = ApdbMetadataSql(engine, meta_table)
-        # Fill schema version number and overwrite if present.
+        # Fill schema version number in the metadata table, overwriting if it
+        # already exists.
         if schema_version is not None:
             _LOG.info("Store metadata %s = %s", cls.meta_schema_version_key, schema_version)
             apdb_meta.set(cls.meta_schema_version_key, str(schema_version), force=True)
-        # We don't fill the code version number here as it seems to be
-        # unnecessary and would need to be passed in by the caller. It can be
-        # added later if needed.
 
     @classmethod
     def make_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
@@ -234,8 +227,10 @@ class PpdbSqlUtils:
         return chunks_table
 
     @classmethod
-    def get_table(cls, sa_metadata: sqlalchemy.schema.MetaData, name: str) -> sqlalchemy.schema.Table:
-        """Get table from SQLAlchemy metadata by name, without including the
+    def find_table_by_name(
+        cls, sa_metadata: sqlalchemy.schema.MetaData, name: str
+    ) -> sqlalchemy.schema.Table:
+        """Find a table from SQLAlchemy metadata by name, without including the
         schema name.
 
         Parameters
@@ -258,11 +253,15 @@ class PpdbSqlUtils:
         for table in sa_metadata.tables.values():
             if table.name == name:
                 return table
-        raise LookupError(f"Unknown table {name}")
+        raise LookupError(f"Table does not exist: {name}")
 
     @classmethod
-    def upsert_replica_chunk(
-        cls, connection: sqlalchemy.engine.Connection, table: sqlalchemy.schema.Table, row: dict
+    def upsert(
+        cls,
+        connection: sqlalchemy.engine.Connection,
+        table: sqlalchemy.schema.Table,
+        row: dict,
+        key_column_name: str,
     ) -> None:
         """Perform an UPSERT operation on the replica chunk table.
 
@@ -280,7 +279,9 @@ class PpdbSqlUtils:
         TypeError
             If the database dialect does not support UPSERT.
         """
-        values = {k: v for k, v in row.items() if k != "apdb_replica_chunk"}
+        if key_column_name not in row:
+            raise KeyError(f"Key column {key_column_name} not in provided row.")
+        values = {k: v for k, v in row.items() if k != key_column_name}
         if connection.dialect.name == "sqlite":
             insert_sqlite = sqlalchemy.dialects.sqlite.insert(table)
             insert_sqlite = insert_sqlite.on_conflict_do_update(index_elements=table.primary_key, set_=values)
@@ -291,3 +292,43 @@ class PpdbSqlUtils:
             connection.execute(insert_pg, row)
         else:
             raise TypeError(f"Unsupported dialect {connection.dialect.name} for upsert.")
+
+    @classmethod
+    def read_schema(
+        cls, config: PpdbSqlConfig, include_tables: list[str] | None = None
+    ) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
+        """Read the APDB schema and returns its metadata and version.
+
+        Parameters
+        ----------
+        config : `PpdbSqlConfig`
+            Configuration object.
+        include_tables : `list` of `str` or `None`
+            If provided, only tables with names in this list will be included
+            in the returned metadata. If `None`, all tables are included.
+        """
+        felis_schema = felis.Schema.from_uri(config.apdb_schema_uri)
+        schema = schema_model.Schema.from_felis(felis_schema)
+
+        # Determine the version of the schema.
+        if schema.version is not None:
+            version = VersionTuple.fromString(schema.version.current)
+        else:
+            raise ValueError(f"Schema version is not defined in {config.apdb_schema_uri}")
+
+        # Keep only the requested tables, if any. Otherwise keep all tables.
+        if include_tables is not None:
+            schema.tables = [table for table in schema.tables if table.name in include_tables]
+
+        # Add the PpdbReplicaChunk table to the schema.
+        replica_chunk_table = PpdbSqlUtils.make_replica_chunk_table()
+        schema.tables.append(replica_chunk_table)
+
+        # Create SQA metadata from the schema.
+        sa_metadata = sqlalchemy.MetaData(schema=config.schema_name)
+
+        # Create the tables in the SQA metadata.
+        converter = ModelToSql(metadata=sa_metadata)
+        converter.make_tables(schema.tables)
+
+        return (sa_metadata, version)

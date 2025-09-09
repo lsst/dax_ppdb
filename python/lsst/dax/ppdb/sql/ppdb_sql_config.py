@@ -25,7 +25,7 @@ from ..ppdb import PpdbConfig
 
 
 class PpdbSqlConfig(PpdbConfig):
-    """Configuration for the `PpdbSql` class."""
+    """Configuration of SQL database parameters."""
 
     db_url: str
     """SQLAlchemy database connection URI."""

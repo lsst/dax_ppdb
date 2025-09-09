@@ -33,10 +33,9 @@ from pathlib import Path
 from typing import Any
 
 import astropy.time
-import felis
 import sqlalchemy
-from lsst.dax.apdb import ApdbMetadata, ReplicaChunk, VersionTuple, schema_model
-from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
+from lsst.dax.apdb import ApdbMetadata, ReplicaChunk, VersionTuple
+from lsst.dax.apdb.sql import ApdbMetadataSql
 from sqlalchemy import Table, sql
 
 from ..ppdb import PpdbReplicaChunk
@@ -62,10 +61,10 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     """ReplicaChunk with additional PPDB-specific info."""
 
     status: ChunkStatus
-    """Status of the replica chunk."""
+    """Status of the replica chunk (`ChunkStatus`)."""
 
     directory: Path
-    """Directory where the exported replica chunk data is stored."""
+    """Directory where the exported replica chunk data is stored (`Path`)."""
 
     @property
     def manifest_name(self) -> str:
@@ -154,14 +153,18 @@ class PpdbReplicaChunkSql:
         self._replica_chunk_table_name = config.replica_chunk_table
 
         # Read the APDB schema to get the version and SQA metadata.
-        self._sa_metadata, self._schema_version = self._read_schema(config)
+        self._sa_metadata, self._schema_version = PpdbSqlUtils.read_schema(
+            config, include_tables=[PpdbSqlUtils.metadata_table_name]
+        )
 
         # Make the SQA engine.
         self._engine = PpdbSqlUtils.make_engine(config)
 
         # Initialize the APDB metadata interface.
         meta_table = sqlalchemy.schema.Table(
-            "metadata", sqlalchemy.MetaData(schema=config.schema_name), autoload_with=self._engine
+            PpdbSqlUtils.metadata_table_name,
+            sqlalchemy.MetaData(schema=config.schema_name),
+            autoload_with=self._engine,
         )
         self._metadata = ApdbMetadataSql(self._engine, meta_table)
 
@@ -173,41 +176,12 @@ class PpdbReplicaChunkSql:
     @property
     def replica_chunk_table(self) -> Table:
         """The `~sqlalchemy.Table` used to track replica chunks."""
-        return PpdbSqlUtils.get_table(self._sa_metadata, self._replica_chunk_table_name)
+        return PpdbSqlUtils.find_table_by_name(self._sa_metadata, self._replica_chunk_table_name)
 
     @property
     def metadata(self) -> ApdbMetadata:
         """The `ApdbMetadata` object for satisfying the `Ppdb` interface."""
         return self._metadata
-
-    @classmethod
-    def _read_schema(cls, config: PpdbSqlConfig) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
-        # Get the APDB schema from the URI.
-        felis_schema = felis.Schema.from_uri(config.apdb_schema_uri)
-        schema = schema_model.Schema.from_felis(felis_schema)
-
-        # Determine the version of the schema.
-        if schema.version is not None:
-            version = VersionTuple.fromString(schema.version.current)
-        else:
-            raise ValueError(f"Schema version is not defined in {config.apdb_schema_uri}")
-
-        # Keep only the metadata table from the APDB schema, as the BigQuery
-        # PPDB does not need the other table definitions here.
-        schema.tables = [table for table in schema.tables if table.name in ("metadata")]
-
-        # Add the PpdbReplicaChunk table to the schema.
-        replica_chunk_table = PpdbSqlUtils.make_replica_chunk_table()
-        schema.tables.append(replica_chunk_table)
-
-        # Create SQA metadata from the schema.
-        sa_metadata = sqlalchemy.MetaData(schema=config.schema_name)
-
-        # Create the tables in the SQA metadata.
-        converter = ModelToSql(metadata=sa_metadata)
-        converter.make_tables(schema.tables)
-
-        return (sa_metadata, version)
 
     @classmethod
     def _to_astropy_tai(cls, obj: Any) -> astropy.time.Time:
@@ -304,7 +278,7 @@ class PpdbReplicaChunkSql:
                 "directory": str(replica_chunk.directory),
             }
             if update:
-                PpdbSqlUtils.upsert_replica_chunk(connection, table, row)
+                PpdbSqlUtils.upsert(connection, table, row, "apdb_replica_chunk")
             else:
                 insert = table.insert()
                 connection.execute(insert, row)
@@ -324,5 +298,7 @@ class PpdbReplicaChunkSql:
         drop : `bool`, optional
             If `True` then drop existing tables before creating new ones.
         """
-        sa_metadata, version = cls._read_schema(config)
+        sa_metadata, version = PpdbSqlUtils.read_schema(
+            config, include_tables=[PpdbSqlUtils.metadata_table_name]
+        )
         PpdbSqlUtils.make_database(config, sa_metadata, version, drop=drop)
