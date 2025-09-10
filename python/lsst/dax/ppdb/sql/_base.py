@@ -63,9 +63,16 @@ def _onSqlite3Connect(
 
 
 class SqlBase:
-    """Base class for SQL-based PPDB implementations."""
+    """Base class for SQL-based PPDB implementations.
+
+    Parameters
+    ----------
+    config : `PpdbSqlConfig`
+        Configuration object.
+    """
 
     default_felis_schema_file = "${SDM_SCHEMAS_DIR}/yml/apdb.yaml"
+    """Default location of the YAML file defining APDB schema."""
 
     meta_schema_version_key = "version:schema"
     """Name of the metadata key to store schema version number."""
@@ -74,11 +81,7 @@ class SqlBase:
     """Name of the metadata key to store code version number."""
 
     def __init__(self, config: PpdbSqlConfig) -> None:
-        if not isinstance(config, PpdbSqlConfig):
-            raise TypeError("Expecting PpdbSqlConfig instance")
-        self.config = config
-
-        self._sa_metadata, schema_version = self.read_schema(
+        self._sa_metadata, self._schema_version = self.read_schema(
             config.felis_path, config.schema_name, config.felis_schema, config.db_url
         )
 
@@ -89,7 +92,7 @@ class SqlBase:
         self._metadata = ApdbMetadataSql(self._engine, meta_table)
 
         # Check schema version compatibility
-        self.versionCheck(self._metadata, schema_version)
+        self.versionCheck(self._metadata, self._schema_version)
 
         # Check if schema uses MJD TAI for timestamps (DM-52215).
         self._use_mjd_tai = False

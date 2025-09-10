@@ -39,7 +39,7 @@ from lsst.dax.apdb import (
 from lsst.dax.apdb.timer import Timer
 from lsst.utils.iteration import chunk_iterable
 
-from ..ppdb import Ppdb, PpdbReplicaChunk
+from ..ppdb import Ppdb, PpdbConfig, PpdbReplicaChunk
 from ._base import SqlBase
 from .bulk_insert import make_inserter
 from .config import PpdbSqlConfig
@@ -50,9 +50,17 @@ _MON = monitor.MonAgent(__name__)
 
 
 class PpdbSql(Ppdb, SqlBase):
-    """Implementation of `Ppdb` using a SQL database."""
+    """Implementation of `Ppdb` using a SQL database.
 
-    def __init__(self, config: PpdbSqlConfig) -> None:
+    Parameters
+    ----------
+    config : `PpdbSqlConfig`
+        Configuration object, which must be of type `PpdbSqlConfig`.
+    """
+
+    def __init__(self, config: PpdbConfig) -> None:
+        if type(config) is not PpdbSqlConfig:
+            raise TypeError("config is not of type PpdbSqlConfig")
         SqlBase.__init__(self, config)
 
     @property
