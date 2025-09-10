@@ -28,16 +28,16 @@ import logging
 
 import astropy.time
 import sqlalchemy
-from sqlalchemy import sql
-
 from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,
     ReplicaChunk,
+    VersionTuple,
     monitor,
 )
 from lsst.dax.apdb.timer import Timer
 from lsst.utils.iteration import chunk_iterable
+from sqlalchemy import sql
 
 from ..ppdb import Ppdb, PpdbConfig, PpdbReplicaChunk
 from ._base import SqlBase
@@ -62,6 +62,12 @@ class PpdbSql(Ppdb, SqlBase):
         if type(config) is not PpdbSqlConfig:
             raise TypeError("config is not of type PpdbSqlConfig")
         SqlBase.__init__(self, config)
+
+        # Check if schema uses MJD TAI for timestamps (DM-52215).
+        self._use_mjd_tai = False
+        for table in self._sa_metadata.tables.values():
+            if table.name == "DiaObject":
+                self._use_mjd_tai = "validityStartMjdTai" in table.columns
 
     @property
     def metadata(self) -> ApdbMetadata:
@@ -247,3 +253,47 @@ class PpdbSql(Ppdb, SqlBase):
             count = inserter.insert(table, table_data, chunk_size=chunk_size)
             timer.add_values(row_count=count)
             _LOG.info("Inserted %d rows into %s table", count, table_name)
+
+    @classmethod
+    def read_schema(
+        cls, schema_file: str | None, schema_name: str | None, felis_schema: str | None, db_url: str
+    ) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
+        # Docstring is inherited from a base class.
+        metadata, version = super().read_schema(schema_file, schema_name, felis_schema, db_url)
+
+        # Check if schema uses MJD TAI for timestamps (DM-52215). This is not
+        # super-efficient, but I do not want to improve dax_apdb at this point.
+        use_mjd_tai = False
+        for schema_table in metadata.tables:
+            if schema_table.name == "DiaObject":
+                for column in schema_table.columns:
+                    if column.name == "validityStartMjdTai":
+                        use_mjd_tai = True
+                        break
+                break
+
+        if use_mjd_tai:
+            validity_end_column = "validityEndMjdTai"
+        else:
+            validity_end_column = "validityEnd"
+
+        # Add an additional index to DiaObject table to speed up replication.
+        # This is a partial index (Postgres-only), we do not have support for
+        # partial indices in ModelToSql, so we have to do it using sqlalchemy.
+        url = sqlalchemy.engine.make_url(db_url)
+        if url.get_backend_name() == "postgresql":
+            table: sqlalchemy.schema.Table | None = None
+            for table in metadata.tables.values():
+                if table.name == "DiaObject":
+                    name = f"IDX_DiaObject_diaObjectId_{validity_end_column}_IS_NULL"
+                    sqlalchemy.schema.Index(
+                        name,
+                        table.columns["diaObjectId"],
+                        postgresql_where=table.columns[validity_end_column].is_(None),
+                    )
+                    break
+            else:
+                # Cannot find table, odd, but what do I know.
+                pass
+
+        return metadata, version

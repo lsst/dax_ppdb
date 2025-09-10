@@ -68,6 +68,11 @@ class SqlBase:
     ----------
     config : `PpdbSqlConfig`
         Configuration object.
+
+    Notes
+    -----
+    This class does not implement the `~lsst.dax.ppdb.ppdb.Ppdb` interface.
+    Sub-classes which need to do that should use multiple inheritance.
     """
 
     default_felis_schema_file = "${SDM_SCHEMAS_DIR}/yml/apdb.yaml"
@@ -92,12 +97,6 @@ class SqlBase:
 
         # Check schema version compatibility
         self.versionCheck(self._metadata, self._schema_version)
-
-        # Check if schema uses MJD TAI for timestamps (DM-52215).
-        self._use_mjd_tai = False
-        for table in self._sa_metadata.tables.values():
-            if table.name == "DiaObject":
-                self._use_mjd_tai = "validityStartMjdTai" in table.columns
 
     @classmethod
     def make_engine(cls, config: PpdbSqlConfig) -> sqlalchemy.engine.Engine:
@@ -330,41 +329,6 @@ class SqlBase:
 
         converter = ModelToSql(metadata=metadata)
         converter.make_tables(schema.tables)
-
-        # Check if schema uses MJD TAI for timestamps (DM-52215). This is not
-        # super-efficient, but I do not want to improve dax_apdb at this point.
-        use_mjd_tai = False
-        for schema_table in schema.tables:
-            if schema_table.name == "DiaObject":
-                for column in schema_table.columns:
-                    if column.name == "validityStartMjdTai":
-                        use_mjd_tai = True
-                        break
-                break
-
-        if use_mjd_tai:
-            validity_end_column = "validityEndMjdTai"
-        else:
-            validity_end_column = "validityEnd"
-
-        # Add an additional index to DiaObject table to speed up replication.
-        # This is a partial index (Postgres-only), we do not have support for
-        # partial indices in ModelToSql, so we have to do it using sqlalchemy.
-        url = sqlalchemy.engine.make_url(db_url)
-        if url.get_backend_name() == "postgresql":
-            table: sqlalchemy.schema.Table | None = None
-            for table in metadata.tables.values():
-                if table.name == "DiaObject":
-                    name = f"IDX_DiaObject_diaObjectId_{validity_end_column}_IS_NULL"
-                    sqlalchemy.schema.Index(
-                        name,
-                        table.columns["diaObjectId"],
-                        postgresql_where=table.columns[validity_end_column].is_(None),
-                    )
-                    break
-            else:
-                # Cannot find table, odd, but what do I know.
-                pass
 
         return metadata, version
 
