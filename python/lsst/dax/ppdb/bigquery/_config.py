@@ -21,10 +21,11 @@
 
 from pathlib import Path
 
+from ..ppdb import PpdbConfig
 from ..sql.config import PpdbSqlConfig
 
 
-class PpdbBigQueryConfig(PpdbSqlConfig):
+class PpdbBigQueryConfig(PpdbConfig):
     """Configuration for BigQuery-based PPDB."""
 
     directory: Path | None = None

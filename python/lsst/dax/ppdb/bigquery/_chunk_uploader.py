@@ -36,7 +36,8 @@ from lsst.dax.ppdbx.gcp.pubsub import Publisher
 from ..config import PpdbConfig
 from ._config import PpdbBigQueryConfig
 from ._manifest import Manifest
-from ._replica_chunk import ChunkStatus, PpdbReplicaChunkExtended, PpdbReplicaChunkSql
+from ._ppdb_bigquery import PpdbBigQuery
+from ._replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
 __all__ = ["ChunkUploader", "ChunkUploadError"]
 
@@ -100,22 +101,21 @@ class ChunkUploader:
         # Check for correct config type
         if not isinstance(config, PpdbBigQueryConfig):
             raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
-        self.config = config
 
         # Setup SQL interface for accessing replica chunk data.
-        self._sql = PpdbReplicaChunkSql(config)
+        self._sql = PpdbBigQuery(config)
 
         # Read parameters from config
-        if self.config.prefix is None:
+        if config.prefix is None:
             raise ValueError("GCS prefix is not set in configuration.")
-        self.prefix: str = self.config.prefix
-        if self.config.bucket is None:
+        self.prefix: str = config.prefix
+        if config.bucket is None:
             raise ValueError("GCS bucket name is not set in configuration.")
-        self.bucket_name: str = self.config.bucket
-        if self.config.dataset is None:
+        self.bucket_name: str = config.bucket
+        if config.dataset is None:
             raise ValueError("BigQuery dataset is not set in configuration.")
-        self.dataset: str = self.config.dataset
-        self.topic_name = self.config.stage_chunk_topic
+        self.dataset: str = config.dataset
+        self.topic_name = config.stage_chunk_topic
 
         # Command line parameters
         self.wait_interval = wait_interval
@@ -143,7 +143,7 @@ class ChunkUploader:
             try:
                 # Get replica chunks that have been exported and are ready for
                 # upload to cloud storage.
-                replica_chunks = self._sql.get_replica_chunks_by_status(status=ChunkStatus.EXPORTED)
+                replica_chunks = self._sql.get_replica_chunks_ext(status=ChunkStatus.EXPORTED)
             except Exception:
                 # Some problem occurred while retrieving replica chunk data.
                 # Log the error and continue to the next iteration or exit if
@@ -255,10 +255,7 @@ class ChunkUploader:
 
             # 3) Update DB status.
             try:
-                with self._sql._engine.begin() as connection:
-                    self._sql.store_chunk(
-                        replica_chunk.with_new_status(ChunkStatus.UPLOADED), connection, True
-                    )
+                self._sql.store_chunk(replica_chunk.with_new_status(ChunkStatus.UPLOADED), True)
             except Exception as e:
                 raise ChunkUploadError(chunk_id, "failed to update replica chunk status in database") from e
 

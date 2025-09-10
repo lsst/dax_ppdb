@@ -23,9 +23,11 @@ from __future__ import annotations
 
 __all__ = ["create_bigquery_replica_chunk_sql"]
 
-import yaml
+import logging
 
-from ..bigquery._replica_chunk import PpdbReplicaChunkSql
+from ..bigquery._ppdb_bigquery import PpdbBigQuery
+
+_LOG = logging.getLogger(__name__)
 
 
 def create_bigquery_replica_chunk_sql(
@@ -67,7 +69,7 @@ def create_bigquery_replica_chunk_sql(
     # the tables needed for tracking BigQuery replica chunks, including the
     # PpdbReplicaChunk and metadata tables. Currently, it includes the entire
     # PPDB Postgres representation plus some extra columns.
-    config = PpdbReplicaChunkSql.init_database(
+    config = PpdbBigQuery.init_database(
         db_url=db_url,
         schema_name=schema,
         schema_file=felis_path,
@@ -77,7 +79,4 @@ def create_bigquery_replica_chunk_sql(
         connection_timeout=connection_timeout,
         drop=drop,
     )
-    config_dict = config.model_dump(exclude_unset=True, exclude_defaults=True)
-    config_dict["implementation_type"] = "bigquery"
-    with open(output_config, "w") as config_file:
-        yaml.dump(config_dict, config_file)
+    _LOG.info("Created BigQuery replica chunk SQL database at %s", config.db_url)

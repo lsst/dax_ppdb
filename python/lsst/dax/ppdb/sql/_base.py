@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["BaseSql"]
+__all__ = ["SqlBase"]
 
 import logging
 import os
@@ -34,8 +34,6 @@ import felis.datamodel
 import sqlalchemy
 import yaml
 from felis.datamodel import Schema as FelisSchema
-from sqlalchemy.pool import NullPool
-
 from lsst.dax.apdb import (
     IncompatibleVersionError,
     VersionTuple,
@@ -45,6 +43,7 @@ from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from lsst.dax.ppdb.ppdb import PpdbConfig
 from lsst.dax.ppdb.sql.config import PpdbSqlConfig
 from lsst.resources import ResourcePath
+from sqlalchemy.pool import NullPool
 
 _LOG = logging.getLogger(__name__)
 
@@ -435,3 +434,8 @@ class SqlBase:
             if table.name == name:
                 return table
         raise LookupError(f"Unknown table {name}")
+
+    @property
+    def schema_version(self) -> VersionTuple:
+        """Version of the APDB database schema (`VersionTuple`)."""
+        return self._schema_version

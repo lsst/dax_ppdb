@@ -28,15 +28,15 @@ from pathlib import Path
 from typing import Any
 
 import astropy
+import felis
 import sqlalchemy
-
 from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,
     ApdbTables,
     ReplicaChunk,
-    VersionTuple,
     monitor,
+    schema_model,
 )
 from lsst.dax.apdb.timer import Timer
 from lsst.dax.ppdbx.gcp.auth import get_auth_default
@@ -73,7 +73,7 @@ class PpdbBigQuery(Ppdb, SqlBase):
 
         # Initialize the SQL interface.
         if config.sql is None:
-            raise ValueError("The SQL section is missing from the BigQuery config.")
+            raise ValueError("The 'sql' section is missing from the BigQuery config.")
         SqlBase.__init__(self, config.sql)
 
         # Read parameters from config.
@@ -206,11 +206,6 @@ class PpdbBigQuery(Ppdb, SqlBase):
         )
         return path
 
-    @property
-    def schema_version(self) -> VersionTuple:
-        """Version of the APDB schema used by this PPDB (`VersionTuple`)."""
-        return self._schema_version
-
     @classmethod
     def _to_astropy_tai(cls, obj: Any) -> astropy.time.Time:
         """Convert a database object to `astropy.time.Time` in TAI scale.
@@ -294,25 +289,22 @@ class PpdbBigQuery(Ppdb, SqlBase):
             records. If `False` then only INSERT is performed and an error is
             raised if the record already exists.
         """
+        _LOG.info("Storing replica chunk: %s", replica_chunk)
         with self._engine.begin() as connection:
             table = self.get_table("PpdbReplicaChunk")
             insert_dt = datetime.datetime.fromtimestamp(
                 replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
             )
             now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
-            row = {
-                "last_update_time": replica_chunk.last_update_time_dt_utc,
-                "unique_id": replica_chunk.unique_id,
-                "replica_time": replica_chunk.replica_time_dt_utc,
-                "status": replica_chunk.status,
-                "directory": str(replica_chunk.directory),
-            }
             values = {
                 "last_update_time": insert_dt,
                 "unique_id": replica_chunk.unique_id,
                 "replica_time": now,
+                "status": replica_chunk.status,
+                "directory": str(replica_chunk.directory),
             }
             row = {"apdb_replica_chunk": replica_chunk.id} | values
+            _LOG.info("Updating row: %s", row)
             if update:
                 # We need UPSERT which is dialect-specific construct
                 if connection.dialect.name == "sqlite":
@@ -330,3 +322,38 @@ class PpdbBigQuery(Ppdb, SqlBase):
             else:
                 insert = table.insert()
                 connection.execute(insert, row)
+
+    @classmethod
+    def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
+        """Create the ``PpdbReplicaChunk`` table with additional fields for
+        status and directory.
+
+        Parameters
+        ----------
+        table_name : `str`, optional
+            Name of the table to create. If not provided, defaults to
+            "PpdbReplicaChunk".
+
+        Notes
+        -----
+        This overrides the base method to add additional columns for
+        ``status`` and ``directory`` to the replica chunk table schema.
+        """
+        replica_chunk_table = super().create_replica_chunk_table()
+        replica_chunk_table.columns.extend(
+            [
+                schema_model.Column(
+                    name="status",
+                    id=f"#{table_name}.status",
+                    datatype=felis.datamodel.DataType.string,
+                    nullable=True,
+                ),
+                schema_model.Column(
+                    name="directory",
+                    id=f"#{table_name}.directory",
+                    datatype=felis.datamodel.DataType.string,
+                    nullable=True,
+                ),
+            ]
+        )
+        return replica_chunk_table
