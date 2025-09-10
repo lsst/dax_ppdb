@@ -357,3 +357,8 @@ class PpdbBigQuery(Ppdb, SqlBase):
             ]
         )
         return replica_chunk_table
+
+    @classmethod
+    def filter_tables(cls, schema_dict: dict[str, Any]) -> list[Any]:
+        # Docstring is inherited.
+        return [table for table in schema_dict["tables"] if table["name"] in ("metadata",)]

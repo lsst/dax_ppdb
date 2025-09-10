@@ -302,10 +302,9 @@ class SqlBase:
             raise ValueError(f"Schema file {schema_file!r} defines multiple schemas")
         schema_dict = schemas_list[0]
 
-        # In case we use APDB schema drop tables that are not needed in PPDB.
-        filtered_tables = [
-            table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)
-        ]
+        # Filter out unwanted tables. By default, all tables will be included.
+        filtered_tables = cls.filter_tables(schema_dict)
+
         schema_dict["tables"] = filtered_tables
         dm_schema: FelisSchema = felis.datamodel.Schema.model_validate(schema_dict)
         schema = schema_model.Schema.from_felis(dm_schema)
@@ -403,3 +402,24 @@ class SqlBase:
     def schema_version(self) -> VersionTuple:
         """Version of the APDB database schema (`VersionTuple`)."""
         return self._schema_version
+
+    @classmethod
+    def filter_tables(cls, schema_dict: dict[str, Any]) -> list[Any]:
+        """Return list of filtered tables.
+
+        Parameters
+        ----------
+        schema_dict : `dict` [`str`, `Any`]
+            Dictionary with schema information.
+
+        Returns
+        -------
+        tables : `list` [`Any`]
+            List of tables from ``schema_dict`` on which to filter.
+
+        Notes
+        -----
+        The default implementation does not filter any tables. Sub-classes
+        may override this method to filter out unwanted tables.
+        """
+        return schema_dict["tables"]

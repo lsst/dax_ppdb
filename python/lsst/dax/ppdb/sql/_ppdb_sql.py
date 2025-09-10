@@ -25,6 +25,7 @@ __all__ = ["PpdbSql", "PpdbSqlConfig"]
 
 import datetime
 import logging
+from typing import Any
 
 import astropy.time
 import sqlalchemy
@@ -264,7 +265,7 @@ class PpdbSql(Ppdb, SqlBase):
         # Check if schema uses MJD TAI for timestamps (DM-52215). This is not
         # super-efficient, but I do not want to improve dax_apdb at this point.
         use_mjd_tai = False
-        for schema_table in metadata.tables:
+        for schema_table in metadata.tables.values():
             if schema_table.name == "DiaObject":
                 for column in schema_table.columns:
                     if column.name == "validityStartMjdTai":
@@ -297,3 +298,19 @@ class PpdbSql(Ppdb, SqlBase):
                 pass
 
         return metadata, version
+
+    @classmethod
+    def filter_tables(cls, schema_dict: dict[str, Any]) -> list[Any]:
+        """Return list of filtered tables.
+
+        Parameters
+        ----------
+        schema_dict : `dict` [`str`, `Any`]
+            Dictionary with schema information.
+
+        Returns
+        -------
+        tables : `list` [`Any`]
+            List of tables from ``schema_dict`` on which to filter.
+        """
+        return [table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)]
