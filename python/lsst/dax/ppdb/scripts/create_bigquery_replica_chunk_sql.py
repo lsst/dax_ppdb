@@ -69,7 +69,7 @@ def create_bigquery_replica_chunk_sql(
     # the tables needed for tracking BigQuery replica chunks, including the
     # PpdbReplicaChunk and metadata tables. Currently, it includes the entire
     # PPDB Postgres representation plus some extra columns.
-    config = PpdbBigQuery.init_database(
+    PpdbBigQuery.init_database(
         db_url=db_url,
         schema_name=schema,
         schema_file=felis_path,
@@ -79,4 +79,4 @@ def create_bigquery_replica_chunk_sql(
         connection_timeout=connection_timeout,
         drop=drop,
     )
-    _LOG.info("Created BigQuery replica chunk SQL database at %s", config.db_url)
+    _LOG.info("Created BigQuery replica chunk SQL database at %s", db_url)
