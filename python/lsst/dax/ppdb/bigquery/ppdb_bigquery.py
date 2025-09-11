@@ -38,7 +38,6 @@ from lsst.dax.apdb import (
     schema_model,
 )
 from lsst.dax.apdb.timer import Timer
-from lsst.dax.ppdbx.gcp.auth import get_auth_default
 
 from .._arrow import write_parquet
 from ..config import PpdbConfig
@@ -82,9 +81,6 @@ class PpdbBigQuery(Ppdb, SqlBase):
         self.batch_size = config.batch_size
         self.compression_format = config.compression_format
         self.delete_existing = config.delete_existing
-
-        # Authenticate with Google Cloud to set credentials and project ID.
-        self.credentials, self.project_id = get_auth_default()
 
     @property
     def metadata(self) -> ApdbMetadata:
