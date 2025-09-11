@@ -147,22 +147,14 @@ class PpdbSql(Ppdb, SqlBase):
 
         table = self.get_table("PpdbReplicaChunk")
 
-        values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
-        row = {"apdb_replica_chunk": replica_chunk.id} | values
+        row = {
+            "apdb_replica_chunk": replica_chunk.id,
+            "last_update_time": insert_dt,
+            "unique_id": replica_chunk.unique_id,
+            "replica_time": now,
+        }
         if update:
-            # We need UPSERT which is dialect-specific construct
-            if connection.dialect.name == "sqlite":
-                insert_sqlite = sqlalchemy.dialects.sqlite.insert(table)
-                insert_sqlite = insert_sqlite.on_conflict_do_update(
-                    index_elements=table.primary_key, set_=values
-                )
-                connection.execute(insert_sqlite, row)
-            elif connection.dialect.name == "postgresql":
-                insert_pg = sqlalchemy.dialects.postgresql.dml.insert(table)
-                insert_pg = insert_pg.on_conflict_do_update(constraint=table.primary_key, set_=values)
-                connection.execute(insert_pg, row)
-            else:
-                raise TypeError(f"Unsupported dialect {connection.dialect.name} for upsert.")
+            self.upsert(connection, table, row, "apdb_replica_chunk")
         else:
             insert = table.insert()
             connection.execute(insert, row)

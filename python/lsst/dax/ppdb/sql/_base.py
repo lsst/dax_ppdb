@@ -436,3 +436,39 @@ class SqlBase:
             The type signature is generic to match astropy's typing.
         """
         return astropy.time.Time(obj, format="datetime", scale="tai")
+
+    @classmethod
+    def upsert(
+        cls,
+        connection: sqlalchemy.engine.Connection,
+        table: sqlalchemy.schema.Table,
+        row: dict,
+        key_column_name: str,
+    ) -> None:
+        """Perform an UPSERT operation on the replica chunk table.
+
+        Parameters
+        ----------
+        connection : `sqlalchemy.engine.Connection`
+            Active database connection.
+        table : `sqlalchemy.schema.Table`
+            Table object for the replica chunk table.
+        values : `dict`
+            Dictionary of column values to insert or update.
+
+        Raises
+        ------
+        TypeError
+            If the database dialect does not support UPSERT.
+        """
+        values = {k: v for k, v in row.items() if k != key_column_name}
+        if connection.dialect.name == "sqlite":
+            insert_sqlite = sqlalchemy.dialects.sqlite.insert(table)
+            insert_sqlite = insert_sqlite.on_conflict_do_update(index_elements=table.primary_key, set_=values)
+            connection.execute(insert_sqlite, row)
+        elif connection.dialect.name == "postgresql":
+            insert_pg = sqlalchemy.dialects.postgresql.dml.insert(table)
+            insert_pg = insert_pg.on_conflict_do_update(constraint=table.primary_key, set_=values)
+            connection.execute(insert_pg, row)
+        else:
+            raise TypeError(f"Unsupported dialect {connection.dialect.name} for upsert.")

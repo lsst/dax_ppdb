@@ -27,7 +27,6 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 
-import astropy
 import felis
 import sqlalchemy
 from lsst.dax.apdb import (
@@ -280,33 +279,16 @@ class PpdbBigQuery(Ppdb, SqlBase):
         _LOG.info("Storing replica chunk: %s", replica_chunk)
         with self._engine.begin() as connection:
             table = self.get_table("PpdbReplicaChunk")
-            insert_dt = datetime.datetime.fromtimestamp(
-                replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
-            )
-            now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
-            values = {
-                "last_update_time": insert_dt,
+            row = {
+                "apdb_replica_chunk": replica_chunk.id,
+                "last_update_time": replica_chunk.last_update_time_dt_utc,
                 "unique_id": replica_chunk.unique_id,
-                "replica_time": now,
+                "replica_time": replica_chunk.replica_time_dt_utc,
                 "status": replica_chunk.status,
                 "directory": str(replica_chunk.directory),
             }
-            row = {"apdb_replica_chunk": replica_chunk.id} | values
-            _LOG.info("Updating row: %s", row)
             if update:
-                # We need UPSERT which is dialect-specific construct
-                if connection.dialect.name == "sqlite":
-                    insert_sqlite = sqlalchemy.dialects.sqlite.insert(table)
-                    insert_sqlite = insert_sqlite.on_conflict_do_update(
-                        index_elements=table.primary_key, set_=values
-                    )
-                    connection.execute(insert_sqlite, row)
-                elif connection.dialect.name == "postgresql":
-                    insert_pg = sqlalchemy.dialects.postgresql.dml.insert(table)
-                    insert_pg = insert_pg.on_conflict_do_update(constraint=table.primary_key, set_=values)
-                    connection.execute(insert_pg, row)
-                else:
-                    raise TypeError(f"Unsupported dialect {connection.dialect.name} for upsert.")
+                self.upsert(connection, table, row, "apdb_replica_chunk")
             else:
                 insert = table.insert()
                 connection.execute(insert, row)
