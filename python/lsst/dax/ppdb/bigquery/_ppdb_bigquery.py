@@ -206,18 +206,6 @@ class PpdbBigQuery(Ppdb, SqlBase):
         )
         return path
 
-    @classmethod
-    def _to_astropy_tai(cls, obj: Any) -> astropy.time.Time:
-        """Convert a database object to `astropy.time.Time` in TAI scale.
-
-        Parameters
-        ----------
-        obj : `Any`
-            The object to convert, expected to be a `datetime` in UTC.
-            The type signature is generic to match astropy's typing.
-        """
-        return astropy.time.Time(obj, format="datetime", scale="tai")
-
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
         return self.get_replica_chunks_ext(start_chunk_id=start_chunk_id)
@@ -262,8 +250,8 @@ class PpdbBigQuery(Ppdb, SqlBase):
         with self._engine.connect() as conn:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
             for row in result:
-                last_update_time = self._to_astropy_tai(row[1])
-                replica_time = self._to_astropy_tai(row[3])
+                last_update_time = self.to_astropy_tai(row[1])
+                replica_time = self.to_astropy_tai(row[3])
                 ids.append(
                     PpdbReplicaChunkExtended(
                         id=row[0],

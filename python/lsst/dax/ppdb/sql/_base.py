@@ -30,6 +30,7 @@ from collections.abc import MutableMapping
 from contextlib import closing
 from typing import Any
 
+import astropy
 import felis.datamodel
 import sqlalchemy
 import yaml
@@ -423,3 +424,15 @@ class SqlBase:
         may override this method to filter out unwanted tables.
         """
         return schema_dict["tables"]
+
+    @classmethod
+    def to_astropy_tai(cls, obj: Any) -> astropy.time.Time:
+        """Convert a database object to `astropy.time.Time` in TAI scale.
+
+        Parameters
+        ----------
+        obj : `Any`
+            The object to convert, expected to be a `datetime` in UTC.
+            The type signature is generic to match astropy's typing.
+        """
+        return astropy.time.Time(obj, format="datetime", scale="tai")

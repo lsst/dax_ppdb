@@ -93,8 +93,8 @@ class PpdbSql(Ppdb, SqlBase):
                 # When we store these timestamps we convert astropy Time to
                 # unix_tai and then to `datetime` in UTC. This conversion
                 # reverses that process,
-                last_update_time = astropy.time.Time(row[1], format="datetime", scale="tai")
-                replica_time = astropy.time.Time(row[3], format="datetime", scale="tai")
+                last_update_time = self.to_astropy_tai(row[1])
+                replica_time = self.to_astropy_tai(row[3])
                 ids.append(
                     PpdbReplicaChunk(
                         id=row[0],
