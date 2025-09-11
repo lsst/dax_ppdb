@@ -44,9 +44,8 @@ except ImportError:
 
 
 from ..config import PpdbConfig
-from .config import PpdbBigQueryConfig
 from .manifest import Manifest
-from .ppdb_bigquery import PpdbBigQuery
+from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
 from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
 __all__ = ["ChunkUploader", "ChunkUploadError"]

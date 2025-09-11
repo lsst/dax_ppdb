@@ -43,15 +43,50 @@ from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql._base import SqlBase
-from .config import PpdbBigQueryConfig
+from ..sql.config import PpdbSqlConfig
 from .manifest import Manifest, TableStats
 from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
-__all__ = ["PpdbBigQuery"]
+__all__ = ["PpdbBigQuery", "PpdbBigQueryConfig"]
 
 _LOG = logging.getLogger(__name__)
 
 _MON = monitor.MonAgent(__name__)
+
+
+class PpdbBigQueryConfig(PpdbConfig):
+    """Configuration for BigQuery-based PPDB."""
+
+    directory: Path | None = None
+    """Directory where the exported chunks will be stored."""
+
+    delete_existing: bool = False
+    """If `True`, existing directories for chunks will be deleted before
+    export. If `False`, an error will be raised if the directory already
+    exists."""
+
+    stage_chunk_topic: str = "stage-chunk-topic"
+    """Pub/Sub topic name for triggering chunk staging process."""
+
+    batch_size: int = 1000
+    """Number of rows to process in each batch when writing parquet files."""
+
+    compression_format: str = "snappy"
+    """Compression format for Parquet files."""
+
+    bucket: str | None = None
+    """Name of Google Cloud Storage bucket for uploading chunks."""
+
+    prefix: str | None = None
+    """Base prefix for the object in cloud storage."""
+
+    dataset: str | None = None
+    """Target BigQuery dataset, e.g., 'my_project:my_dataset'
+    (`str` or `None`). If not provided the project will be derived from the
+    Google Cloud environment at runtime."""
+
+    sql: PpdbSqlConfig | None = None
+    """SQL database configuration (`PpdbSqlConfig` or `None`)."""
 
 
 class PpdbBigQuery(Ppdb, SqlBase):
