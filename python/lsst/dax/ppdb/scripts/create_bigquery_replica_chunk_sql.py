@@ -25,6 +25,9 @@ __all__ = ["create_bigquery_replica_chunk_sql"]
 
 import logging
 
+import yaml
+
+from ..bigquery.config import PpdbBigQueryConfig
 from ..bigquery.ppdb_bigquery import PpdbBigQuery
 
 _LOG = logging.getLogger(__name__)
@@ -65,11 +68,7 @@ def create_bigquery_replica_chunk_sql(
     drop : `bool`
         If `True` then drop existing tables.
     """
-    # DM-52173: This should eventually instantiate a database which only has
-    # the tables needed for tracking BigQuery replica chunks, including the
-    # PpdbReplicaChunk and metadata tables. Currently, it includes the entire
-    # PPDB Postgres representation plus some extra columns.
-    PpdbBigQuery.init_database(
+    sql_config = PpdbBigQuery.init_database(
         db_url=db_url,
         schema_name=schema,
         schema_file=felis_path,
@@ -79,4 +78,9 @@ def create_bigquery_replica_chunk_sql(
         connection_timeout=connection_timeout,
         drop=drop,
     )
-    _LOG.info("Created BigQuery replica chunk SQL database at %s", db_url)
+    # DM-52460: This will be revised to generate a complete BigQuery config.
+    bq_config = PpdbBigQueryConfig(sql=sql_config)
+    config_dict = bq_config.model_dump(exclude_unset=True, exclude_defaults=True)
+    config_dict["implementation_type"] = "bigquery"
+    with open(output_config, "w") as config_file:
+        yaml.dump(config_dict, config_file)
