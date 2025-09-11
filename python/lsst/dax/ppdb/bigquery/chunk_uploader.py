@@ -29,9 +29,19 @@ from pathlib import Path
 
 from lsst.dax.apdb import monitor
 from lsst.dax.apdb.timer import Timer
-from lsst.dax.ppdbx.gcp.auth import get_auth_default
-from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
-from lsst.dax.ppdbx.gcp.pubsub import Publisher
+
+# Import GCP libraries and raise ImportError if not available.
+try:
+    from lsst.dax.ppdbx.gcp.auth import get_auth_default
+    from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
+    from lsst.dax.ppdbx.gcp.pubsub import Publisher
+except ImportError:
+    raise ImportError(
+        "The lsst.dax.ppdbx.gcp module is required for BigQuery support.\n"
+        "Please 'pip install' the lsst-ppdb-gcp package from:\n"
+        "https://github.com/lsst-dm/dax_ppdbx_gcp"
+    )
+
 
 from ..config import PpdbConfig
 from .config import PpdbBigQueryConfig
