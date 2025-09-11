@@ -28,6 +28,7 @@ import logging
 import yaml
 
 from ..bigquery.ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
+from ..sql.config import PpdbSqlConfig
 
 _LOG = logging.getLogger(__name__)
 
@@ -78,6 +79,8 @@ def create_bigquery_replica_chunk_sql(
         drop=drop,
     )
     # DM-52460: This will be revised to generate a complete BigQuery config.
+    if not isinstance(sql_config, PpdbSqlConfig):
+        raise RuntimeError("Expected PpdbSqlConfig from init_database")
     bq_config = PpdbBigQueryConfig(sql=sql_config)
     config_dict = bq_config.model_dump(exclude_unset=True, exclude_defaults=True)
     config_dict["implementation_type"] = "bigquery"
