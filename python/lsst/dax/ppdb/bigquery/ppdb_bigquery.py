@@ -44,9 +44,9 @@ from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql._base import SqlBase
-from ._config import PpdbBigQueryConfig
-from ._manifest import Manifest, TableStats
-from ._replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
+from .config import PpdbBigQueryConfig
+from .manifest import Manifest, TableStats
+from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
 __all__ = ["PpdbBigQuery"]
 

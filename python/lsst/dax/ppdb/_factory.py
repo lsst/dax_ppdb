@@ -48,7 +48,7 @@ def ppdb_type(config: PpdbConfig) -> type[Ppdb]:
     TypeError
         Raised if type of ``config`` does not match any known types.
     """
-    from .bigquery._config import PpdbBigQueryConfig
+    from .bigquery.config import PpdbBigQueryConfig
     from .sql.config import PpdbSqlConfig
 
     if type(config) is PpdbSqlConfig:
@@ -56,7 +56,7 @@ def ppdb_type(config: PpdbConfig) -> type[Ppdb]:
 
         return PpdbSql
     elif type(config) is PpdbBigQueryConfig:
-        from .bigquery._ppdb_bigquery import PpdbBigQuery
+        from .bigquery.ppdb_bigquery import PpdbBigQuery
 
         return PpdbBigQuery
 
@@ -86,7 +86,7 @@ def ppdb_type_for_name(type_name: str) -> type[Ppdb]:
 
         return PpdbSql
     elif type_name == "bigquery":
-        from .bigquery._ppdb_bigquery import PpdbBigQuery
+        from .bigquery.ppdb_bigquery import PpdbBigQuery
 
         return PpdbBigQuery
 
@@ -116,7 +116,7 @@ def config_type_for_name(type_name: str) -> type[PpdbConfig]:
 
         return PpdbSqlConfig
     elif type_name == "bigquery":
-        from .bigquery._config import PpdbBigQueryConfig
+        from .bigquery.config import PpdbBigQueryConfig
 
         return PpdbBigQueryConfig
 

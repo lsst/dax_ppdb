@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from ..bigquery._chunk_uploader import ChunkUploader
+from ..bigquery.chunk_uploader import ChunkUploader
 from ..ppdb import PpdbConfig
 
 

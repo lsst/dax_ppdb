@@ -25,7 +25,7 @@ __all__ = ["create_bigquery_replica_chunk_sql"]
 
 import logging
 
-from ..bigquery._ppdb_bigquery import PpdbBigQuery
+from ..bigquery.ppdb_bigquery import PpdbBigQuery
 
 _LOG = logging.getLogger(__name__)
 

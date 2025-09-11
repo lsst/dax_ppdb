@@ -34,10 +34,10 @@ from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
 from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from ..config import PpdbConfig
-from ._config import PpdbBigQueryConfig
-from ._manifest import Manifest
-from ._ppdb_bigquery import PpdbBigQuery
-from ._replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
+from .config import PpdbBigQueryConfig
+from .manifest import Manifest
+from .ppdb_bigquery import PpdbBigQuery
+from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
 __all__ = ["ChunkUploader", "ChunkUploadError"]
 
