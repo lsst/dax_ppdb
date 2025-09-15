@@ -48,15 +48,13 @@ class ChunkStatus(StrEnum):
 
 @dataclass(frozen=True)
 class PpdbReplicaChunkExtended(PpdbReplicaChunk):
-    """ReplicaChunk with additional PPDB-specific info."""
+    """Replica chunk with additional information for BigQuery-based PPDB."""
 
     status: ChunkStatus
-    """Status of the replica chunk. This may be ``None`` in older versions of
-    the ``PpdbReplicaChunk`` table."""
+    """Status of the replica chunk."""
 
     directory: Path
-    """Directory where the exported replica chunk data is stored. This may be
-    ``None`` in older versions of the ``PpdbReplicaChunk`` table."""
+    """Directory where the exported replica chunk data is stored locally."""
 
     @property
     def manifest_name(self) -> str:
