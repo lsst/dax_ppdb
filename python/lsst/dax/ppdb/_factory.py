@@ -49,7 +49,7 @@ def ppdb_type(config: PpdbConfig) -> type[Ppdb]:
         Raised if type of ``config`` does not match any known types.
     """
     from .bigquery import PpdbBigQueryConfig
-    from .sql.config import PpdbSqlConfig
+    from .sql import PpdbSqlConfig
 
     if type(config) is PpdbSqlConfig:
         from .sql import PpdbSql
@@ -112,7 +112,7 @@ def config_type_for_name(type_name: str) -> type[PpdbConfig]:
         Raised if ``type_name`` does not match any known types.
     """
     if type_name == "sql":
-        from .sql.config import PpdbSqlConfig
+        from .sql import PpdbSqlConfig
 
         return PpdbSqlConfig
     elif type_name == "bigquery":

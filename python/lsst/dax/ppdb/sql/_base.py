@@ -42,9 +42,10 @@ from lsst.dax.apdb import (
 )
 from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from lsst.dax.ppdb.ppdb import PpdbConfig
-from lsst.dax.ppdb.sql.config import PpdbSqlConfig
 from lsst.resources import ResourcePath
 from sqlalchemy.pool import NullPool
+
+from .config import PpdbSqlConfig
 
 _LOG = logging.getLogger(__name__)
 

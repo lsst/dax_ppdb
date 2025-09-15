@@ -42,8 +42,7 @@ from lsst.dax.apdb.timer import Timer
 from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
-from ..sql._base import SqlBase
-from ..sql.config import PpdbSqlConfig
+from ..sql import PpdbSqlConfig, SqlBase
 from .manifest import Manifest, TableStats
 from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 

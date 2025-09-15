@@ -28,7 +28,7 @@ import logging
 import yaml
 
 from ..bigquery import PpdbBigQuery, PpdbBigQueryConfig
-from ..sql.config import PpdbSqlConfig
+from ..sql import PpdbSqlConfig
 
 _LOG = logging.getLogger(__name__)
 
