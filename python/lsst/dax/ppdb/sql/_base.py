@@ -445,7 +445,7 @@ class SqlBase:
         row: dict,
         key_column_name: str,
     ) -> None:
-        """Perform an UPSERT operation on the replica chunk table.
+        """Perform an UPSERT operation on the given table.
 
         Parameters
         ----------
