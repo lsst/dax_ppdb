@@ -362,3 +362,56 @@ class PpdbBigQuery(Ppdb, SqlBase):
     def filter_tables(cls, schema_dict: dict[str, Any]) -> list[Any]:
         # Docstring is inherited.
         return [table for table in schema_dict["tables"] if table["name"] in ("metadata",)]
+
+    @classmethod
+    def init_database(
+        cls,
+        db_url: str,
+        schema_file: str | None = None,
+        schema_name: str | None = None,
+        felis_schema: str | None = None,
+        use_connection_pool: bool = True,
+        isolation_level: str | None = None,
+        connection_timeout: float | None = None,
+        drop: bool = False,
+    ) -> PpdbConfig:
+        """Initialize PPDB database and return configuration object.
+
+        Parameters
+        ----------
+        db_url : `str`
+            SQLAlchemy database connection URI.
+        schema_name : `str` or `None`
+            Database schema name, if `None` then default schema is used.
+        schema_file : `str` or `None`
+            Name of YAML file with ``felis`` schema, if `None` then default
+            schema file is used.
+        felis_schema : `str` or `None`
+            Name of the schema in YAML file, if `None` then file has to contain
+            single schema.
+        use_connection_pool : `bool`
+            If True then allow use of connection pool.
+        isolation_level : `str` or `None`
+            Transaction isolation level, if unset then backend-default value is
+            used.
+        connection_timeout: `float` or `None`
+            Maximum connection timeout in seconds.
+        drop : `bool`
+            If `True` then drop existing tables.
+        """
+        sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
+        sql_config = PpdbSqlConfig(
+            db_url=db_url,
+            schema_name=schema_name,
+            felis_path=schema_file,
+            felis_schema=felis_schema,
+            use_connection_pool=use_connection_pool,
+            isolation_level=isolation_level,
+            connection_timeout=connection_timeout,
+        )
+        cls.make_database(sql_config, sa_metadata, schema_version, drop)
+        # DM-52460: We have to use some default parameters for BQ here to
+        # return a valid config. They would need to be part of the call to
+        # this method if we wanted to customize them.
+        bq_config = PpdbBigQueryConfig(sql=sql_config)
+        return bq_config
