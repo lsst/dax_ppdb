@@ -339,7 +339,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         This overrides the base method to add additional columns for
         ``status`` and ``directory`` to the replica chunk table schema.
         """
-        replica_chunk_table = super().create_replica_chunk_table()
+        replica_chunk_table = super().create_replica_chunk_table(table_name)
         replica_chunk_table.columns.extend(
             [
                 schema_model.Column(
