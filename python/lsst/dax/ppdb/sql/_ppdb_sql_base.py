@@ -58,7 +58,7 @@ VERSION = VersionTuple(0, 1, 1)
 class MissingSchemaVersionError(RuntimeError):
     """Exception raised when schema version is not defined in the schema."""
 
-    def __init__(self, schema_name):
+    def __init__(self, schema_name: str):
         super().__init__(f"Version is missing from the '{schema_name}' schema.")
 
 def _onSqlite3Connect(
@@ -448,7 +448,7 @@ class PpdbSqlBase:
         cls,
         connection: sqlalchemy.engine.Connection,
         table: sqlalchemy.schema.Table,
-        row: dict,
+        row: dict[str, Any],
         key_column_name: str,
     ) -> None:
         """Perform an UPSERT operation on the given table.
@@ -465,7 +465,7 @@ class PpdbSqlBase:
         Raises
         ------
         TypeError
-            If the database dialect does not support UPSERT.
+            Raised if the database dialect does not support UPSERT.
         """
         values = {k: v for k, v in row.items() if k != key_column_name}
         if connection.dialect.name == "sqlite":

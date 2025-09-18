@@ -55,7 +55,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
 
     Parameters
     ----------
-    config : `PpdbSqlConfig`
+    config : `PpdbConfig`
         Configuration object, which must be of type `PpdbSqlConfig`.
     """
 

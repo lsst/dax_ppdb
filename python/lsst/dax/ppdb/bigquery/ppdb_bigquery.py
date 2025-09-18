@@ -62,7 +62,8 @@ class PpdbBigQueryConfig(PpdbConfig):
     delete_existing: bool = False
     """If `True`, existing directories for chunks will be deleted before
     export. If `False`, an error will be raised if the directory already
-    exists."""
+    exists.
+    """
 
     stage_chunk_topic: str = "stage-chunk-topic"
     """Pub/Sub topic name for triggering chunk staging process."""
@@ -82,7 +83,8 @@ class PpdbBigQueryConfig(PpdbConfig):
     dataset: str | None = None
     """Target BigQuery dataset, e.g., 'my_project:my_dataset'
     (`str` or `None`). If not provided the project will be derived from the
-    Google Cloud environment at runtime."""
+    Google Cloud environment at runtime.
+    """
 
     sql: PpdbSqlConfig | None = None
     """SQL database configuration (`PpdbSqlConfig` or `None`)."""
@@ -257,7 +259,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        chunks : `list` [ `PpdbReplicaChunkExtended` ]
+        chunks : `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
             List of chunks with the specified status. Chunks are ordered by
             their ``last_update_time`` and include the ``directory`` and
             ``status`` fields.

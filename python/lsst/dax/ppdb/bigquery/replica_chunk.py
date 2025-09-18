@@ -92,7 +92,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             The `ReplicaChunk` to convert.
         status : `ChunkStatus`
             Status of the replica chunk.
-        directory : `Path`
+        directory : `pathlib.Path`
             Directory where the replica chunk data is stored.
 
         Returns
