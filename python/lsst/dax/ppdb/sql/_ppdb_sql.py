@@ -41,7 +41,7 @@ from lsst.utils.iteration import chunk_iterable
 from sqlalchemy import sql
 
 from ..ppdb import Ppdb, PpdbConfig, PpdbReplicaChunk
-from ._base import SqlBase
+from ._ppdb_sql_base import PpdbSqlBase
 from .bulk_insert import make_inserter
 from .config import PpdbSqlConfig
 
@@ -50,7 +50,7 @@ _LOG = logging.getLogger(__name__)
 _MON = monitor.MonAgent(__name__)
 
 
-class PpdbSql(Ppdb, SqlBase):
+class PpdbSql(Ppdb, PpdbSqlBase):
     """Implementation of `Ppdb` using a SQL database.
 
     Parameters
@@ -62,7 +62,7 @@ class PpdbSql(Ppdb, SqlBase):
     def __init__(self, config: PpdbConfig) -> None:
         if type(config) is not PpdbSqlConfig:
             raise TypeError("config is not of type PpdbSqlConfig")
-        SqlBase.__init__(self, config)
+        PpdbSqlBase.__init__(self, config)
 
         # Check if schema uses MJD TAI for timestamps (DM-52215).
         self._use_mjd_tai = False

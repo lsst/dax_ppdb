@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["SqlBase"]
+__all__ = ["PpdbSqlBase"]
 
 import logging
 import os
@@ -63,7 +63,7 @@ def _onSqlite3Connect(
         cursor.execute("PRAGMA foreign_keys=ON;")
 
 
-class SqlBase:
+class PpdbSqlBase:
     """Base class for SQL-based PPDB implementations.
 
     Parameters

@@ -42,7 +42,7 @@ from lsst.dax.apdb.timer import Timer
 from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
-from ..sql import PpdbSqlConfig, SqlBase
+from ..sql import PpdbSqlConfig, PpdbSqlBase
 from .manifest import Manifest, TableStats
 from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
@@ -88,7 +88,7 @@ class PpdbBigQueryConfig(PpdbConfig):
     """SQL database configuration (`PpdbSqlConfig` or `None`)."""
 
 
-class PpdbBigQuery(Ppdb, SqlBase):
+class PpdbBigQuery(Ppdb, PpdbSqlBase):
     """Provides operations for the BigQuery-based PPDB.
 
     Parameters
@@ -106,7 +106,7 @@ class PpdbBigQuery(Ppdb, SqlBase):
         # Initialize the SQL interface.
         if config.sql is None:
             raise ValueError("The 'sql' section is missing from the BigQuery config.")
-        SqlBase.__init__(self, config.sql)
+        PpdbSqlBase.__init__(self, config.sql)
 
         # Read parameters from config.
         if config.directory is None:
