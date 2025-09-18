@@ -348,13 +348,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                     name="status",
                     id=f"#{table_name}.status",
                     datatype=felis.datamodel.DataType.string,
-                    nullable=True,
                 ),
                 schema_model.Column(
                     name="directory",
                     id=f"#{table_name}.directory",
                     datatype=felis.datamodel.DataType.string,
-                    nullable=True,
+                    nullable=True,  # We might want to allow NULL if an error occurs when exporting.
                 ),
             ]
         )
