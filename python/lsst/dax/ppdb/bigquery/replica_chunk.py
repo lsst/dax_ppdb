@@ -68,7 +68,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         """
         if self.directory is None:
             raise ValueError(f"directory for replica chunk {self.id} is not set")
-        return Path(self.directory) / self.manifest_name
+        return self.directory / self.manifest_name
 
     @property
     def replica_time_dt_utc(self) -> datetime:
