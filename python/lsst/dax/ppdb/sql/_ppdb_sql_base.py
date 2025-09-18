@@ -55,6 +55,12 @@ VERSION = VersionTuple(0, 1, 1)
 """
 
 
+class MissingSchemaVersionError(RuntimeError):
+    """Exception raised when schema version is not defined in the schema."""
+
+    def __init__(self, schema_name):
+        super().__init__(f"Version is missing from the '{schema_name}' schema.")
+
 def _onSqlite3Connect(
     dbapiConnection: sqlite3.Connection, connectionRecord: sqlalchemy.pool._ConnectionRecord
 ) -> None:
@@ -323,8 +329,7 @@ class PpdbSqlBase:
         if schema.version is not None:
             version = VersionTuple.fromString(schema.version.current)
         else:
-            # Missing schema version is identical to 0.1.0
-            version = VersionTuple(0, 1, 0)
+            raise MissingSchemaVersionError(schema.name)
 
         metadata = sqlalchemy.schema.MetaData(schema=schema_name)
 
