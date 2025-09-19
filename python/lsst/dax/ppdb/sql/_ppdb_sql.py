@@ -26,7 +26,6 @@ __all__ = ["PpdbSql", "PpdbSqlConfig"]
 import datetime
 import logging
 from collections.abc import Iterable
-from typing import Any
 
 import astropy.time
 import sqlalchemy

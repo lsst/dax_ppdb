@@ -413,13 +413,8 @@ class PpdbSqlBase:
         RuntimeError
             Raised if code version or code version key is not defined.
         """
-        meta_code_version_key = self.get_meta_code_version_key()
-        if meta_code_version_key is None:
-            raise RuntimeError("Code version key is not defined.")
-        db_code_version = self.get_apdb_meta_version(meta_code_version_key)
+        db_code_version = self.get_apdb_meta_version(self.get_meta_code_version_key())
         code_version = self.get_code_version()
-        if code_version is None:
-            raise RuntimeError("Code version is not defined.")
         if not code_version.checkCompatibility(db_code_version):
             raise IncompatibleVersionError(
                 f"Current code version {code_version} is incompatible with database version {db_code_version}"

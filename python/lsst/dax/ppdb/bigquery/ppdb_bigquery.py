@@ -25,7 +25,6 @@ import shutil
 from collections.abc import Iterable, Sequence
 from datetime import timezone
 from pathlib import Path
-from typing import Any
 
 import felis
 import sqlalchemy
