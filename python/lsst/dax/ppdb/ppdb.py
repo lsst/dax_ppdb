@@ -44,25 +44,7 @@ class PpdbReplicaChunk(ReplicaChunk):
 
 
 class Ppdb(ABC):
-    """Class defining an interface for PPDB management operations.
-
-    Parameters
-    ----------
-    config : `PpdbConfig`
-        Configuration object, sub-class of PpdbConfig.
-
-    Notes
-    -----
-    Child classes need not call the `__init__` method unless they want to store
-    the config object for later use. It is defined on this class so that
-    ``ppdb_class(config)`` in `from_config` is not reported as a ``call-arg``
-    type error by mypy. Sub-classes should implement an actual constructor
-    signature which matches this and then internally check that the type of
-    ``config`` is what they expect.
-    """
-
-    def __init__(self, config: PpdbConfig) -> None:
-        self._config = config
+    """Abstract class for PPDB management operations."""
 
     @classmethod
     def from_config(cls, config: PpdbConfig) -> Ppdb:
@@ -82,7 +64,8 @@ class Ppdb(ABC):
         # Dispatch to actual implementation class based on config type.
 
         ppdb_class = ppdb_type(config)
-        return ppdb_class(config)
+        # Mypy doesn't understand that Ppdb constructors require a config arg.
+        return ppdb_class(config)  # type: ignore[call-arg]
 
     @classmethod
     def from_uri(cls, uri: ResourcePathExpression) -> Ppdb:
