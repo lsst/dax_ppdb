@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["config_type_for_name", "ppdb_type", "ppdb_type_for_name"]
+__all__ = ["config_type_for_name", "ppdb_from_config"]
 
 from typing import TYPE_CHECKING
 
@@ -30,71 +30,8 @@ if TYPE_CHECKING:
     from .ppdb import Ppdb
 
 
-def ppdb_type(config: PpdbConfig) -> type[Ppdb]:
-    """Return Ppdb class matching Ppdb configuration type.
-
-    Parameters
-    ----------
-    config : `PpdbConfig`
-        Configuration object, sub-class of PpdbConfig.
-
-    Returns
-    -------
-    type : `type` [`Ppdb`]
-        Subclass of `Ppdb` class.
-
-    Raises
-    ------
-    TypeError
-        Raised if type of ``config`` does not match any known types.
-    """
-    from .bigquery import PpdbBigQueryConfig
-    from .sql import PpdbSqlConfig
-
-    if type(config) is PpdbSqlConfig:
-        from .sql import PpdbSql
-
-        return PpdbSql
-    elif type(config) is PpdbBigQueryConfig:
-        from .bigquery import PpdbBigQuery
-
-        return PpdbBigQuery
-
-    raise TypeError(f"Unknown type of config object: {type(config)}")
-
-
-def ppdb_type_for_name(type_name: str) -> type[Ppdb]:
-    """Return Ppdb class matching type name.
-
-    Parameters
-    ----------
-    type_name : `str`
-        Short type name of Ppdb implement, for now only "sql" is supported.
-
-    Returns
-    -------
-    type : `type` [`Ppdb`]
-        Subclass of `Ppdb` class.
-
-    Raises
-    ------
-    TypeError
-        Raised if ``type_name`` does not match any known types.
-    """
-    if type_name == "sql":
-        from .sql import PpdbSql
-
-        return PpdbSql
-    elif type_name == "bigquery":
-        from .bigquery.ppdb_bigquery import PpdbBigQuery
-
-        return PpdbBigQuery
-
-    raise TypeError(f"Unknown type name: {type_name}")
-
-
 def config_type_for_name(type_name: str) -> type[PpdbConfig]:
-    """Return PpdbConfig class matching type name.
+    """Return `PpdbConfig` class matching type name.
 
     Parameters
     ----------
@@ -103,7 +40,7 @@ def config_type_for_name(type_name: str) -> type[PpdbConfig]:
 
     Returns
     -------
-    type : `type` [`Ppdb`]
+    type : `type` [ `Ppdb` ]
         Subclass of `PpdbConfig` class.
 
     Raises
@@ -121,3 +58,29 @@ def config_type_for_name(type_name: str) -> type[PpdbConfig]:
         return PpdbBigQueryConfig
 
     raise TypeError(f"Unknown type name: {type_name}")
+
+
+def ppdb_from_config(config: PpdbConfig) -> Ppdb:
+    """Create Ppdb instance from configuration object.
+
+    Parameters
+    ----------
+    config : `PpdbConfig`
+        Configuration object, type of this object determines type of the
+        Ppdb implementation.
+
+    Returns
+    -------
+    ppdb : `Ppdb`
+        Instance of `Ppdb` class.
+    """
+    from .bigquery import PpdbBigQuery, PpdbBigQueryConfig
+    from .sql import PpdbSql, PpdbSqlConfig
+
+    # Instantiate appropriate subclass of Ppdb based on type of config object.
+    if type(config) is PpdbSqlConfig:
+        return PpdbSql(config)
+    elif type(config) is PpdbBigQueryConfig:
+        return PpdbBigQuery(config)
+
+    raise TypeError(f"Unknown type of config object: {type(config)}")

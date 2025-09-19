@@ -31,7 +31,7 @@ import astropy.time
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
 from lsst.resources import ResourcePathExpression
 
-from ._factory import ppdb_type
+from ._factory import ppdb_from_config
 from .config import PpdbConfig
 
 
@@ -61,11 +61,7 @@ class Ppdb(ABC):
         ppdb : `Ppdb`
             Instance of `Ppdb` class.
         """
-        # Dispatch to actual implementation class based on config type.
-
-        ppdb_class = ppdb_type(config)
-        # Mypy doesn't understand that Ppdb constructors require a config arg.
-        return ppdb_class(config)  # type: ignore[call-arg]
+        return ppdb_from_config(config)
 
     @classmethod
     def from_uri(cls, uri: ResourcePathExpression) -> Ppdb:

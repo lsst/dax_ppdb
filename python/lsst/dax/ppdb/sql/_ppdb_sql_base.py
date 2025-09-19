@@ -112,7 +112,7 @@ class PpdbSqlBase:
     """Default location of the YAML file defining APDB schema."""
 
     meta_schema_version_key = "version:schema"
-    """Name of the metadata key to store database schema version number."""
+    """Name of the metadata key to store Felis schema version number."""
 
     def __init__(self, config: PpdbSqlBaseConfig) -> None:
         self._sa_metadata, self._schema_version = self.read_schema(
