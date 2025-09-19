@@ -43,7 +43,7 @@ from lsst.dax.apdb.timer import Timer
 from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
-from ..sql import PpdbSqlBase, PpdbSqlConfig
+from ..sql import PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, TableStats
 from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
@@ -93,8 +93,8 @@ class PpdbBigQueryConfig(PpdbConfig):
     Google Cloud environment at runtime.
     """
 
-    sql: PpdbSqlConfig | None = None
-    """SQL database configuration (`PpdbSqlConfig` or `None`)."""
+    sql: PpdbSqlBaseConfig | None = None
+    """SQL database configuration (`PpdbSqlBaseConfig` or `None`)."""
 
 
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
@@ -412,7 +412,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             If `True` then drop existing tables.
         """
         sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
-        sql_config = PpdbSqlConfig(
+        sql_config = cls.make_config(
             db_url=db_url,
             schema_name=schema_name,
             felis_path=schema_file,
@@ -424,7 +424,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         cls.make_database(sql_config, sa_metadata, schema_version, drop)
         # DM-52460: This method or whatever eventually creates this
         # configuration object needs to be updated to allow setting
-        # the BigQuery-specific parameters.
+        # the BigQuery-specific parameters here.
         bq_config = PpdbBigQueryConfig(sql=sql_config)
         return bq_config
 

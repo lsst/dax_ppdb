@@ -41,9 +41,8 @@ from lsst.utils.iteration import chunk_iterable
 from sqlalchemy import sql
 
 from ..ppdb import Ppdb, PpdbConfig, PpdbReplicaChunk
-from ._ppdb_sql_base import PpdbSqlBase
+from ._ppdb_sql_base import PpdbSqlBase, PpdbSqlBaseConfig
 from .bulk_insert import make_inserter
-from .config import PpdbSqlConfig
 
 _LOG = logging.getLogger(__name__)
 
@@ -54,6 +53,12 @@ VERSION = VersionTuple(0, 1, 1)
 """Version for the code defined in this module. This needs to be updated
 (following compatibility rules) when schema produced by this code changes.
 """
+
+
+class PpdbSqlConfig(PpdbSqlBaseConfig):
+    """SQL configuration for the PPDB. This class is currently identical to
+    `PpdbSqlBaseConfig`.
+    """
 
 
 class PpdbSql(Ppdb, PpdbSqlBase):
@@ -324,3 +329,26 @@ class PpdbSql(Ppdb, PpdbSqlBase):
     @classmethod
     def get_code_version(cls) -> VersionTuple | None:
         return VERSION
+
+    @classmethod
+    def make_config(
+        cls,
+        db_url: str,
+        schema_name: str | None = None,
+        felis_path: str | None = None,
+        felis_schema: str | None = None,
+        use_connection_pool: bool = True,
+        isolation_level: str | None = None,
+        connection_timeout: float | None = None,
+    ) -> PpdbSqlBaseConfig:
+        # Docstring is inherited.
+        # Override to return PpdbSqlConfig instead of base type.
+        return PpdbSqlConfig(
+            db_url=db_url,
+            schema_name=schema_name,
+            felis_path=felis_path,
+            felis_schema=felis_schema,
+            use_connection_pool=use_connection_pool,
+            isolation_level=isolation_level,
+            connection_timeout=connection_timeout,
+        )

@@ -45,8 +45,6 @@ from lsst.dax.ppdb.ppdb import PpdbConfig
 from lsst.resources import ResourcePath
 from sqlalchemy.pool import NullPool
 
-from .config import PpdbSqlConfig
-
 _LOG = logging.getLogger(__name__)
 
 
@@ -55,6 +53,37 @@ class MissingSchemaVersionError(RuntimeError):
 
     def __init__(self, schema_name: str):
         super().__init__(f"Version is missing from the '{schema_name}' schema.")
+
+
+class PpdbSqlBaseConfig(PpdbConfig):
+    """SQL configuration for the PPDB."""
+
+    db_url: str
+    """SQLAlchemy database connection URI."""
+
+    schema_name: str | None = None
+    """Database schema name, if `None` then default schema is used."""
+
+    felis_path: str | None = None
+    """Name of YAML file with ``felis`` schema, if `None` then default schema
+    file is used.
+    """
+
+    felis_schema: str | None = None
+    """Name of the schema in YAML file, if `None` then file has to contain
+    single schema.
+    """
+
+    use_connection_pool: bool = True
+    """If True then allow use of connection pool."""
+
+    isolation_level: str | None = None
+    """Transaction isolation level, if unset then backend-default value is
+    used.
+    """
+
+    connection_timeout: float | None = None
+    """Maximum connection timeout in seconds."""
 
 
 def _onSqlite3Connect(
@@ -70,7 +99,7 @@ class PpdbSqlBase:
 
     Parameters
     ----------
-    config : `PpdbSqlConfig`
+    config : `PpdbSqlBaseConfig`
         Configuration object.
 
     Notes
@@ -85,7 +114,7 @@ class PpdbSqlBase:
     meta_schema_version_key = "version:schema"
     """Name of the metadata key to store database schema version number."""
 
-    def __init__(self, config: PpdbSqlConfig) -> None:
+    def __init__(self, config: PpdbSqlBaseConfig) -> None:
         self._sa_metadata, self._schema_version = self.read_schema(
             config.felis_path, config.schema_name, config.felis_schema, config.db_url
         )
@@ -100,13 +129,13 @@ class PpdbSqlBase:
         self.check_schema_version(self._schema_version)
 
     @classmethod
-    def make_engine(cls, config: PpdbSqlConfig) -> sqlalchemy.engine.Engine:
+    def make_engine(cls, config: PpdbSqlBaseConfig) -> sqlalchemy.engine.Engine:
         """Make SQLALchemy engine based on configured parameters.
 
         Parameters
         ----------
-        config : `PpdbSqlConfig`
-            Configuration object.
+        config : `PpdbSqlBaseConfig`
+            Configuration object with SQL parameters.
         """
         kw: MutableMapping[str, Any] = {}
         conn_args: dict[str, Any] = dict()
@@ -168,7 +197,7 @@ class PpdbSqlBase:
             If `True` then drop existing tables.
         """
         sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
-        config = PpdbSqlConfig(
+        config = cls.make_config(
             db_url=db_url,
             schema_name=schema_name,
             felis_path=schema_file,
@@ -181,9 +210,52 @@ class PpdbSqlBase:
         return config
 
     @classmethod
+    def make_config(
+        cls,
+        db_url: str,
+        schema_name: str | None = None,
+        felis_path: str | None = None,
+        felis_schema: str | None = None,
+        use_connection_pool: bool = True,
+        isolation_level: str | None = None,
+        connection_timeout: float | None = None,
+    ) -> PpdbSqlBaseConfig:
+        """Create a `PpdbSqlBaseConfig` object.
+
+        Parameters
+        ----------
+        db_url : `str`
+            SQLAlchemy database connection URI.
+        schema_name : `str` or `None`
+            Database schema name, if `None` then default schema is used.
+        felis_path : `str` or `None`
+            Name of YAML file with ``felis`` schema, if `None` then default
+            schema file is used.
+        felis_schema : `str` or `None`
+            Name of the schema in YAML file, if `None` then file has to contain
+            single schema.
+        use_connection_pool : `bool`
+            If True then allow use of connection pool.
+        isolation_level : `str` or `None`
+            Transaction isolation level, if unset then backend-default value is
+            used.
+        connection_timeout: `float` or `None`
+            Maximum connection timeout in seconds.
+        """
+        return PpdbSqlBaseConfig(
+            db_url=db_url,
+            schema_name=schema_name,
+            felis_path=felis_path,
+            felis_schema=felis_schema,
+            use_connection_pool=use_connection_pool,
+            isolation_level=isolation_level,
+            connection_timeout=connection_timeout,
+        )
+
+    @classmethod
     def make_database(
         cls,
-        config: PpdbSqlConfig,
+        config: PpdbSqlBaseConfig,
         sa_metadata: sqlalchemy.schema.MetaData,
         schema_version: VersionTuple,
         drop: bool,
