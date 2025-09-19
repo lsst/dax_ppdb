@@ -26,7 +26,7 @@ __all__ = ["PpdbSqlBase"]
 import logging
 import os
 import sqlite3
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from contextlib import closing
 from typing import Any
 
@@ -467,9 +467,12 @@ class PpdbSqlBase:
         schema_dict = schemas_list[0]
 
         # Filter out unwanted tables. By default, all tables will be included.
-        filtered_tables = cls.filter_tables(schema_dict)
+        table_names = [table["name"] for table in schema_dict.get("tables", [])]
+        filtered_table_names = cls.filter_table_names(table_names)
+        schema_dict["tables"] = [
+            table for table in schema_dict.get("tables", []) if table["name"] in filtered_table_names
+        ]
 
-        schema_dict["tables"] = filtered_tables
         dm_schema: FelisSchema = felis.datamodel.Schema.model_validate(schema_dict)
         schema = schema_model.Schema.from_felis(dm_schema)
 
@@ -567,13 +570,14 @@ class PpdbSqlBase:
         return self._schema_version
 
     @classmethod
-    def filter_tables(cls, schema_dict: dict[str, Any]) -> list[Any]:
-        """Return list of filtered tables.
+    def filter_table_names(cls, original_table_names: Iterable[str]) -> Iterable[str]:
+        """Return list of filtered table names needed for this PPDB which by
+        default returns the original list.
 
         Parameters
         ----------
-        schema_dict : `dict` [`str`, `Any`]
-            Dictionary with schema information.
+        original_table_names : list[ `str` ]
+            List of table names from the schema on which is filter.
 
         Returns
         -------
@@ -585,7 +589,7 @@ class PpdbSqlBase:
         The default implementation does not filter any tables. Sub-classes
         may override this method to filter out unwanted tables.
         """
-        return schema_dict["tables"]
+        return original_table_names
 
     @classmethod
     def to_astropy_tai(cls, obj: Any) -> astropy.time.Time:

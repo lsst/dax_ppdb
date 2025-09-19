@@ -25,6 +25,7 @@ __all__ = ["PpdbSql", "PpdbSqlConfig"]
 
 import datetime
 import logging
+from collections.abc import Iterable
 from typing import Any
 
 import astropy.time
@@ -307,20 +308,9 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         return metadata, version
 
     @classmethod
-    def filter_tables(cls, schema_dict: dict[str, Any]) -> list[Any]:
-        """Return list of filtered tables.
-
-        Parameters
-        ----------
-        schema_dict : `dict` [`str`, `Any`]
-            Dictionary with schema information.
-
-        Returns
-        -------
-        tables : `list` [`Any`]
-            List of tables from ``schema_dict`` on which to filter.
-        """
-        return [table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)]
+    def filter_table_names(cls, original_table_names: Iterable[str]) -> Iterable[str]:
+        # Docstring is inherited.
+        return [table_name for table_name in original_table_names if table_name not in ("DiaObjectLast",)]
 
     @classmethod
     def get_meta_code_version_key(cls) -> str:

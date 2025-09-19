@@ -22,7 +22,7 @@
 import datetime
 import logging
 import shutil
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import timezone
 from pathlib import Path
 from typing import Any
@@ -373,9 +373,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         return replica_chunk_table
 
     @classmethod
-    def filter_tables(cls, schema_dict: dict[str, Any]) -> list[Any]:
+    def filter_table_names(cls, original_table_names: Iterable[str]) -> Iterable[str]:
         # Docstring is inherited.
-        return [table for table in schema_dict["tables"] if table["name"] in ("metadata",)]
+        # Only the metadata table is needed for the BigQuery-based PPDB.
+        return ["metadata"]
 
     @classmethod
     def init_database(
