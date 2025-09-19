@@ -95,7 +95,7 @@ def _onSqlite3Connect(
 
 
 class PpdbSqlBase:
-    """Base class for SQL-based PPDB implementations.
+    """Abstract base class for SQL-based PPDB implementations.
 
     Parameters
     ----------
@@ -125,8 +125,9 @@ class PpdbSqlBase:
         meta_table = sqlalchemy.schema.Table("metadata", sa_metadata, autoload_with=self._engine)
         self._metadata = ApdbMetadataSql(self._engine, meta_table)
 
-        # Check schema version compatibility.
+        # Check schema amd code version compatibility.
         self.check_schema_version(self._schema_version)
+        self.check_code_version()
 
     @classmethod
     def make_engine(cls, config: PpdbSqlBaseConfig) -> sqlalchemy.engine.Engine:
@@ -303,13 +304,11 @@ class PpdbSqlBase:
         apdb_meta = ApdbMetadataSql(engine, meta_table)
 
         # Store schema and code version in metadata table.
-        if schema_version is not None:
-            cls.set_apdb_meta_value(apdb_meta, cls.meta_schema_version_key, str(schema_version))
-        if (meta_code_version_key := cls.get_meta_code_version_key()) is not None:
-            cls.set_apdb_meta_value(apdb_meta, meta_code_version_key, str(cls.get_code_version()))
+        cls.set_apdb_meta_value(apdb_meta, cls.meta_schema_version_key, str(schema_version))
+        cls.set_apdb_meta_value(apdb_meta, cls.get_meta_code_version_key(), str(cls.get_code_version()))
 
     @classmethod
-    def set_apdb_meta_value(cls, metadata: ApdbMetadataSql, key: str | None, value: str | None) -> None:
+    def set_apdb_meta_value(cls, metadata: ApdbMetadataSql, key: str, value: str) -> None:
         """Set a metadata key/value pair in the APDB metadata table.
 
         Parameters
@@ -327,39 +326,40 @@ class PpdbSqlBase:
         sub-classes may fail to override the methods to provide them. We check
         for `None` values and raise if they are not set.
         """
-        if key is None:
-            raise ValueError("Metadata key is not defined.")
-        if value is None:
-            raise ValueError("Metadata value is not defined.")
         _LOG.info("Store metadata %s = %s", key, value)
         metadata.set(key, value, force=True)
 
     @classmethod
-    def get_meta_code_version_key(cls) -> str | None:
-        """Name of the metadata key to store the module version number. This
-        is undefined in the base implementation and should not be stored.
-        Sub-classes should override this and return appropriate key.
+    def get_meta_code_version_key(cls) -> str:
+        """Name of the metadata key to store the code version number.
 
         Returns
         -------
-        key : `str` or `None`
-            Name of the metadata key or `None` if module version should not be
-            stored.
+        key : `str`
+            Name of the metadata key for storing the code version.
+
+        Raises
+        ------
+        NotImplementedError
+            Raised if the method is not overridden by sub-classes.
         """
-        return None
+        raise NotImplementedError()
 
     @classmethod
-    def get_code_version(cls) -> VersionTuple | None:
-        """Get the current version of the code (module). In the base
-        implementation this is undefined. Sub-classes should override this and
-        the return appropriate version.
+    def get_code_version(cls) -> VersionTuple:
+        """Get the current version of the code.
 
         Returns
         -------
-        version : `~lsst.dax.apdb.VersionTuple` or `None`
-            Current version of the module or `None` if undefined.
+        version : `~lsst.dax.apdb.VersionTuple`
+            Current version of the code.
+
+        Raises
+        ------
+        NotImplementedError
+            Raised if the method is not overridden by sub-classes.
         """
-        return None
+        raise NotImplementedError()
 
     def get_apdb_meta_version(self, version_key: str) -> VersionTuple:
         """Get a metadata version value from the APDB metadata table.

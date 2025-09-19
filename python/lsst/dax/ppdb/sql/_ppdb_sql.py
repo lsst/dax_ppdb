@@ -323,11 +323,11 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         return [table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)]
 
     @classmethod
-    def get_meta_code_version_key(cls) -> str | None:
+    def get_meta_code_version_key(cls) -> str:
         return "version:PpdbSql"
 
     @classmethod
-    def get_code_version(cls) -> VersionTuple | None:
+    def get_code_version(cls) -> VersionTuple:
         return VERSION
 
     @classmethod

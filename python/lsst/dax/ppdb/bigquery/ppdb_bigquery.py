@@ -431,11 +431,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         return bq_config
 
     @classmethod
-    def get_meta_code_version_key(cls) -> str | None:
+    def get_meta_code_version_key(cls) -> str:
         # Docstring is inherited.
         return "version:PpdbBigQuery"
 
     @classmethod
-    def get_code_version(cls) -> VersionTuple | None:
+    def get_code_version(cls) -> VersionTuple:
         # Docstring is inherited.
         return VERSION
