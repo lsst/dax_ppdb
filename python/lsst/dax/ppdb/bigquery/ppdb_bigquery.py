@@ -168,7 +168,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         # Docstring is inherited.
         _LOG.info("Processing %s", replica_chunk.id)
         try:
-            chunk_dir = self._get_chunk_path(replica_chunk.id)
+            chunk_dir = self._get_chunk_path(replica_chunk)
 
             if chunk_dir.exists():
                 if not self.delete_existing:
@@ -240,16 +240,18 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         _LOG.info("Done processing %s", replica_chunk.id)
 
-    def _get_chunk_path(self, chunk_id: int) -> Path:
+    def _get_chunk_path(self, chunk: ReplicaChunk) -> Path:
+        last_update_time = chunk.last_update_time.to_datetime()
+        assert isinstance(last_update_time, datetime.datetime)
         path = Path(
             self.directory,
-            datetime.datetime.today().strftime("%Y/%m/%d"),
-            str(chunk_id),
+            chunk.last_update_time.strftime("%Y/%m/%d"),
+            str(chunk.id),
         )
         return path
 
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
-        # docstring is inherited from a base class
+        # Docstring is inherited.
         return self.get_replica_chunks_ext(start_chunk_id=start_chunk_id)
 
     def get_replica_chunks_ext(
