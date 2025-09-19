@@ -19,6 +19,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from ._ppdb_sql_base import PpdbSqlBase
 from ._ppdb_sql import PpdbSql
+from ._ppdb_sql_base import PpdbSqlBase
 from .config import PpdbSqlConfig

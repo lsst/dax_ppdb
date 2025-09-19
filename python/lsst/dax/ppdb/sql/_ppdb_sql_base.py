@@ -278,9 +278,9 @@ class PpdbSqlBase:
 
     @classmethod
     def get_code_version(cls) -> VersionTuple | None:
-        """Current version of the module. In the base implementation this is
-        undefined. Sub-classes should override this and return appropriate
-        version.
+        """Get the current version of the code (module). In the base
+        implementation this is undefined. Sub-classes should override this and
+        the return appropriate version.
 
         Returns
         -------
@@ -352,7 +352,6 @@ class PpdbSqlBase:
             raise IncompatibleVersionError(
                 f"Current code version {code_version} is incompatible with database version {db_code_version}"
             )
-
 
     @classmethod
     def read_schema(

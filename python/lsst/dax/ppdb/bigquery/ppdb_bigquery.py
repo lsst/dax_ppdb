@@ -34,16 +34,16 @@ from lsst.dax.apdb import (
     ApdbTableData,
     ApdbTables,
     ReplicaChunk,
+    VersionTuple,
     monitor,
     schema_model,
-    VersionTuple,
 )
 from lsst.dax.apdb.timer import Timer
 
 from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
-from ..sql import PpdbSqlConfig, PpdbSqlBase
+from ..sql import PpdbSqlBase, PpdbSqlConfig
 from .manifest import Manifest, TableStats
 from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
