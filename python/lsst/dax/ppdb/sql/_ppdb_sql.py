@@ -50,6 +50,12 @@ _LOG = logging.getLogger(__name__)
 _MON = monitor.MonAgent(__name__)
 
 
+VERSION = VersionTuple(0, 1, 1)
+"""Version for the code defined in this module. This needs to be updated
+(following compatibility rules) when schema produced by this code changes.
+"""
+
+
 class PpdbSql(Ppdb, PpdbSqlBase):
     """Implementation of `Ppdb` using a SQL database.
 
@@ -63,6 +69,10 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         if type(config) is not PpdbSqlConfig:
             raise TypeError("config is not of type PpdbSqlConfig")
         PpdbSqlBase.__init__(self, config)
+
+        # Check code compatibility with database. Base class already checked
+        # schema version.
+        self.check_code_version()
 
         # Check if schema uses MJD TAI for timestamps (DM-52215).
         self._use_mjd_tai = False
@@ -306,3 +316,11 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             List of tables from ``schema_dict`` on which to filter.
         """
         return [table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)]
+
+    @classmethod
+    def get_meta_code_version_key(cls) -> str | None:
+        return "version:PpdbSql"
+
+    @classmethod
+    def get_code_version(cls) -> VersionTuple | None:
+        return VERSION

@@ -36,6 +36,7 @@ from lsst.dax.apdb import (
     ReplicaChunk,
     monitor,
     schema_model,
+    VersionTuple,
 )
 from lsst.dax.apdb.timer import Timer
 
@@ -51,6 +52,12 @@ __all__ = ["PpdbBigQuery", "PpdbBigQueryConfig"]
 _LOG = logging.getLogger(__name__)
 
 _MON = monitor.MonAgent(__name__)
+
+
+VERSION = VersionTuple(0, 1, 0)
+"""Version for the code defined in this module. This needs to be updated
+(following compatibility rules) when schema produced by this code changes.
+"""
 
 
 class PpdbBigQueryConfig(PpdbConfig):
@@ -109,6 +116,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         if config.sql is None:
             raise ValueError("The 'sql' section is missing from the BigQuery config.")
         PpdbSqlBase.__init__(self, config.sql)
+
+        # Check code compatibility with database. Base class already checked
+        # schema version.
+        self.check_code_version()
 
         # Read parameters from config.
         if config.directory is None:
@@ -411,8 +422,18 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             connection_timeout=connection_timeout,
         )
         cls.make_database(sql_config, sa_metadata, schema_version, drop)
-        # DM-52460: We have to use some default parameters for BQ here to
-        # return a valid config. They would need to be part of the call to
-        # this method if we wanted to customize them.
+        # DM-52460: This method or whatever eventually creates this
+        # configuration object needs to be updated to allow setting
+        # the BigQuery-specific parameters.
         bq_config = PpdbBigQueryConfig(sql=sql_config)
         return bq_config
+
+    @classmethod
+    def get_meta_code_version_key(cls) -> str | None:
+        # Docstring is inherited.
+        return "version:PpdbBigQuery"
+
+    @classmethod
+    def get_code_version(cls) -> VersionTuple | None:
+        # Docstring is inherited.
+        return VERSION

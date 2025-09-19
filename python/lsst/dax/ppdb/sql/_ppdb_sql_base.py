@@ -49,17 +49,13 @@ from .config import PpdbSqlConfig
 
 _LOG = logging.getLogger(__name__)
 
-VERSION = VersionTuple(0, 1, 1)
-"""Version for the code defined in this module. This needs to be updated
-(following compatibility rules) when schema produced by this code changes.
-"""
-
 
 class MissingSchemaVersionError(RuntimeError):
     """Exception raised when schema version is not defined in the schema."""
 
     def __init__(self, schema_name: str):
         super().__init__(f"Version is missing from the '{schema_name}' schema.")
+
 
 def _onSqlite3Connect(
     dbapiConnection: sqlite3.Connection, connectionRecord: sqlalchemy.pool._ConnectionRecord
@@ -87,10 +83,7 @@ class PpdbSqlBase:
     """Default location of the YAML file defining APDB schema."""
 
     meta_schema_version_key = "version:schema"
-    """Name of the metadata key to store schema version number."""
-
-    meta_code_version_key = "version:PpdbSql"
-    """Name of the metadata key to store code version number."""
+    """Name of the metadata key to store database schema version number."""
 
     def __init__(self, config: PpdbSqlConfig) -> None:
         self._sa_metadata, self._schema_version = self.read_schema(
@@ -103,8 +96,8 @@ class PpdbSqlBase:
         meta_table = sqlalchemy.schema.Table("metadata", sa_metadata, autoload_with=self._engine)
         self._metadata = ApdbMetadataSql(self._engine, meta_table)
 
-        # Check schema version compatibility
-        self.versionCheck(self._metadata, self._schema_version)
+        # Check schema version compatibility.
+        self.check_schema_version(self._schema_version)
 
     @classmethod
     def make_engine(cls, config: PpdbSqlConfig) -> sqlalchemy.engine.Engine:
@@ -192,7 +185,7 @@ class PpdbSqlBase:
         cls,
         config: PpdbSqlConfig,
         sa_metadata: sqlalchemy.schema.MetaData,
-        schema_version: VersionTuple | None,
+        schema_version: VersionTuple,
         drop: bool,
     ) -> None:
         """Initialize database schema.
@@ -236,38 +229,130 @@ class PpdbSqlBase:
             raise LookupError("Metadata table does not exist.")
 
         apdb_meta = ApdbMetadataSql(engine, meta_table)
-        # Fill version numbers, overwrite if they are already there.
+
+        # Store schema and code version in metadata table.
         if schema_version is not None:
-            _LOG.info("Store metadata %s = %s", cls.meta_schema_version_key, schema_version)
-            apdb_meta.set(cls.meta_schema_version_key, str(schema_version), force=True)
-        _LOG.info("Store metadata %s = %s", cls.meta_code_version_key, VERSION)
-        apdb_meta.set(cls.meta_code_version_key, str(VERSION), force=True)
+            cls.set_apdb_meta_value(apdb_meta, cls.meta_schema_version_key, str(schema_version))
+        if (meta_code_version_key := cls.get_meta_code_version_key()) is not None:
+            cls.set_apdb_meta_value(apdb_meta, meta_code_version_key, str(cls.get_code_version()))
 
-    def versionCheck(self, metadata: ApdbMetadataSql, schema_version: VersionTuple) -> None:
-        """Check schema version compatibility."""
+    @classmethod
+    def set_apdb_meta_value(cls, metadata: ApdbMetadataSql, key: str | None, value: str | None) -> None:
+        """Set a metadata key/value pair in the APDB metadata table.
 
-        def _get_version(key: str) -> VersionTuple:
-            """Retrieve version number from given metadata key."""
-            version_str = metadata.get(key)
-            if version_str is None:
-                # Should not happen with existing metadata table.
-                raise RuntimeError(f"Version key {key!r} does not exist in metadata table.")
-            return VersionTuple.fromString(version_str)
+        Parameters
+        ----------
+        metadata : `ApdbMetadataSql`
+            Metadata table object.
+        key : `str` or `None`
+            Metadata key.
+        value : `str` or `None`
+            Metadata value.
 
-        db_schema_version = _get_version(self.meta_schema_version_key)
-        db_code_version = _get_version(self.meta_code_version_key)
+        Notes
+        -----
+        The function signature allows `None` values for key and value because
+        sub-classes may fail to override the methods to provide them. We check
+        for `None` values and raise if they are not set.
+        """
+        if key is None:
+            raise ValueError("Metadata key is not defined.")
+        if value is None:
+            raise ValueError("Metadata value is not defined.")
+        _LOG.info("Store metadata %s = %s", key, value)
+        metadata.set(key, value, force=True)
 
-        # For now there is no way to make read-only APDB instances, assume that
-        # any access can do updates.
-        if not schema_version.checkCompatibility(db_schema_version):
+    @classmethod
+    def get_meta_code_version_key(cls) -> str | None:
+        """Name of the metadata key to store the module version number. This
+        is undefined in the base implementation and should not be stored.
+        Sub-classes should override this and return appropriate key.
+
+        Returns
+        -------
+        key : `str` or `None`
+            Name of the metadata key or `None` if module version should not be
+            stored.
+        """
+        return None
+
+    @classmethod
+    def get_code_version(cls) -> VersionTuple | None:
+        """Current version of the module. In the base implementation this is
+        undefined. Sub-classes should override this and return appropriate
+        version.
+
+        Returns
+        -------
+        version : `~lsst.dax.apdb.VersionTuple` or `None`
+            Current version of the module or `None` if undefined.
+        """
+        return None
+
+    def get_apdb_meta_version(self, version_key: str) -> VersionTuple:
+        """Get a metadata version value from the APDB metadata table.
+
+        Parameters
+        ----------
+        key : `str`
+            Metadata key.
+
+        Returns
+        -------
+        value : `str` or `None`
+            Metadata value or `None` if key does not exist.
+        """
+        version_str = self._metadata.get(version_key)
+        if version_str is None:
+            raise RuntimeError(f"Version key {version_key!r} does not exist in metadata table.")
+        return VersionTuple.fromString(version_str)
+
+    def check_schema_version(self, expected_version: VersionTuple) -> None:
+        """Check that the schema version in the database is compatible with
+        the expected version that we have read from the Felis YAML file.
+
+        Parameters
+        ----------
+        expected_version : `lsst.dax.apdb.VersionTuple`
+            Expected schema version.
+
+        Raises
+        ------
+        IncompatibleVersionError
+            Raised if the schema version in the database is not compatible
+            with the expected version.
+        """
+        db_schema_version = self.get_apdb_meta_version(self.meta_schema_version_key)
+        if not expected_version.checkCompatibility(db_schema_version):
             raise IncompatibleVersionError(
-                f"Configured schema version {schema_version} "
+                f"Configured schema version {expected_version} "
                 f"is not compatible with database version {db_schema_version}"
             )
-        if not VERSION.checkCompatibility(db_code_version):
+
+    def check_code_version(self) -> None:
+        """Check that the code (module) version is compatible with the version
+        in the database.
+
+        Raises
+        ------
+        IncompatibleVersionError
+            Raised if the code version is not compatible with the version in
+            the database.
+        RuntimeError
+            Raised if code version or code version key is not defined.
+        """
+        meta_code_version_key = self.get_meta_code_version_key()
+        if meta_code_version_key is None:
+            raise RuntimeError("Code version key is not defined.")
+        db_code_version = self.get_apdb_meta_version(meta_code_version_key)
+        code_version = self.get_code_version()
+        if code_version is None:
+            raise RuntimeError("Code version is not defined.")
+        if not code_version.checkCompatibility(db_code_version):
             raise IncompatibleVersionError(
-                f"Current code version {VERSION} is not compatible with database version {db_code_version}"
+                f"Current code version {code_version} is incompatible with database version {db_code_version}"
             )
+
 
     @classmethod
     def read_schema(
