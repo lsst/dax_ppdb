@@ -112,7 +112,7 @@ class ChunkUploader:
             raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
 
         # Setup SQL interface for accessing replica chunk data.
-        self._sql = PpdbBigQuery(config)
+        self._bq = PpdbBigQuery(config)
 
         # Read parameters from config
         if config.prefix is None:
@@ -152,7 +152,7 @@ class ChunkUploader:
             try:
                 # Get replica chunks that have been exported and are ready for
                 # upload to cloud storage.
-                replica_chunks = self._sql.get_replica_chunks_ext(status=ChunkStatus.EXPORTED)
+                replica_chunks = self._bq.get_replica_chunks_ext(status=ChunkStatus.EXPORTED)
             except Exception:
                 # Some problem occurred while retrieving replica chunk data.
                 # Log the error and continue to the next iteration or exit if
@@ -264,7 +264,7 @@ class ChunkUploader:
 
             # 3) Update DB status.
             try:
-                self._sql.store_chunk(replica_chunk.with_new_status(ChunkStatus.UPLOADED), True)
+                self._bq.store_chunk(replica_chunk.with_new_status(ChunkStatus.UPLOADED), True)
             except Exception as e:
                 raise ChunkUploadError(chunk_id, "failed to update replica chunk status in database") from e
 
