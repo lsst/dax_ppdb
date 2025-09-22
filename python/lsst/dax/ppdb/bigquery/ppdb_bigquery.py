@@ -116,10 +116,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ValueError("The 'sql' section is missing from the BigQuery config.")
         PpdbSqlBase.__init__(self, config.sql)
 
-        # Check code compatibility with database. Base class already checked
-        # schema version.
-        self.check_code_version()
-
         # Read parameters from config.
         if config.directory is None:
             raise ValueError("Directory for chunk export is not set in configuration.")
@@ -414,7 +410,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             If `True` then drop existing tables.
         """
         sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
-        sql_config = cls.make_config(
+        sql_config = cls.make_sql_config(
             db_url=db_url,
             schema_name=schema_name,
             felis_path=schema_file,

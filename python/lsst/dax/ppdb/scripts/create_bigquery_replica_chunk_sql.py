@@ -68,6 +68,8 @@ def create_bigquery_replica_chunk_sql(
     drop : `bool`
         If `True` then drop existing tables.
     """
+    # FIXME: The name of this function and module should be changed to
+    # create_bq (DM-52460).
     sql_config = PpdbBigQuery.init_database(
         db_url=db_url,
         schema_name=schema,

@@ -75,10 +75,6 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             raise TypeError("config is not of type PpdbSqlConfig")
         PpdbSqlBase.__init__(self, config)
 
-        # Check code compatibility with database. Base class already checked
-        # schema version.
-        self.check_code_version()
-
         # Check if schema uses MJD TAI for timestamps (DM-52215).
         self._use_mjd_tai = False
         for table in self._sa_metadata.tables.values():
@@ -320,7 +316,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         return VERSION
 
     @classmethod
-    def make_config(
+    def make_sql_config(
         cls,
         db_url: str,
         schema_name: str | None = None,

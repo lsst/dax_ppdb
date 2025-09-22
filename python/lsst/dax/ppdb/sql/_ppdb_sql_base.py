@@ -126,8 +126,8 @@ class PpdbSqlBase:
         self._metadata = ApdbMetadataSql(self._engine, meta_table)
 
         # Check schema amd code version compatibility.
-        self.check_schema_version(self._schema_version)
-        self.check_code_version()
+        self._check_schema_version(self._schema_version)
+        self._check_code_version()
 
     @classmethod
     def make_engine(cls, config: PpdbSqlBaseConfig) -> sqlalchemy.engine.Engine:
@@ -197,8 +197,10 @@ class PpdbSqlBase:
         drop : `bool`
             If `True` then drop existing tables.
         """
+        # FIXME: This method should not be polymorphic. Sub-classes should
+        # manage their own initialization. (DM-52460)
         sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
-        config = cls.make_config(
+        config = cls.make_sql_config(
             db_url=db_url,
             schema_name=schema_name,
             felis_path=schema_file,
@@ -211,7 +213,7 @@ class PpdbSqlBase:
         return config
 
     @classmethod
-    def make_config(
+    def make_sql_config(
         cls,
         db_url: str,
         schema_name: str | None = None,
@@ -243,6 +245,8 @@ class PpdbSqlBase:
         connection_timeout: `float` or `None`
             Maximum connection timeout in seconds.
         """
+        # FIXME: This method should not be polymorphic. Sub-classes should
+        # manage their own initialization. (DM-52460)
         return PpdbSqlBaseConfig(
             db_url=db_url,
             schema_name=schema_name,
@@ -304,11 +308,11 @@ class PpdbSqlBase:
         apdb_meta = ApdbMetadataSql(engine, meta_table)
 
         # Store schema and code version in metadata table.
-        cls.set_apdb_meta_value(apdb_meta, cls.meta_schema_version_key, str(schema_version))
-        cls.set_apdb_meta_value(apdb_meta, cls.get_meta_code_version_key(), str(cls.get_code_version()))
+        cls._set_apdb_meta_value(apdb_meta, cls.meta_schema_version_key, str(schema_version))
+        cls._set_apdb_meta_value(apdb_meta, cls.get_meta_code_version_key(), str(cls.get_code_version()))
 
     @classmethod
-    def set_apdb_meta_value(cls, metadata: ApdbMetadataSql, key: str, value: str) -> None:
+    def _set_apdb_meta_value(cls, metadata: ApdbMetadataSql, key: str, value: str) -> None:
         """Set a metadata key/value pair in the APDB metadata table.
 
         Parameters
@@ -361,7 +365,7 @@ class PpdbSqlBase:
         """
         raise NotImplementedError()
 
-    def get_apdb_meta_version(self, version_key: str) -> VersionTuple:
+    def _get_apdb_meta_version(self, version_key: str) -> VersionTuple:
         """Get a metadata version value from the APDB metadata table.
 
         Parameters
@@ -379,7 +383,7 @@ class PpdbSqlBase:
             raise RuntimeError(f"Version key {version_key!r} does not exist in metadata table.")
         return VersionTuple.fromString(version_str)
 
-    def check_schema_version(self, expected_version: VersionTuple) -> None:
+    def _check_schema_version(self, expected_version: VersionTuple) -> None:
         """Check that the schema version in the database is compatible with
         the expected version that we have read from the Felis YAML file.
 
@@ -394,14 +398,14 @@ class PpdbSqlBase:
             Raised if the schema version in the database is not compatible
             with the expected version.
         """
-        db_schema_version = self.get_apdb_meta_version(self.meta_schema_version_key)
+        db_schema_version = self._get_apdb_meta_version(self.meta_schema_version_key)
         if not expected_version.checkCompatibility(db_schema_version):
             raise IncompatibleVersionError(
                 f"Configured schema version {expected_version} "
                 f"is not compatible with database version {db_schema_version}"
             )
 
-    def check_code_version(self) -> None:
+    def _check_code_version(self) -> None:
         """Check that the code (module) version is compatible with the version
         in the database.
 
@@ -413,7 +417,7 @@ class PpdbSqlBase:
         RuntimeError
             Raised if code version or code version key is not defined.
         """
-        db_code_version = self.get_apdb_meta_version(self.get_meta_code_version_key())
+        db_code_version = self._get_apdb_meta_version(self.get_meta_code_version_key())
         code_version = self.get_code_version()
         if not code_version.checkCompatibility(db_code_version):
             raise IncompatibleVersionError(
