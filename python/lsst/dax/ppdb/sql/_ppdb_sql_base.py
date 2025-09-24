@@ -43,6 +43,7 @@ from lsst.dax.apdb import (
 from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from lsst.dax.ppdb.ppdb import PpdbConfig
 from lsst.resources import ResourcePath
+from pydantic import BaseModel
 from sqlalchemy.pool import NullPool
 
 _LOG = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class MissingSchemaVersionError(RuntimeError):
         super().__init__(f"Version is missing from the '{schema_name}' schema.")
 
 
-class PpdbSqlBaseConfig(PpdbConfig):
+class PpdbSqlBaseConfig(BaseModel):
     """SQL configuration for the PPDB."""
 
     db_url: str

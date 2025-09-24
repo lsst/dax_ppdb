@@ -101,17 +101,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
     Parameters
     ----------
-    config : `PpdbConfig`
-        Configuration object for PPDB, which must have the type
-        `PpdbBigQueryConfig`.
+    config : `PpdbBigQueryConfig`
+        Configuration object with BigQuery and SQL database parameters.
     """
 
-    def __init__(self, config: PpdbConfig):
-        # Check for correct config type.
-        if not isinstance(config, PpdbBigQueryConfig):
-            raise TypeError(f"Expecting PpdbBigQueryConfig instance but got {type(config)}")
-
-        # Initialize the SQL interface.
+    def __init__(self, config: PpdbBigQueryConfig):
         if config.sql is None:
             raise ValueError("The 'sql' section is missing from the BigQuery config.")
         PpdbSqlBase.__init__(self, config.sql)

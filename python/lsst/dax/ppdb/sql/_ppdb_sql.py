@@ -55,7 +55,7 @@ VERSION = VersionTuple(0, 1, 1)
 """
 
 
-class PpdbSqlConfig(PpdbSqlBaseConfig):
+class PpdbSqlConfig(PpdbConfig, PpdbSqlBaseConfig):
     """SQL configuration for the PPDB. This class is currently identical to
     `PpdbSqlBaseConfig`.
     """
@@ -66,13 +66,11 @@ class PpdbSql(Ppdb, PpdbSqlBase):
 
     Parameters
     ----------
-    config : `PpdbConfig`
-        Configuration object, which must be of type `PpdbSqlConfig`.
+    config : `PpdbSqlConfig`
+        Configuration object with SQL database parameters.
     """
 
-    def __init__(self, config: PpdbConfig) -> None:
-        if type(config) is not PpdbSqlConfig:
-            raise TypeError("config is not of type PpdbSqlConfig")
+    def __init__(self, config: PpdbSqlConfig) -> None:
         PpdbSqlBase.__init__(self, config)
 
         # Check if schema uses MJD TAI for timestamps (DM-52215).
