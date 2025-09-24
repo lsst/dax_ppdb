@@ -468,7 +468,7 @@ class PpdbSqlBase:
 
         # Filter out unwanted tables. By default, all tables will be included.
         table_names = [table["name"] for table in schema_dict.get("tables", [])]
-        filtered_table_names = cls.filter_table_names(table_names)
+        filtered_table_names = list(cls.filter_table_names(table_names))
         schema_dict["tables"] = [
             table for table in schema_dict.get("tables", []) if table["name"] in filtered_table_names
         ]
