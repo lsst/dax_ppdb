@@ -276,7 +276,7 @@ class PpdbSqlBase:
             Database schema name, if `None` then default schema is used.
         sa_metadata : `sqlalchemy.schema.MetaData`
             Schema definition.
-        schema_version : `lsst.dax.apdb.VersionTuple` or `None`
+        schema_version : `lsst.dax.apdb.VersionTuple`
             Schema version defined in schema or `None` if not defined.
         drop : `bool`
             If `True` then drop existing tables before creating new ones.
@@ -576,12 +576,12 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        original_table_names : list[ `str` ]
+        original_table_names : `~collections.abc.Iterable` [ `str` ]
             List of table names from the schema on which is filter.
 
         Returns
         -------
-        tables : `list` [`Any`]
+        tables : `~collections.abc.Iterable` [ `str` ]
             List of tables from ``schema_dict`` on which to filter.
 
         Notes

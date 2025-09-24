@@ -44,7 +44,7 @@ class PpdbReplicaChunk(ReplicaChunk):
 
 
 class Ppdb(ABC):
-    """Abstract class for PPDB management operations."""
+    """Class defining an interface for PPDB management operations."""
 
     @classmethod
     def from_config(cls, config: PpdbConfig) -> Ppdb:
@@ -101,7 +101,7 @@ class Ppdb(ABC):
 
         Returns
         -------
-        chunks : `list` [`PpdbReplicaChunk`] or `None`
+        chunks : `~collections.abc.Sequence` [`PpdbReplicaChunk`] or `None`
             List of chunks, they may be time-ordered if database supports
             ordering. `None` is returned if database is not configured to store
             chunk information.
