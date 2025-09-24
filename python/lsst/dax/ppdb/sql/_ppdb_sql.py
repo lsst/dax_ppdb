@@ -307,31 +307,59 @@ class PpdbSql(Ppdb, PpdbSqlBase):
 
     @classmethod
     def get_meta_code_version_key(cls) -> str:
+        # Docstring is inherited.
         return "version:PpdbSql"
 
     @classmethod
     def get_code_version(cls) -> VersionTuple:
+        # Docstring is inherited.
         return VERSION
 
     @classmethod
-    def make_sql_config(
+    def init_database(
         cls,
         db_url: str,
+        schema_file: str | None = None,
         schema_name: str | None = None,
-        felis_path: str | None = None,
         felis_schema: str | None = None,
         use_connection_pool: bool = True,
         isolation_level: str | None = None,
         connection_timeout: float | None = None,
-    ) -> PpdbSqlBaseConfig:
-        # Docstring is inherited.
-        # Override to return PpdbSqlConfig instead of base type.
-        return PpdbSqlConfig(
+        drop: bool = False,
+    ) -> PpdbSqlConfig:
+        """Initialize PPDB SQL database.
+
+        Parameters
+        ----------
+        db_url : `str`
+            SQLAlchemy database connection URI.
+        schema_name : `str` or `None`
+            Database schema name, if `None` then default schema is used.
+        schema_file : `str` or `None`
+            Name of YAML file with ``felis`` schema, if `None` then default
+            schema file is used.
+        felis_schema : `str` or `None`
+            Name of the schema in YAML file, if `None` then file has to contain
+            single schema.
+        use_connection_pool : `bool`
+            If True then allow use of connection pool.
+        isolation_level : `str` or `None`
+            Transaction isolation level, if unset then backend-default value is
+            used.
+        connection_timeout: `float` or `None`
+            Maximum connection timeout in seconds.
+        drop : `bool`
+            If `True` then drop existing tables.
+        """
+        sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
+        config = PpdbSqlConfig(
             db_url=db_url,
             schema_name=schema_name,
-            felis_path=felis_path,
+            felis_path=schema_file,
             felis_schema=felis_schema,
             use_connection_pool=use_connection_pool,
             isolation_level=isolation_level,
             connection_timeout=connection_timeout,
         )
+        cls.make_database(config, sa_metadata, schema_version, drop)
+        return config

@@ -41,7 +41,6 @@ from lsst.dax.apdb import (
     schema_model,
 )
 from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
-from lsst.dax.ppdb.ppdb import PpdbConfig
 from lsst.resources import ResourcePath
 from pydantic import BaseModel
 from sqlalchemy.pool import NullPool
@@ -161,102 +160,6 @@ class PpdbSqlBase:
             sqlalchemy.event.listen(engine, "connect", _onSqlite3Connect)
 
         return engine
-
-    @classmethod
-    def init_database(
-        cls,
-        db_url: str,
-        schema_file: str | None = None,
-        schema_name: str | None = None,
-        felis_schema: str | None = None,
-        use_connection_pool: bool = True,
-        isolation_level: str | None = None,
-        connection_timeout: float | None = None,
-        drop: bool = False,
-    ) -> PpdbConfig:
-        """Initialize PPDB database.
-
-        Parameters
-        ----------
-        db_url : `str`
-            SQLAlchemy database connection URI.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
-        schema_file : `str` or `None`
-            Name of YAML file with ``felis`` schema, if `None` then default
-            schema file is used.
-        felis_schema : `str` or `None`
-            Name of the schema in YAML file, if `None` then file has to contain
-            single schema.
-        use_connection_pool : `bool`
-            If True then allow use of connection pool.
-        isolation_level : `str` or `None`
-            Transaction isolation level, if unset then backend-default value is
-            used.
-        connection_timeout: `float` or `None`
-            Maximum connection timeout in seconds.
-        drop : `bool`
-            If `True` then drop existing tables.
-        """
-        # FIXME: This method should not be polymorphic. Sub-classes should
-        # manage their own initialization. (DM-52460)
-        sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
-        config = cls.make_sql_config(
-            db_url=db_url,
-            schema_name=schema_name,
-            felis_path=schema_file,
-            felis_schema=felis_schema,
-            use_connection_pool=use_connection_pool,
-            isolation_level=isolation_level,
-            connection_timeout=connection_timeout,
-        )
-        cls.make_database(config, sa_metadata, schema_version, drop)
-        return config
-
-    @classmethod
-    def make_sql_config(
-        cls,
-        db_url: str,
-        schema_name: str | None = None,
-        felis_path: str | None = None,
-        felis_schema: str | None = None,
-        use_connection_pool: bool = True,
-        isolation_level: str | None = None,
-        connection_timeout: float | None = None,
-    ) -> PpdbSqlBaseConfig:
-        """Create a `PpdbSqlBaseConfig` object.
-
-        Parameters
-        ----------
-        db_url : `str`
-            SQLAlchemy database connection URI.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
-        felis_path : `str` or `None`
-            Name of YAML file with ``felis`` schema, if `None` then default
-            schema file is used.
-        felis_schema : `str` or `None`
-            Name of the schema in YAML file, if `None` then file has to contain
-            single schema.
-        use_connection_pool : `bool`
-            If True then allow use of connection pool.
-        isolation_level : `str` or `None`
-            Transaction isolation level, if unset then backend-default value is
-            used.
-        connection_timeout: `float` or `None`
-            Maximum connection timeout in seconds.
-        """
-        # FIXME: This method should not be polymorphic. Sub-classes should
-        # manage their own initialization. (DM-52460)
-        return PpdbSqlBaseConfig(
-            db_url=db_url,
-            schema_name=schema_name,
-            felis_path=felis_path,
-            felis_schema=felis_schema,
-            use_connection_pool=use_connection_pool,
-            isolation_level=isolation_level,
-            connection_timeout=connection_timeout,
-        )
 
     @classmethod
     def make_database(
@@ -559,6 +462,13 @@ class PpdbSqlBase:
         return chunks_table
 
     def get_table(self, name: str) -> sqlalchemy.schema.Table:
+        """Get SQLAlchemy table by name (without schema prefix).
+
+        Parameters
+        ----------
+        name : `str`
+            Name of the table to get.
+        """
         for table in self._sa_metadata.tables.values():
             if table.name == name:
                 return table

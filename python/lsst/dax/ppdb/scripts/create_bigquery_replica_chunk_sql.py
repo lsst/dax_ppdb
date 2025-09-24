@@ -27,12 +27,14 @@ import logging
 
 import yaml
 
-from ..bigquery import PpdbBigQuery, PpdbBigQueryConfig
-from ..sql import PpdbSqlConfig
+from ..bigquery import PpdbBigQuery
 
 _LOG = logging.getLogger(__name__)
 
 
+# TODO: The name of this function and its module should be changed to
+# create_bq, and it needs to accept additional parameters for fully configuring
+# BigQuery (DM-52460).
 def create_bigquery_replica_chunk_sql(
     db_url: str,
     schema: str | None,
@@ -68,9 +70,7 @@ def create_bigquery_replica_chunk_sql(
     drop : `bool`
         If `True` then drop existing tables.
     """
-    # FIXME: The name of this function and module should be changed to
-    # create_bq (DM-52460).
-    sql_config = PpdbBigQuery.init_database(
+    bq_config = PpdbBigQuery.init_database(
         db_url=db_url,
         schema_name=schema,
         schema_file=felis_path,
@@ -80,10 +80,6 @@ def create_bigquery_replica_chunk_sql(
         connection_timeout=connection_timeout,
         drop=drop,
     )
-    # DM-52460: This will be revised to generate a complete BigQuery config.
-    if not isinstance(sql_config, PpdbSqlConfig):
-        raise RuntimeError("Expected PpdbSqlConfig from init_database")
-    bq_config = PpdbBigQueryConfig(sql=sql_config)
     config_dict = bq_config.model_dump(exclude_unset=True, exclude_defaults=True)
     config_dict["implementation_type"] = "bigquery"
     with open(output_config, "w") as config_file:

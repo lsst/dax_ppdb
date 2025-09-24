@@ -40,7 +40,7 @@ def config_type_for_name(type_name: str) -> type[PpdbConfig]:
 
     Returns
     -------
-    type : `type` [ `Ppdb` ]
+    type : `type` [ `PpdbConfig` ]
         Subclass of `PpdbConfig` class.
 
     Raises
@@ -73,6 +73,11 @@ def ppdb_from_config(config: PpdbConfig) -> Ppdb:
     -------
     ppdb : `Ppdb`
         Instance of `Ppdb` class.
+
+    Raises
+    ------
+    TypeError
+        Raised if ``config`` is not of a known type.
     """
     from .bigquery import PpdbBigQuery, PpdbBigQueryConfig
     from .sql import PpdbSql, PpdbSqlConfig

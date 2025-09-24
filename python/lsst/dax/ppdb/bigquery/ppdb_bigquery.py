@@ -378,7 +378,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         isolation_level: str | None = None,
         connection_timeout: float | None = None,
         drop: bool = False,
-    ) -> PpdbConfig:
+    ) -> PpdbBigQueryConfig:
         """Initialize PPDB database and return configuration object.
 
         Parameters
@@ -404,7 +404,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             If `True` then drop existing tables.
         """
         sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
-        sql_config = cls.make_sql_config(
+        sql_config = PpdbSqlBaseConfig(
             db_url=db_url,
             schema_name=schema_name,
             felis_path=schema_file,
