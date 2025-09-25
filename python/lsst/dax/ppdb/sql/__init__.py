@@ -20,3 +20,4 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from ._ppdb_sql import PpdbSql, PpdbSqlConfig
+from ._ppdb_sql_base import PpdbSqlBase, PpdbSqlBaseConfig

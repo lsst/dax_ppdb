@@ -25,35 +25,23 @@ __all__ = ["PpdbSql", "PpdbSqlConfig"]
 
 import datetime
 import logging
-import os
-import sqlite3
-from collections.abc import MutableMapping
-from contextlib import closing
-from typing import Any
+from collections.abc import Iterable
 
 import astropy.time
-import felis.datamodel
 import sqlalchemy
-import yaml
-from felis.datamodel import Schema as FelisSchema
 from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,
-    IncompatibleVersionError,
     ReplicaChunk,
     VersionTuple,
     monitor,
-    schema_model,
 )
-from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from lsst.dax.apdb.timer import Timer
-from lsst.resources import ResourcePath
 from lsst.utils.iteration import chunk_iterable
 from sqlalchemy import sql
-from sqlalchemy.pool import NullPool
 
-from ..config import PpdbConfig
-from ..ppdb import Ppdb, PpdbReplicaChunk
+from ..ppdb import Ppdb, PpdbConfig, PpdbReplicaChunk
+from ._ppdb_sql_base import PpdbSqlBase, PpdbSqlBaseConfig
 from .bulk_insert import make_inserter
 
 _LOG = logging.getLogger(__name__)
@@ -67,415 +55,29 @@ VERSION = VersionTuple(0, 1, 1)
 """
 
 
-def _onSqlite3Connect(
-    dbapiConnection: sqlite3.Connection, connectionRecord: sqlalchemy.pool._ConnectionRecord
-) -> None:
-    # Enable foreign keys
-    with closing(dbapiConnection.cursor()) as cursor:
-        cursor.execute("PRAGMA foreign_keys=ON;")
-
-
-class PpdbSqlConfig(PpdbConfig):
-    """Configuration for the `PpdbSql` class."""
-
-    db_url: str
-    """SQLAlchemy database connection URI."""
-
-    schema_name: str | None = None
-    """Database schema name, if `None` then default schema is used."""
-
-    felis_path: str | None = None
-    """Name of YAML file with ``felis`` schema, if `None` then default schema
-    file is used.
+class PpdbSqlConfig(PpdbConfig, PpdbSqlBaseConfig):
+    """SQL configuration for the PPDB. This class is currently identical to
+    `PpdbSqlBaseConfig`.
     """
 
-    felis_schema: str | None = None
-    """Name of the schema in YAML file, if `None` then file has to contain
-    single schema.
+
+class PpdbSql(Ppdb, PpdbSqlBase):
+    """Implementation of `Ppdb` using a SQL database.
+
+    Parameters
+    ----------
+    config : `PpdbSqlConfig`
+        Configuration object with SQL database parameters.
     """
 
-    use_connection_pool: bool = True
-    """If True then allow use of connection pool."""
-
-    isolation_level: str | None = None
-    """Transaction isolation level, if unset then backend-default value is
-    used.
-    """
-
-    connection_timeout: float | None = None
-    """Maximum connection timeout in seconds."""
-
-
-class PpdbSql(Ppdb):
-    """Implementation of `Ppdb` using a SQL database."""
-
-    default_felis_schema_file = "${SDM_SCHEMAS_DIR}/yml/apdb.yaml"
-
-    meta_schema_version_key = "version:schema"
-    """Name of the metadata key to store schema version number."""
-
-    meta_code_version_key = "version:PpdbSql"
-    """Name of the metadata key to store code version number."""
-
-    def __init__(self, config: PpdbConfig):
-        if not isinstance(config, PpdbSqlConfig):
-            raise TypeError("Expecting PpdbSqlConfig instance")
-        self.config = config
-
-        self._sa_metadata, schema_version = self._read_schema(
-            config.felis_path, config.schema_name, config.felis_schema, config.db_url
-        )
-
-        self._engine = self._make_engine(config)
-        sa_metadata = sqlalchemy.MetaData(schema=config.schema_name)
-
-        meta_table = sqlalchemy.schema.Table("metadata", sa_metadata, autoload_with=self._engine)
-        self._metadata = ApdbMetadataSql(self._engine, meta_table)
-
-        # Check schema version compatibility
-        self._versionCheck(self._metadata, schema_version)
+    def __init__(self, config: PpdbSqlConfig) -> None:
+        PpdbSqlBase.__init__(self, config)
 
         # Check if schema uses MJD TAI for timestamps (DM-52215).
         self._use_mjd_tai = False
         for table in self._sa_metadata.tables.values():
             if table.name == "DiaObject":
                 self._use_mjd_tai = "validityStartMjdTai" in table.columns
-
-    @classmethod
-    def init_database(
-        cls,
-        db_url: str,
-        schema_file: str | None = None,
-        schema_name: str | None = None,
-        felis_schema: str | None = None,
-        use_connection_pool: bool = True,
-        isolation_level: str | None = None,
-        connection_timeout: float | None = None,
-        drop: bool = False,
-    ) -> PpdbConfig:
-        """Initialize PPDB database.
-
-        Parameters
-        ----------
-        db_url : `str`
-            SQLAlchemy database connection URI.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
-        schema_file : `str` or `None`
-            Name of YAML file with ``felis`` schema, if `None` then default
-            schema file is used.
-        felis_schema : `str` or `None`
-            Name of the schema in YAML file, if `None` then file has to contain
-            single schema.
-        use_connection_pool : `bool`
-            If True then allow use of connection pool.
-        isolation_level : `str` or `None`
-            Transaction isolation level, if unset then backend-default value is
-            used.
-        connection_timeout: `float` or `None`
-            Maximum connection timeout in seconds.
-        drop : `bool`
-            If `True` then drop existing tables.
-        """
-        sa_metadata, schema_version = cls._read_schema(schema_file, schema_name, felis_schema, db_url)
-        config = PpdbSqlConfig(
-            db_url=db_url,
-            schema_name=schema_name,
-            felis_path=schema_file,
-            felis_schema=felis_schema,
-            use_connection_pool=use_connection_pool,
-            isolation_level=isolation_level,
-            connection_timeout=connection_timeout,
-        )
-        cls._make_database(config, sa_metadata, schema_version, drop)
-        return config
-
-    @classmethod
-    def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
-        """Create the ``PpdbReplicaChunk`` table which will be added to the
-        schema.
-
-        Parameters
-        ----------
-        table_name : `str` or `None`
-            Name of the table to create. If not provided, defaults to
-            "PpdbReplicaChunk".
-        """
-        table_name = table_name or "PpdbReplicaChunk"
-        columns = [
-            schema_model.Column(
-                name="apdb_replica_chunk",
-                id=f"#{table_name}.apdb_replica_chunk",
-                datatype=felis.datamodel.DataType.long,
-            ),
-            schema_model.Column(
-                name="last_update_time",
-                id=f"#{table_name}.last_update_time",
-                datatype=felis.datamodel.DataType.timestamp,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="unique_id",
-                id=f"#{table_name}.unique_id",
-                datatype=schema_model.ExtraDataTypes.UUID,
-                nullable=False,
-            ),
-            schema_model.Column(
-                name="replica_time",
-                id=f"#{table_name}.replica_time",
-                datatype=felis.datamodel.DataType.timestamp,
-                nullable=False,
-            ),
-        ]
-        indices = [
-            schema_model.Index(
-                name="PpdbInsertId_idx_last_update_time",
-                id="#PpdbInsertId_idx_last_update_time",
-                columns=[columns[1]],
-            ),
-            schema_model.Index(
-                name="PpdbInsertId_idx_replica_time",
-                id="#PpdbInsertId_idx_replica_time",
-                columns=[columns[3]],
-            ),
-        ]
-
-        # Add table for replication support.
-        chunks_table = schema_model.Table(
-            name=table_name,
-            id=f"#{table_name}",
-            columns=columns,
-            primary_key=[columns[0]],
-            indexes=indices,
-            constraints=[],
-        )
-        return chunks_table
-
-    @classmethod
-    def _read_schema(
-        cls, schema_file: str | None, schema_name: str | None, felis_schema: str | None, db_url: str
-    ) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
-        """Read felis schema definitions for PPDB.
-
-        Parameters
-        ----------
-        schema_file : `str` or `None`
-            Name of YAML file with ``felis`` schema, if `None` then default
-            schema file is used.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
-        felis_schema : `str`, optional
-            Name of the schema in YAML file, if `None` then file has to contain
-            single schema.
-        db_url : `str`
-            Database URL.
-
-        Returns
-        -------
-        metadata : `sqlalchemy.schema.MetaData`
-            SQLAlchemy metadata instance containing information for all tables.
-        version : `lsst.dax.apdb.VersionTuple` or `None`
-            Schema version defined in schema or `None` if not defined.
-        """
-        if schema_file is None:
-            schema_file = os.path.expandvars(cls.default_felis_schema_file)
-
-        res = ResourcePath(schema_file)
-        schemas_list = list(yaml.load_all(res.read(), Loader=yaml.SafeLoader))
-        if not schemas_list:
-            raise ValueError(f"Schema file {schema_file!r} does not define any schema")
-        if felis_schema is not None:
-            schemas_list = [schema for schema in schemas_list if schema.get("name") == felis_schema]
-            if not schemas_list:
-                raise ValueError(f"Schema file {schema_file!r} does not define schema {felis_schema!r}")
-        elif len(schemas_list) > 1:
-            raise ValueError(f"Schema file {schema_file!r} defines multiple schemas")
-        schema_dict = schemas_list[0]
-
-        # In case we use APDB schema drop tables that are not needed in PPDB.
-        filtered_tables = [
-            table for table in schema_dict["tables"] if table["name"] not in ("DiaObjectLast",)
-        ]
-        schema_dict["tables"] = filtered_tables
-        dm_schema: FelisSchema = felis.datamodel.Schema.model_validate(schema_dict)
-        schema = schema_model.Schema.from_felis(dm_schema)
-
-        # Replace schema name with a configured one, just in case it may be
-        # used by someone.
-        if schema_name:
-            schema.name = schema_name
-
-        # Create the PpdbReplicaChunk table and add it to the schema.
-        replica_chunk_table = cls.create_replica_chunk_table()
-        schema.tables.append(replica_chunk_table)
-
-        if schema.version is not None:
-            version = VersionTuple.fromString(schema.version.current)
-        else:
-            # Missing schema version is identical to 0.1.0
-            version = VersionTuple(0, 1, 0)
-
-        metadata = sqlalchemy.schema.MetaData(schema=schema_name)
-
-        converter = ModelToSql(metadata=metadata)
-        converter.make_tables(schema.tables)
-
-        # Check if schema uses MJD TAI for timestamps (DM-52215). This is not
-        # super-efficient, but I do not want to improve dax_apdb at this point.
-        use_mjd_tai = False
-        for schema_table in schema.tables:
-            if schema_table.name == "DiaObject":
-                for column in schema_table.columns:
-                    if column.name == "validityStartMjdTai":
-                        use_mjd_tai = True
-                        break
-                break
-
-        if use_mjd_tai:
-            validity_end_column = "validityEndMjdTai"
-        else:
-            validity_end_column = "validityEnd"
-
-        # Add an additional index to DiaObject table to speed up replication.
-        # This is a partial index (Postgres-only), we do not have support for
-        # partial indices in ModelToSql, so we have to do it using sqlalchemy.
-        url = sqlalchemy.engine.make_url(db_url)
-        if url.get_backend_name() == "postgresql":
-            table: sqlalchemy.schema.Table | None = None
-            for table in metadata.tables.values():
-                if table.name == "DiaObject":
-                    name = f"IDX_DiaObject_diaObjectId_{validity_end_column}_IS_NULL"
-                    sqlalchemy.schema.Index(
-                        name,
-                        table.columns["diaObjectId"],
-                        postgresql_where=table.columns[validity_end_column].is_(None),
-                    )
-                    break
-            else:
-                # Cannot find table, odd, but what do I know.
-                pass
-
-        return metadata, version
-
-    @classmethod
-    def _make_database(
-        cls,
-        config: PpdbSqlConfig,
-        sa_metadata: sqlalchemy.schema.MetaData,
-        schema_version: VersionTuple | None,
-        drop: bool,
-    ) -> None:
-        """Initialize database schema.
-
-        Parameters
-        ----------
-        db_url : `str`
-            SQLAlchemy database connection URI.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
-        sa_metadata : `sqlalchemy.schema.MetaData`
-            Schema definition.
-        schema_version : `lsst.dax.apdb.VersionTuple` or `None`
-            Schema version defined in schema or `None` if not defined.
-        drop : `bool`
-            If `True` then drop existing tables before creating new ones.
-        """
-        engine = cls._make_engine(config)
-
-        if config.schema_name is not None:
-            dialect = engine.dialect
-            quoted_schema = dialect.preparer(dialect).quote_schema(config.schema_name)
-            create_schema = sqlalchemy.DDL(
-                "CREATE SCHEMA IF NOT EXISTS %(schema)s", context={"schema": quoted_schema}
-            ).execute_if(dialect="postgresql")
-            sqlalchemy.event.listen(sa_metadata, "before_create", create_schema)
-
-        if drop:
-            _LOG.info("dropping all tables")
-            sa_metadata.drop_all(engine)
-        _LOG.info("creating all tables")
-        sa_metadata.create_all(engine)
-
-        # Need metadata table to store few items in it, if table exists.
-        meta_table: sqlalchemy.schema.Table
-        for table in sa_metadata.tables.values():
-            if table.name == "metadata":
-                meta_table = table
-                break
-        else:
-            raise LookupError("Metadata table does not exist.")
-
-        apdb_meta = ApdbMetadataSql(engine, meta_table)
-        # Fill version numbers, overwrite if they are already there.
-        if schema_version is not None:
-            _LOG.info("Store metadata %s = %s", cls.meta_schema_version_key, schema_version)
-            apdb_meta.set(cls.meta_schema_version_key, str(schema_version), force=True)
-        _LOG.info("Store metadata %s = %s", cls.meta_code_version_key, VERSION)
-        apdb_meta.set(cls.meta_code_version_key, str(VERSION), force=True)
-
-    @classmethod
-    def _make_engine(cls, config: PpdbSqlConfig) -> sqlalchemy.engine.Engine:
-        """Make SQLALchemy engine based on configured parameters.
-
-        Parameters
-        ----------
-        config : `PpdbSqlConfig`
-            Configuration object.
-        """
-        kw: MutableMapping[str, Any] = {}
-        conn_args: dict[str, Any] = dict()
-        if not config.use_connection_pool:
-            kw["poolclass"] = NullPool
-        if config.isolation_level is not None:
-            kw.update(isolation_level=config.isolation_level)
-        elif config.db_url.startswith("sqlite"):
-            # Use READ_UNCOMMITTED as default value for sqlite.
-            kw.update(isolation_level="READ_UNCOMMITTED")
-        if config.connection_timeout is not None:
-            if config.db_url.startswith("sqlite"):
-                conn_args.update(timeout=config.connection_timeout)
-            elif config.db_url.startswith(("postgresql", "mysql")):
-                conn_args.update(connect_timeout=config.connection_timeout)
-        kw = {"connect_args": conn_args}
-        engine = sqlalchemy.create_engine(config.db_url, **kw)
-
-        if engine.dialect.name == "sqlite":
-            # Need to enable foreign keys on every new connection.
-            sqlalchemy.event.listen(engine, "connect", _onSqlite3Connect)
-
-        return engine
-
-    def _versionCheck(self, metadata: ApdbMetadataSql, schema_version: VersionTuple) -> None:
-        """Check schema version compatibility."""
-
-        def _get_version(key: str) -> VersionTuple:
-            """Retrieve version number from given metadata key."""
-            version_str = metadata.get(key)
-            if version_str is None:
-                # Should not happen with existing metadata table.
-                raise RuntimeError(f"Version key {key!r} does not exist in metadata table.")
-            return VersionTuple.fromString(version_str)
-
-        db_schema_version = _get_version(self.meta_schema_version_key)
-        db_code_version = _get_version(self.meta_code_version_key)
-
-        # For now there is no way to make read-only APDB instances, assume that
-        # any access can do updates.
-        if not schema_version.checkCompatibility(db_schema_version):
-            raise IncompatibleVersionError(
-                f"Configured schema version {schema_version} "
-                f"is not compatible with database version {db_schema_version}"
-            )
-        if not VERSION.checkCompatibility(db_code_version):
-            raise IncompatibleVersionError(
-                f"Current code version {VERSION} is not compatible with database version {db_code_version}"
-            )
-
-    def _get_table(self, name: str) -> sqlalchemy.schema.Table:
-        for table in self._sa_metadata.tables.values():
-            if table.name == name:
-                return table
-        raise LookupError(f"Unknown table {name}")
 
     @property
     def metadata(self) -> ApdbMetadata:
@@ -484,7 +86,7 @@ class PpdbSql(Ppdb):
 
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
-        table = self._get_table("PpdbReplicaChunk")
+        table = self.get_table("PpdbReplicaChunk")
         query = sql.select(
             table.columns["apdb_replica_chunk"],
             table.columns["last_update_time"],
@@ -500,8 +102,8 @@ class PpdbSql(Ppdb):
                 # When we store these timestamps we convert astropy Time to
                 # unix_tai and then to `datetime` in UTC. This conversion
                 # reverses that process,
-                last_update_time = astropy.time.Time(row[1], format="datetime", scale="tai")
-                replica_time = astropy.time.Time(row[3], format="datetime", scale="tai")
+                last_update_time = self.to_astropy_tai(row[1])
+                replica_time = self.to_astropy_tai(row[3])
                 ids.append(
                     PpdbReplicaChunk(
                         id=row[0],
@@ -528,7 +130,7 @@ class PpdbSql(Ppdb):
             # Check for existing InsertId first, if it does not exist we can
             # run more optimal queries.
             if update:
-                table = self._get_table("PpdbReplicaChunk")
+                table = self.get_table("PpdbReplicaChunk")
                 query = sql.select(sql.expression.literal(1)).where(
                     table.columns["apdb_replica_chunk"] == replica_chunk.id
                 )
@@ -552,24 +154,16 @@ class PpdbSql(Ppdb):
         )
         now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
 
-        table = self._get_table("PpdbReplicaChunk")
+        table = self.get_table("PpdbReplicaChunk")
 
-        values = {"last_update_time": insert_dt, "unique_id": replica_chunk.unique_id, "replica_time": now}
-        row = {"apdb_replica_chunk": replica_chunk.id} | values
+        row = {
+            "apdb_replica_chunk": replica_chunk.id,
+            "last_update_time": insert_dt,
+            "unique_id": replica_chunk.unique_id,
+            "replica_time": now,
+        }
         if update:
-            # We need UPSERT which is dialect-specific construct
-            if connection.dialect.name == "sqlite":
-                insert_sqlite = sqlalchemy.dialects.sqlite.insert(table)
-                insert_sqlite = insert_sqlite.on_conflict_do_update(
-                    index_elements=table.primary_key, set_=values
-                )
-                connection.execute(insert_sqlite, row)
-            elif connection.dialect.name == "postgresql":
-                insert_pg = sqlalchemy.dialects.postgresql.dml.insert(table)
-                insert_pg = insert_pg.on_conflict_do_update(constraint=table.primary_key, set_=values)
-                connection.execute(insert_pg, row)
-            else:
-                raise TypeError(f"Unsupported dialect {connection.dialect.name} for upsert.")
+            self.upsert(connection, table, row, "apdb_replica_chunk")
         else:
             insert = table.insert()
             connection.execute(insert, row)
@@ -581,7 +175,7 @@ class PpdbSql(Ppdb):
         # Store all records.
         self._store_table_data(objects, connection, update, "DiaObject", 100)
 
-        table = self._get_table("DiaObject")
+        table = self.get_table("DiaObject")
 
         if self._use_mjd_tai:
             validity_start_column = "validityStartMjdTai"
@@ -656,8 +250,116 @@ class PpdbSql(Ppdb):
     ) -> None:
         """Store or replace DiaSources."""
         with Timer("store_data_time", _MON, tags={"table": table_name}) as timer:
-            table = self._get_table(table_name)
+            table = self.get_table(table_name)
             inserter = make_inserter(connection)
             count = inserter.insert(table, table_data, chunk_size=chunk_size)
             timer.add_values(row_count=count)
             _LOG.info("Inserted %d rows into %s table", count, table_name)
+
+    @classmethod
+    def read_schema(
+        cls, schema_file: str | None, schema_name: str | None, felis_schema: str | None, db_url: str
+    ) -> tuple[sqlalchemy.schema.MetaData, VersionTuple]:
+        # Docstring is inherited from a base class.
+        metadata, version = super().read_schema(schema_file, schema_name, felis_schema, db_url)
+
+        # Check if schema uses MJD TAI for timestamps (DM-52215). This is not
+        # super-efficient, but I do not want to improve dax_apdb at this point.
+        use_mjd_tai = False
+        for schema_table in metadata.tables.values():
+            if schema_table.name == "DiaObject":
+                for column in schema_table.columns:
+                    if column.name == "validityStartMjdTai":
+                        use_mjd_tai = True
+                        break
+                break
+
+        if use_mjd_tai:
+            validity_end_column = "validityEndMjdTai"
+        else:
+            validity_end_column = "validityEnd"
+
+        # Add an additional index to DiaObject table to speed up replication.
+        # This is a partial index (Postgres-only), we do not have support for
+        # partial indices in ModelToSql, so we have to do it using sqlalchemy.
+        url = sqlalchemy.engine.make_url(db_url)
+        if url.get_backend_name() == "postgresql":
+            table: sqlalchemy.schema.Table | None = None
+            for table in metadata.tables.values():
+                if table.name == "DiaObject":
+                    name = f"IDX_DiaObject_diaObjectId_{validity_end_column}_IS_NULL"
+                    sqlalchemy.schema.Index(
+                        name,
+                        table.columns["diaObjectId"],
+                        postgresql_where=table.columns[validity_end_column].is_(None),
+                    )
+                    break
+            else:
+                # Cannot find table, odd, but what do I know.
+                pass
+
+        return metadata, version
+
+    @classmethod
+    def filter_table_names(cls, original_table_names: Iterable[str]) -> Iterable[str]:
+        # Docstring is inherited.
+        return [table_name for table_name in original_table_names if table_name not in ("DiaObjectLast",)]
+
+    @classmethod
+    def get_meta_code_version_key(cls) -> str:
+        # Docstring is inherited.
+        return "version:PpdbSql"
+
+    @classmethod
+    def get_code_version(cls) -> VersionTuple:
+        # Docstring is inherited.
+        return VERSION
+
+    @classmethod
+    def init_database(
+        cls,
+        db_url: str,
+        schema_file: str | None = None,
+        schema_name: str | None = None,
+        felis_schema: str | None = None,
+        use_connection_pool: bool = True,
+        isolation_level: str | None = None,
+        connection_timeout: float | None = None,
+        drop: bool = False,
+    ) -> PpdbSqlConfig:
+        """Initialize PPDB SQL database.
+
+        Parameters
+        ----------
+        db_url : `str`
+            SQLAlchemy database connection URI.
+        schema_name : `str` or `None`
+            Database schema name, if `None` then default schema is used.
+        schema_file : `str` or `None`
+            Name of YAML file with ``felis`` schema, if `None` then default
+            schema file is used.
+        felis_schema : `str` or `None`
+            Name of the schema in YAML file, if `None` then file has to contain
+            single schema.
+        use_connection_pool : `bool`
+            If True then allow use of connection pool.
+        isolation_level : `str` or `None`
+            Transaction isolation level, if unset then backend-default value is
+            used.
+        connection_timeout: `float` or `None`
+            Maximum connection timeout in seconds.
+        drop : `bool`
+            If `True` then drop existing tables.
+        """
+        sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
+        config = PpdbSqlConfig(
+            db_url=db_url,
+            schema_name=schema_name,
+            felis_path=schema_file,
+            felis_schema=felis_schema,
+            use_connection_pool=use_connection_pool,
+            isolation_level=isolation_level,
+            connection_timeout=connection_timeout,
+        )
+        cls.make_database(config, sa_metadata, schema_version, drop)
+        return config

@@ -24,13 +24,14 @@ from __future__ import annotations
 __all__ = ["Ppdb"]
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import astropy.time
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
 from lsst.resources import ResourcePathExpression
 
-from ._factory import ppdb_type
+from ._factory import ppdb_from_config
 from .config import PpdbConfig
 
 
@@ -60,10 +61,7 @@ class Ppdb(ABC):
         ppdb : `Ppdb`
             Instance of `Ppdb` class.
         """
-        # Dispatch to actual implementation class based on config type.
-
-        ppdb_class = ppdb_type(config)
-        return ppdb_class(config)
+        return ppdb_from_config(config)
 
     @classmethod
     def from_uri(cls, uri: ResourcePathExpression) -> Ppdb:
@@ -92,7 +90,7 @@ class Ppdb(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         """Return collection of replica chunks known to the database.
 
         Parameters
@@ -103,7 +101,7 @@ class Ppdb(ABC):
 
         Returns
         -------
-        chunks : `list` [`PpdbReplicaChunk`] or `None`
+        chunks : `~collections.abc.Sequence` [`PpdbReplicaChunk`] or `None`
             List of chunks, they may be time-ordered if database supports
             ordering. `None` is returned if database is not configured to store
             chunk information.
