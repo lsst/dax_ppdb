@@ -29,7 +29,7 @@ from collections.abc import Iterable
 
 import astropy.time
 import sqlalchemy
-from sqlalchemy import sql
+from sqlalchemy.sql import expression, select
 
 from lsst.dax.apdb import (
     ApdbMetadata,
@@ -88,7 +88,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
         table = self.get_table("PpdbReplicaChunk")
-        query = sql.select(
+        query = select(
             table.columns["apdb_replica_chunk"],
             table.columns["last_update_time"],
             table.columns["unique_id"],
@@ -132,7 +132,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             # run more optimal queries.
             if update:
                 table = self.get_table("PpdbReplicaChunk")
-                query = sql.select(sql.expression.literal(1)).where(
+                query = select(expression.literal(1)).where(
                     table.columns["apdb_replica_chunk"] == replica_chunk.id
                 )
                 if connection.execute(query).one_or_none() is None:
@@ -212,7 +212,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
                 )
                 sub1 = select_cte.alias("s1")
                 sub2 = select_cte.alias("s2")
-                new_end = sql.select(sub2.columns[validity_start_column]).select_from(
+                new_end = select(sub2.columns[validity_start_column]).select_from(
                     sub1.join(
                         sub2,
                         sqlalchemy.and_(
