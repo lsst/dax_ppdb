@@ -140,7 +140,7 @@ class PpdbSqlBase:
             Configuration object with SQL parameters.
         """
         kw: MutableMapping[str, Any] = {}
-        conn_args: dict[str, Any] = dict()
+        conn_args: dict[str, Any] = {}
         if not config.use_connection_pool:
             kw["poolclass"] = NullPool
         if config.isolation_level is not None:

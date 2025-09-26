@@ -63,7 +63,7 @@ class PgBinaryDumper:
         """Dump the whole contents of table data to a file."""
         # Only care about columns that exists in both table and data.
         data_column_names = data.column_names()
-        table_column_names = set(column.name for column in self._table.columns)
+        table_column_names = {column.name for column in self._table.columns}
         _LOG.debug("table_column_names: %s", table_column_names)
 
         column_indices = [idx for idx, name in enumerate(data_column_names) if name in table_column_names]
@@ -79,7 +79,7 @@ class PgBinaryDumper:
             # integer, all data is in network order.
             fmt = ["!h"]
             args = [len(column_indices)]
-            for idx, handler in zip(column_indices, handlers):
+            for idx, handler in zip(column_indices, handlers, strict=False):
                 struct_data = handler.to_struct(row[idx])
                 if struct_data.value is None:
                     # Null is encoded as size=-1, without data

@@ -72,7 +72,7 @@ class _DefaultBulkInserter(BulkInserter):
 
     def insert(self, table: sqlalchemy.schema.Table, data: ApdbTableData, *, chunk_size: int = 1000) -> int:
         # Docstring inherited.
-        table_columns = set(column.name for column in table.columns)
+        table_columns = {column.name for column in table.columns}
         data_columns = set(data.column_names())
         drop_columns = data_columns - table_columns
         insert = table.insert()
@@ -88,7 +88,7 @@ class _DefaultBulkInserter(BulkInserter):
     @staticmethod
     def _row_to_dict(column_names: Sequence[str], row: tuple, drop_columns: set[str]) -> dict[str, Any]:
         """Convert TableData row into dict."""
-        data = dict(zip(column_names, row))
+        data = dict(zip(column_names, row, strict=False))
         for column in drop_columns:
             del data[column]
         return data

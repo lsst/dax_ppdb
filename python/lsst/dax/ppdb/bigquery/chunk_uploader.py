@@ -35,12 +35,12 @@ try:
     from lsst.dax.ppdbx.gcp.auth import get_auth_default
     from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
     from lsst.dax.ppdbx.gcp.pubsub import Publisher
-except ImportError:
+except ImportError as e:
     raise ImportError(
         "The lsst.dax.ppdbx.gcp module is required for BigQuery support.\n"
         "Please 'pip install' the lsst-dax-ppdbx-gcp package from:\n"
         "https://github.com/lsst-dm/dax_ppdbx_gcp"
-    )
+    ) from e
 
 
 from ..config import PpdbConfig

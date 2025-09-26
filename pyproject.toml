@@ -110,6 +110,8 @@ select = [
     "UP",      # pyupgrade
     "I",       # isort
     "RUF022",  # sort __all__
+    "C4",      # flake8-comprehensions
+    "B",       # flake8-bugbear
 ]
 extend-select = [
     "RUF100", # Warn about unused noqa

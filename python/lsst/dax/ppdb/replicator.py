@@ -225,7 +225,7 @@ class Replicator:
                         if single:
                             raise ValueError(message)
                         else:
-                            warnings.warn(message)
+                            warnings.warn(message, stacklevel=2)
 
             # Replicate one or many chunks.
             chunks = self.copy_chunks(apdb_chunks, ppdb_chunks, 1 if single else None)

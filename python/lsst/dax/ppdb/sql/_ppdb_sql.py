@@ -189,7 +189,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             # find records with validityEnd=NULL, order them and update
             # validityEnd of older records from validityStart of newer records.
             idx = objects.column_names().index("diaObjectId")
-            ids = sorted(set(row[idx] for row in objects.rows()))
+            ids = sorted({row[idx] for row in objects.rows()})
             count = 0
             for chunk in chunk_iterable(ids, 1000):
                 select_cte = sqlalchemy.cte(
