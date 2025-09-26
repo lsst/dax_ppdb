@@ -79,7 +79,7 @@ class PgBinaryDumper:
             # integer, all data is in network order.
             fmt = ["!h"]
             args = [len(column_indices)]
-            for idx, handler in zip(column_indices, handlers, strict=False):
+            for idx, handler in zip(column_indices, handlers, strict=True):
                 struct_data = handler.to_struct(row[idx])
                 if struct_data.value is None:
                     # Null is encoded as size=-1, without data

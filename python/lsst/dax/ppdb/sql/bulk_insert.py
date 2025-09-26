@@ -88,7 +88,7 @@ class _DefaultBulkInserter(BulkInserter):
     @staticmethod
     def _row_to_dict(column_names: Sequence[str], row: tuple, drop_columns: set[str]) -> dict[str, Any]:
         """Convert TableData row into dict."""
-        data = dict(zip(column_names, row, strict=False))
+        data = dict(zip(column_names, row, strict=True))
         for column in drop_columns:
             del data[column]
         return data
