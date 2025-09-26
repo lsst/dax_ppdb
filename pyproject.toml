@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lsst-dax-ppdb"
+requires-python = ">=3.12.0"
 description = "Prompt Products Database for LSST AP pipeline."
 license = {text = "GPLv3+ License"}
 readme = "README.md"
@@ -15,7 +16,6 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Astronomy",
@@ -65,7 +65,7 @@ ppdb-cli = "lsst.dax.ppdb.cli.ppdb_cli:main"
 
 [tool.black]
 line-length = 110
-target-version = ["py311"]
+target-version = ["py312"]
 
 [tool.isort]
 profile = "black"
@@ -81,7 +81,7 @@ exclude = [
     "doc/conf.py",
 ]
 line-length = 110
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 ignore = [
