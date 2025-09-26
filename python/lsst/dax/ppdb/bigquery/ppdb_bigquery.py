@@ -385,11 +385,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         ----------
         db_url : `str`
             SQLAlchemy database connection URI.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
         schema_file : `str` or `None`
             Name of YAML file with ``felis`` schema, if `None` then default
             schema file is used.
+        schema_name : `str` or `None`
+            Database schema name, if `None` then default schema is used.
         felis_schema : `str` or `None`
             Name of the schema in YAML file, if `None` then file has to contain
             single schema.
@@ -398,7 +398,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         isolation_level : `str` or `None`
             Transaction isolation level, if unset then backend-default value is
             used.
-        connection_timeout: `float` or `None`
+        connection_timeout : `float` or `None`
             Maximum connection timeout in seconds.
         drop : `bool`
             If `True` then drop existing tables.

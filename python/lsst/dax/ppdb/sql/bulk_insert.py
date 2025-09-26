@@ -140,7 +140,13 @@ class _Psycopg2BulkInserter(BulkInserter):
 
 
 def make_inserter(connection: sqlalchemy.engine.Connection) -> BulkInserter:
-    """Make instance of `BulkInserter` suitable for a given connection."""
+    """Make instance of `BulkInserter` suitable for a given connection.
+
+    Parameters
+    ----------
+    connection : `~sqlalchemy.engine.Connection`
+        Active database connection.
+    """
     if connection.dialect.driver == "psycopg2":
         return _Psycopg2BulkInserter(connection)
     return _DefaultBulkInserter(connection)

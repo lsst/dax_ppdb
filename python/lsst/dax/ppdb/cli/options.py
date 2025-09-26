@@ -27,7 +27,13 @@ import argparse
 
 
 def felis_schema_options(parser: argparse.ArgumentParser) -> None:
-    """Define CLI options for Felis schema file."""
+    """Define CLI options for Felis schema file.
+
+    Parameters
+    ----------
+    parser : `~argparse.ArgumentParser`
+        The argument parser to which the options are added.
+    """
     group = parser.add_argument_group("felis schema options")
     group.add_argument(
         "--felis-path",
@@ -44,7 +50,13 @@ def felis_schema_options(parser: argparse.ArgumentParser) -> None:
 
 
 def sql_db_options(parser: argparse.ArgumentParser) -> None:
-    """Define CLI options for database connection."""
+    """Define CLI options for database connection.
+
+    Parameters
+    ----------
+    parser : `~argparse.ArgumentParser`
+        The argument parser to which the options are added.
+    """
     group = parser.add_argument_group("database options")
     group.add_argument(
         "-s",
@@ -79,7 +91,13 @@ def sql_db_options(parser: argparse.ArgumentParser) -> None:
 
 
 def replication_options(parser: argparse.ArgumentParser) -> None:
-    """Define CLI options for replication."""
+    """Define CLI options for replication.
+
+    Parameters
+    ----------
+    parser : `~argparse.ArgumentParser`
+        The argument parser to which the options are added.
+    """
     group = parser.add_argument_group("replication options")
     group.add_argument(
         "--single", help="Copy single replication item and stop.", default=False, action="store_true"
@@ -117,7 +135,13 @@ def replication_options(parser: argparse.ArgumentParser) -> None:
 
 
 def upload_options(parser: argparse.ArgumentParser) -> None:
-    """Define CLI options for Google Cloud Storage upload."""
+    """Define CLI options for Google Cloud Storage upload.
+
+    Parameters
+    ----------
+    parser : `~argparse.ArgumentParser`
+        The argument parser to which the options are added.
+    """
     group = parser.add_argument_group("upload chunk options")
     group.add_argument(
         "--wait-interval",

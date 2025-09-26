@@ -51,7 +51,15 @@ class _ColumnDataHandler(ABC):
 
 
 class PgBinaryDumper:
-    """Class that knows how to dump ApdbTableData to binary PostgreSQL file."""
+    """Class that knows how to dump ApdbTableData to binary PostgreSQL file.
+
+    Parameters
+    ----------
+    stream : `BinaryIO`
+        Target binary data stream.
+    table : `sqlalchemy.schema.Table`
+        Table object defining the table structure.
+    """
 
     _HEADER = b"PGCOPY\n\377\r\n\0"
 
@@ -60,7 +68,13 @@ class PgBinaryDumper:
         self._table = table
 
     def dump(self, data: ApdbTableData) -> list[str]:
-        """Dump the whole contents of table data to a file."""
+        """Dump the whole contents of table data to a file.
+
+        Parameters
+        ----------
+        data : `ApdbTableData`
+            Table data to dump.
+        """
         # Only care about columns that exists in both table and data.
         data_column_names = data.column_names()
         table_column_names = {column.name for column in self._table.columns}

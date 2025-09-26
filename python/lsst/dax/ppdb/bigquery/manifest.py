@@ -45,10 +45,8 @@ class TableStats(BaseModel):
 
 
 class Manifest(BaseModel):
-    """
-    Manifest record for replica chunk data that has been extracted into
+    """Manifest record for replica chunk data that has been extracted into
     parquet files.
-    compression_format: `str`
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -89,12 +87,11 @@ class Manifest(BaseModel):
         return f"chunk_{self.replica_chunk_id}.manifest.json"
 
     def write_json_file(self, dir_path: Path) -> None:
-        """
-        Save the manifest to a JSON file in the specified directory.
+        """Save the manifest to a JSON file in the specified directory.
 
         Parameters
         ----------
-        dir_path: `str`
+        dir_path : `Path`
             Path to the directory where the manifest file should be written.
         """
         file_path = os.path.join(dir_path, self.filename)
@@ -103,17 +100,16 @@ class Manifest(BaseModel):
 
     @classmethod
     def from_json_file(cls, file_path: Path) -> Manifest:
-        """
-        Load a manifest from a JSON file.
+        """Load a manifest from a JSON file.
 
         Parameters
         ----------
-        file_path: `pathlib.Path`
+        file_path : `pathlib.Path`
             Path to the JSON file containing the manifest.
 
         Returns
         -------
-        manifest: `Manifest`
+        manifest : `Manifest`
             The loaded manifest object.
         """
         with open(file_path, encoding="utf-8") as f:

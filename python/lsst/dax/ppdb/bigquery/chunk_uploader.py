@@ -56,7 +56,15 @@ _MON = monitor.MonAgent(__name__)
 
 
 class ChunkUploadError(RuntimeError):
-    """Top-level error for failures while processing a single chunk."""
+    """Top-level error for failures while processing a single chunk.
+
+    Parameters
+    ----------
+    chunk_id : `int`
+        The ID of the chunk being processed when the error occurred.
+    message : `str`
+        A message describing the error.
+    """
 
     def __init__(self, chunk_id: int, message: str):
         self.chunk_id = chunk_id

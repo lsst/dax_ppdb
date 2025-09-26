@@ -67,13 +67,24 @@ class PpdbTest(TestCaseMixin, ABC):
 
     @abstractmethod
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
-        """Make database instance and return configuration for it."""
+        """Make database instance and return configuration for it.
+
+        Parameters
+        ----------
+        **kwargs : `Any`
+            Instance-specific parameters for the PPDB database.
+        """
         raise NotImplementedError()
 
     @abstractmethod
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
         """Make APDB instance and return configuration for it, APDB must have
         replication enabled.
+
+        Parameters
+        ----------
+        **kwargs : `Any`
+            Instance-specific parameters for the APDB.
         """
         raise NotImplementedError()
 

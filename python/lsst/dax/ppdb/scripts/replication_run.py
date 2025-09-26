@@ -64,6 +64,9 @@ def replication_run(
     check_interval : `int`
         Time in seconds to wait before next check if there was no replicated
         chunks.
+    exit_on_empty : `bool`
+        If `True` then exit if there are no chunks to replicate, otherwise
+        keep waiting for new chunks.
     """
     apdb = ApdbReplica.from_uri(apdb_config)
     ppdb = Ppdb.from_uri(ppdb_config)

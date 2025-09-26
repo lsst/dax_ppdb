@@ -98,7 +98,7 @@ class Ppdb(ABC):
         ----------
         start_chunk_id : `int`, optional
             If specified this will be the starting chunk ID to return. If not
-            specified then all chunks areturned
+            specified then all chunks are returned.
 
         Returns
         -------

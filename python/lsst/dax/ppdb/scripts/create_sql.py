@@ -58,7 +58,7 @@ def create_sql(
     isolation_level : `str` or `None`
         Transaction isolation level, if unset then backend-default value is
         used.
-    connection_timeout: `float` or `None`
+    connection_timeout : `float` or `None`
         Maximum connection timeout in seconds.
     drop : `bool`
         If `True` then drop existing tables.

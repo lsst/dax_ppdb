@@ -50,7 +50,13 @@ _LOG = logging.getLogger(__name__)
 
 
 class MissingSchemaVersionError(RuntimeError):
-    """Exception raised when schema version is not defined in the schema."""
+    """Exception raised when schema version is not defined in the schema.
+
+    Parameters
+    ----------
+    schema_name : `str`
+        Name of the schema with missing version.
+    """
 
     def __init__(self, schema_name: str):
         super().__init__(f"Version is missing from the '{schema_name}' schema.")
@@ -174,10 +180,8 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        db_url : `str`
-            SQLAlchemy database connection URI.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
+        config : `PpdbSqlBaseConfig`
+            Configuration object with SQL parameters.
         sa_metadata : `sqlalchemy.schema.MetaData`
             Schema definition.
         schema_version : `lsst.dax.apdb.VersionTuple`
@@ -530,8 +534,10 @@ class PpdbSqlBase:
             Active database connection.
         table : `sqlalchemy.schema.Table`
             Table object for the replica chunk table.
-        values : `dict`
+        row : `dict` [ `str`, `Any` ]
             Dictionary of column values to insert or update.
+        key_column_name : `str`
+            Name of the column to use as the key for the UPSERT operation.
 
         Raises
         ------
