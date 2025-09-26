@@ -24,8 +24,9 @@ from pathlib import Path
 
 import pyarrow
 from felis.datamodel import DataType
-from lsst.dax.apdb import ApdbTableData
 from pyarrow import parquet
+
+from lsst.dax.apdb import ApdbTableData
 
 _FELIS_TYPE_MAP = {
     DataType.long: pyarrow.int64(),
@@ -102,15 +103,15 @@ def write_parquet(
         The APDB table data to write.
     file_path : `pathlib.Path`
         Destination Parquet file path.
-    excluded_columns : `set` [ `str` ], optional
-        Set of column names to exclude from the Parquet file. These
-        exclusions apply to all of the tables. Default is an empty set,
-        meaning no columns are excluded.
     batch_size : `int`, optional
-        Number of rows to write in each batch. If `None`, defaults to 1000
+        Number of rows to write in each batch. If `None`, defaults to 1000.
     compression_format : `str`, optional
         Compression format to use for the Parquet file. If `None`, defaults
         to "snappy".
+    exclude_columns : `set` [ `str` ], optional
+        Set of column names to exclude from the Parquet file. These
+        exclusions apply to all of the tables. Default is an empty set,
+        meaning no columns are excluded.
 
     Returns
     -------

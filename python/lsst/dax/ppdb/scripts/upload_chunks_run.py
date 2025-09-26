@@ -34,14 +34,16 @@ def upload_chunks_run(
 
     Parameters
     ----------
-    directory : `str`
-        Directory containing the chunks to upload.
+    ppdb_config : `str`
+        PPDB configuration URI.
     wait_interval : `int`
         Time in seconds to wait before checking for new chunks to upload.
     upload_interval : `int`
         Time in seconds to wait between uploads of chunks.
     exit_on_empty : `bool`
         If `True`, exit the process if there are no chunks to upload.
+    exit_on_error : `bool`
+        If `True`, exit the process if there is an error during upload.
     """
     config = PpdbConfig.from_uri(ppdb_config)
     chunk_exporter = ChunkUploader(

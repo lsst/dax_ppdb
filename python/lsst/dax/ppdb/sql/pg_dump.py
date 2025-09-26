@@ -26,33 +26,40 @@ __all__ = ["PgBinaryDumper"]
 import logging
 import struct
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, BinaryIO, NamedTuple
 
 import sqlalchemy
 import sqlalchemy.dialects.postgresql.types as pg_types
-from lsst.dax.apdb import ApdbTableData
 from sqlalchemy.sql import sqltypes
+
+from lsst.dax.apdb import ApdbTableData
 
 _LOG = logging.getLogger(__name__)
 
 
 class StructData(NamedTuple):
-
     size: int
     format: str
     value: Any
 
 
 class _ColumnDataHandler(ABC):
-
     @abstractmethod
     def to_struct(self, column_value: Any) -> StructData:
         raise NotImplementedError()
 
 
 class PgBinaryDumper:
-    """Class that knows how to dump ApdbTableData to binary PostgreSQL file."""
+    """Class that knows how to dump ApdbTableData to binary PostgreSQL file.
+
+    Parameters
+    ----------
+    stream : `BinaryIO`
+        Target binary data stream.
+    table : `sqlalchemy.schema.Table`
+        Table object defining the table structure.
+    """
 
     _HEADER = b"PGCOPY\n\377\r\n\0"
 
@@ -61,10 +68,16 @@ class PgBinaryDumper:
         self._table = table
 
     def dump(self, data: ApdbTableData) -> list[str]:
-        """Dump the whole contents of table data to a file."""
+        """Dump the whole contents of table data to a file.
+
+        Parameters
+        ----------
+        data : `ApdbTableData`
+            Table data to dump.
+        """
         # Only care about columns that exists in both table and data.
         data_column_names = data.column_names()
-        table_column_names = set(column.name for column in self._table.columns)
+        table_column_names = {column.name for column in self._table.columns}
         _LOG.debug("table_column_names: %s", table_column_names)
 
         column_indices = [idx for idx, name in enumerate(data_column_names) if name in table_column_names]
@@ -76,12 +89,11 @@ class PgBinaryDumper:
 
         # Dump all rows.
         for row in data.rows():
-
             # Buld row struct, it starts with the number of columns as 16-bit
             # integer, all data is in network order.
             fmt = ["!h"]
             args = [len(column_indices)]
-            for idx, handler in zip(column_indices, handlers):
+            for idx, handler in zip(column_indices, handlers, strict=True):
                 struct_data = handler.to_struct(row[idx])
                 if struct_data.value is None:
                     # Null is encoded as size=-1, without data
@@ -98,7 +110,6 @@ class PgBinaryDumper:
 
 
 class _FixedColumnDataHandler(_ColumnDataHandler):
-
     def __init__(self, size: int, format: str):
         self._size = size
         self._format = format
@@ -108,7 +119,6 @@ class _FixedColumnDataHandler(_ColumnDataHandler):
 
 
 class _ByteArrayColumnDataHandler(_ColumnDataHandler):
-
     def __init__(self, format: str):
         self._format = format
 
@@ -120,7 +130,6 @@ class _ByteArrayColumnDataHandler(_ColumnDataHandler):
 
 
 class _StringColumnDataHandler(_ColumnDataHandler):
-
     def __init__(self, format: str):
         self._format = format
 
@@ -135,8 +144,7 @@ class _StringColumnDataHandler(_ColumnDataHandler):
 
 
 class _TimestampColumnDataHandler(_ColumnDataHandler):
-
-    epoch_utc = datetime(2000, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    epoch_utc = datetime(2000, 1, 1, 0, 0, 0, tzinfo=UTC)
     epoch_naive = datetime(2000, 1, 1, 0, 0, 0)
 
     def to_struct(self, column_value: Any) -> StructData:

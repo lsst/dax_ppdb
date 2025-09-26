@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import astropy.time
+
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
 from lsst.resources import ResourcePathExpression
 
@@ -97,7 +98,7 @@ class Ppdb(ABC):
         ----------
         start_chunk_id : `int`, optional
             If specified this will be the starting chunk ID to return. If not
-            specified then all chunks areturned
+            specified then all chunks are returned.
 
         Returns
         -------
