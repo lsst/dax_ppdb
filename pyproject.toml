@@ -70,6 +70,7 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 110
+known_first_party = ["lsst"]
 
 [tool.lsst_versions]
 write_to = "python/lsst/dax/ppdb/version.py"
@@ -101,15 +102,21 @@ ignore = [
     "D400",
 ]
 select = [
-    "E",  # pycodestyle
-    "F",  # pycodestyle
-    "N",  # pep8-naming
-    "W",  # pycodestyle
-    "D",  # pydocstyle
+    "E",       # pycodestyle
+    "F",       # pycodestyle
+    "N",       # pep8-naming
+    "W",       # pycodestyle
+    "D",       # pydocstyle
+    "UP",      # pyupgrade
+    "I",       # isort
+    "RUF022",  # sort __all__
 ]
 extend-select = [
     "RUF100", # Warn about unused noqa
 ]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lsst"]
 
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 79
@@ -117,9 +124,14 @@ max-doc-length = 79
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
 
+[tool.ruff.format]
+docstring-code-format = true
+# Formatter does not know about indenting.
+docstring-code-line-length = 69
+
 [tool.numpydoc_validation]
 checks = [
-    "all",  # All except the rules listed below.
+    "all",   # All except the rules listed below.
     "SA01",  # See Also section.
     "SA04",  # We don't use descriptions with See Also.
     "EX01",  # Example section.
