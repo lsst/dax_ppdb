@@ -27,8 +27,9 @@ from collections.abc import Mapping
 from typing import Any
 
 import yaml
-from lsst.resources import ResourcePath, ResourcePathExpression
 from pydantic import BaseModel
+
+from lsst.resources import ResourcePath, ResourcePathExpression
 
 from ._factory import config_type_for_name
 

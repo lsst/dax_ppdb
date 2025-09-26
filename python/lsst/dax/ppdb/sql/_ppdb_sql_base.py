@@ -35,6 +35,9 @@ import felis.datamodel
 import sqlalchemy
 import yaml
 from felis.datamodel import Schema as FelisSchema
+from pydantic import BaseModel
+from sqlalchemy.pool import NullPool
+
 from lsst.dax.apdb import (
     IncompatibleVersionError,
     VersionTuple,
@@ -42,8 +45,6 @@ from lsst.dax.apdb import (
 )
 from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from lsst.resources import ResourcePath
-from pydantic import BaseModel
-from sqlalchemy.pool import NullPool
 
 _LOG = logging.getLogger(__name__)
 

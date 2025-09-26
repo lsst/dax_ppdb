@@ -30,6 +30,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy
+
 from lsst.dax.apdb import ApdbTableData, monitor
 from lsst.dax.apdb.timer import Timer
 from lsst.utils.iteration import chunk_iterable

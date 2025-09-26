@@ -29,6 +29,8 @@ from collections.abc import Iterable
 
 import astropy.time
 import sqlalchemy
+from sqlalchemy import sql
+
 from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,
@@ -38,7 +40,6 @@ from lsst.dax.apdb import (
 )
 from lsst.dax.apdb.timer import Timer
 from lsst.utils.iteration import chunk_iterable
-from sqlalchemy import sql
 
 from ..ppdb import Ppdb, PpdbConfig, PpdbReplicaChunk
 from ._ppdb_sql_base import PpdbSqlBase, PpdbSqlBaseConfig

@@ -30,6 +30,7 @@ from enum import StrEnum
 from pathlib import Path
 
 import astropy.time
+
 from lsst.dax.apdb import ReplicaChunk
 
 from ..ppdb import PpdbReplicaChunk

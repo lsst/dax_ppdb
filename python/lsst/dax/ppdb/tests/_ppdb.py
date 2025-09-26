@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import astropy.time
+
 from lsst.dax.apdb import Apdb, ApdbConfig, ApdbReplica, ReplicaChunk
 from lsst.dax.apdb.tests.data_factory import makeForcedSourceCatalog, makeObjectCatalog, makeSourceCatalog
 from lsst.sphgeom import Angle, Circle, Region, UnitVector3d

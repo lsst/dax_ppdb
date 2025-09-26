@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import astropy.time
+
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
 from lsst.resources import ResourcePathExpression
 

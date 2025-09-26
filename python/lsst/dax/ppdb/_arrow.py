@@ -24,8 +24,9 @@ from pathlib import Path
 
 import pyarrow
 from felis.datamodel import DataType
-from lsst.dax.apdb import ApdbTableData
 from pyarrow import parquet
+
+from lsst.dax.apdb import ApdbTableData
 
 _FELIS_TYPE_MAP = {
     DataType.long: pyarrow.int64(),

@@ -28,6 +28,7 @@ from pathlib import Path
 
 import felis
 import sqlalchemy
+
 from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,

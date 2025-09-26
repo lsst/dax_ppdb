@@ -31,21 +31,20 @@ from typing import Any, BinaryIO, NamedTuple
 
 import sqlalchemy
 import sqlalchemy.dialects.postgresql.types as pg_types
-from lsst.dax.apdb import ApdbTableData
 from sqlalchemy.sql import sqltypes
+
+from lsst.dax.apdb import ApdbTableData
 
 _LOG = logging.getLogger(__name__)
 
 
 class StructData(NamedTuple):
-
     size: int
     format: str
     value: Any
 
 
 class _ColumnDataHandler(ABC):
-
     @abstractmethod
     def to_struct(self, column_value: Any) -> StructData:
         raise NotImplementedError()
@@ -76,7 +75,6 @@ class PgBinaryDumper:
 
         # Dump all rows.
         for row in data.rows():
-
             # Buld row struct, it starts with the number of columns as 16-bit
             # integer, all data is in network order.
             fmt = ["!h"]
@@ -98,7 +96,6 @@ class PgBinaryDumper:
 
 
 class _FixedColumnDataHandler(_ColumnDataHandler):
-
     def __init__(self, size: int, format: str):
         self._size = size
         self._format = format
@@ -108,7 +105,6 @@ class _FixedColumnDataHandler(_ColumnDataHandler):
 
 
 class _ByteArrayColumnDataHandler(_ColumnDataHandler):
-
     def __init__(self, format: str):
         self._format = format
 
@@ -120,7 +116,6 @@ class _ByteArrayColumnDataHandler(_ColumnDataHandler):
 
 
 class _StringColumnDataHandler(_ColumnDataHandler):
-
     def __init__(self, format: str):
         self._format = format
 
@@ -135,7 +130,6 @@ class _StringColumnDataHandler(_ColumnDataHandler):
 
 
 class _TimestampColumnDataHandler(_ColumnDataHandler):
-
     epoch_utc = datetime(2000, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     epoch_naive = datetime(2000, 1, 1, 0, 0, 0)
 
