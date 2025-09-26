@@ -48,7 +48,7 @@ from .manifest import Manifest
 from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
 from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
-__all__ = ["ChunkUploader", "ChunkUploadError"]
+__all__ = ["ChunkUploadError", "ChunkUploader"]
 
 _LOG = logging.getLogger(__name__)
 

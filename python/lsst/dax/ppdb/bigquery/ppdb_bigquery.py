@@ -23,7 +23,6 @@ import datetime
 import logging
 import shutil
 from collections.abc import Iterable, Sequence
-from datetime import timezone
 from pathlib import Path
 
 import felis
@@ -138,7 +137,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             replica_chunk_id=str(replica_chunk.id),
             unique_id=replica_chunk.unique_id,
             schema_version=str(self.schema_version),
-            exported_at=datetime.datetime.now(timezone.utc),
+            exported_at=datetime.datetime.now(datetime.UTC),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
             table_data={
                 table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()

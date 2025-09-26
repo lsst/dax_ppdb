@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -34,7 +34,7 @@ __all__ = ["Manifest", "TableStats"]
 
 def _utc_now() -> datetime:
     """Return the current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TableStats(BaseModel):
@@ -116,6 +116,6 @@ class Manifest(BaseModel):
         manifest: `Manifest`
             The loaded manifest object.
         """
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
         return cls.model_validate(data)

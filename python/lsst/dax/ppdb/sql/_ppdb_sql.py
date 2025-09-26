@@ -150,10 +150,8 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         # `astropy.Time.datetime` returns naive datetime, even though all
         # astropy times are in UTC. Add UTC timezone to timestampt so that
         # database can store a correct value.
-        insert_dt = datetime.datetime.fromtimestamp(
-            replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
-        )
-        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
+        insert_dt = datetime.datetime.fromtimestamp(replica_chunk.last_update_time.unix_tai, tz=datetime.UTC)
+        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.UTC)
 
         table = self.get_table("PpdbReplicaChunk")
 

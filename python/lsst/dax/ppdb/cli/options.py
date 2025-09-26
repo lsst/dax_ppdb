@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["felis_schema_options", "sql_db_options", "replication_options"]
+__all__ = ["felis_schema_options", "replication_options", "sql_db_options"]
 
 import argparse
 

@@ -26,7 +26,7 @@ __all__ = ["PgBinaryDumper"]
 import logging
 import struct
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, BinaryIO, NamedTuple
 
 import sqlalchemy
@@ -130,7 +130,7 @@ class _StringColumnDataHandler(_ColumnDataHandler):
 
 
 class _TimestampColumnDataHandler(_ColumnDataHandler):
-    epoch_utc = datetime(2000, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    epoch_utc = datetime(2000, 1, 1, 0, 0, 0, tzinfo=UTC)
     epoch_naive = datetime(2000, 1, 1, 0, 0, 0)
 
     def to_struct(self, column_value: Any) -> StructData:

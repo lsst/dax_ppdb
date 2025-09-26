@@ -21,11 +21,11 @@
 
 from __future__ import annotations
 
-__all__ = ["PpdbReplicaChunkExtended", "ChunkStatus"]
+__all__ = ["ChunkStatus", "PpdbReplicaChunkExtended"]
 
 import dataclasses
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -74,12 +74,12 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     @property
     def replica_time_dt_utc(self) -> datetime:
         """Return the replica_time as a `datetime` in UTC."""
-        return datetime.fromtimestamp(self.replica_time.unix_tai, tz=timezone.utc)
+        return datetime.fromtimestamp(self.replica_time.unix_tai, tz=UTC)
 
     @property
     def last_update_time_dt_utc(self) -> datetime:
         """Return the last_update_time as a `datetime` in UTC."""
-        return datetime.fromtimestamp(self.last_update_time.unix_tai, tz=timezone.utc)
+        return datetime.fromtimestamp(self.last_update_time.unix_tai, tz=UTC)
 
     @classmethod
     def from_replica_chunk(
