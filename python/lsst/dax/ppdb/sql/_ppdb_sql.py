@@ -29,6 +29,8 @@ from collections.abc import Iterable
 
 import astropy.time
 import sqlalchemy
+from sqlalchemy.sql import expression, select
+
 from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,
@@ -38,7 +40,6 @@ from lsst.dax.apdb import (
 )
 from lsst.dax.apdb.timer import Timer
 from lsst.utils.iteration import chunk_iterable
-from sqlalchemy import sql
 
 from ..ppdb import Ppdb, PpdbConfig, PpdbReplicaChunk
 from ._ppdb_sql_base import PpdbSqlBase, PpdbSqlBaseConfig
@@ -87,7 +88,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
         # docstring is inherited from a base class
         table = self.get_table("PpdbReplicaChunk")
-        query = sql.select(
+        query = select(
             table.columns["apdb_replica_chunk"],
             table.columns["last_update_time"],
             table.columns["unique_id"],
@@ -131,7 +132,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             # run more optimal queries.
             if update:
                 table = self.get_table("PpdbReplicaChunk")
-                query = sql.select(sql.expression.literal(1)).where(
+                query = select(expression.literal(1)).where(
                     table.columns["apdb_replica_chunk"] == replica_chunk.id
                 )
                 if connection.execute(query).one_or_none() is None:
@@ -149,10 +150,8 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         # `astropy.Time.datetime` returns naive datetime, even though all
         # astropy times are in UTC. Add UTC timezone to timestampt so that
         # database can store a correct value.
-        insert_dt = datetime.datetime.fromtimestamp(
-            replica_chunk.last_update_time.unix_tai, tz=datetime.timezone.utc
-        )
-        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.timezone.utc)
+        insert_dt = datetime.datetime.fromtimestamp(replica_chunk.last_update_time.unix_tai, tz=datetime.UTC)
+        now = datetime.datetime.fromtimestamp(astropy.time.Time.now().unix_tai, tz=datetime.UTC)
 
         table = self.get_table("PpdbReplicaChunk")
 
@@ -190,7 +189,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             # find records with validityEnd=NULL, order them and update
             # validityEnd of older records from validityStart of newer records.
             idx = objects.column_names().index("diaObjectId")
-            ids = sorted(set(row[idx] for row in objects.rows()))
+            ids = sorted({row[idx] for row in objects.rows()})
             count = 0
             for chunk in chunk_iterable(ids, 1000):
                 select_cte = sqlalchemy.cte(
@@ -213,7 +212,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
                 )
                 sub1 = select_cte.alias("s1")
                 sub2 = select_cte.alias("s2")
-                new_end = sql.select(sub2.columns[validity_start_column]).select_from(
+                new_end = select(sub2.columns[validity_start_column]).select_from(
                     sub1.join(
                         sub2,
                         sqlalchemy.and_(
@@ -333,11 +332,11 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         ----------
         db_url : `str`
             SQLAlchemy database connection URI.
+        schema_file : `str` or `None`
+            Name of YAML file with ``Felis`` schema, if `None` then default
+            schema file is used.
         schema_name : `str` or `None`
             Database schema name, if `None` then default schema is used.
-        schema_file : `str` or `None`
-            Name of YAML file with ``felis`` schema, if `None` then default
-            schema file is used.
         felis_schema : `str` or `None`
             Name of the schema in YAML file, if `None` then file has to contain
             single schema.
@@ -346,7 +345,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         isolation_level : `str` or `None`
             Transaction isolation level, if unset then backend-default value is
             used.
-        connection_timeout: `float` or `None`
+        connection_timeout : `float` or `None`
             Maximum connection timeout in seconds.
         drop : `bool`
             If `True` then drop existing tables.

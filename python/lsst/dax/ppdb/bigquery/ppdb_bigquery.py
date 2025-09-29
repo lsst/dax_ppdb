@@ -23,11 +23,11 @@ import datetime
 import logging
 import shutil
 from collections.abc import Iterable, Sequence
-from datetime import timezone
 from pathlib import Path
 
 import felis
 import sqlalchemy
+
 from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,
@@ -137,7 +137,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             replica_chunk_id=str(replica_chunk.id),
             unique_id=replica_chunk.unique_id,
             schema_version=str(self.schema_version),
-            exported_at=datetime.datetime.now(timezone.utc),
+            exported_at=datetime.datetime.now(datetime.UTC),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
             table_data={
                 table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
@@ -385,11 +385,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         ----------
         db_url : `str`
             SQLAlchemy database connection URI.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
         schema_file : `str` or `None`
             Name of YAML file with ``felis`` schema, if `None` then default
             schema file is used.
+        schema_name : `str` or `None`
+            Database schema name, if `None` then default schema is used.
         felis_schema : `str` or `None`
             Name of the schema in YAML file, if `None` then file has to contain
             single schema.
@@ -398,7 +398,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         isolation_level : `str` or `None`
             Transaction isolation level, if unset then backend-default value is
             used.
-        connection_timeout: `float` or `None`
+        connection_timeout : `float` or `None`
             Maximum connection timeout in seconds.
         drop : `bool`
             If `True` then drop existing tables.

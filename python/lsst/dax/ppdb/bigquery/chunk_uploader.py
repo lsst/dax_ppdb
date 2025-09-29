@@ -35,12 +35,12 @@ try:
     from lsst.dax.ppdbx.gcp.auth import get_auth_default
     from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
     from lsst.dax.ppdbx.gcp.pubsub import Publisher
-except ImportError:
+except ImportError as e:
     raise ImportError(
         "The lsst.dax.ppdbx.gcp module is required for BigQuery support.\n"
         "Please 'pip install' the lsst-dax-ppdbx-gcp package from:\n"
         "https://github.com/lsst-dm/dax_ppdbx_gcp"
-    )
+    ) from e
 
 
 from ..config import PpdbConfig
@@ -48,7 +48,7 @@ from .manifest import Manifest
 from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
 from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
 
-__all__ = ["ChunkUploader", "ChunkUploadError"]
+__all__ = ["ChunkUploadError", "ChunkUploader"]
 
 _LOG = logging.getLogger(__name__)
 
@@ -56,7 +56,15 @@ _MON = monitor.MonAgent(__name__)
 
 
 class ChunkUploadError(RuntimeError):
-    """Top-level error for failures while processing a single chunk."""
+    """Top-level error for failures while processing a single chunk.
+
+    Parameters
+    ----------
+    chunk_id : `int`
+        The ID of the chunk being processed when the error occurred.
+    message : `str`
+        A message describing the error.
+    """
 
     def __init__(self, chunk_id: int, message: str):
         self.chunk_id = chunk_id

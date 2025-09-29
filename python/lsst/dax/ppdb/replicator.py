@@ -30,6 +30,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import astropy.time
+
 from lsst.dax.apdb import ApdbTables, monitor
 from lsst.dax.apdb.timer import Timer
 
@@ -51,8 +52,6 @@ class Replicator:
         Object providing access to APDB replica management.
     ppdb : `Ppdb`
         Object providing access to PPD operations.
-    single : `bool`
-        Copy single bucket and stop.
     update : `bool`
         If `True` then allow updates to previously replicated data.
     min_wait_time : `int`
@@ -224,7 +223,7 @@ class Replicator:
                         if single:
                             raise ValueError(message)
                         else:
-                            warnings.warn(message)
+                            warnings.warn(message, stacklevel=2)
 
             # Replicate one or many chunks.
             chunks = self.copy_chunks(apdb_chunks, ppdb_chunks, 1 if single else None)

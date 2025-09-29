@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import astropy.time
+
 from lsst.dax.apdb import Apdb, ApdbConfig, ApdbReplica, ReplicaChunk
 from lsst.dax.apdb.tests.data_factory import makeForcedSourceCatalog, makeObjectCatalog, makeSourceCatalog
 from lsst.sphgeom import Angle, Circle, Region, UnitVector3d
@@ -66,13 +67,24 @@ class PpdbTest(TestCaseMixin, ABC):
 
     @abstractmethod
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
-        """Make database instance and return configuration for it."""
+        """Make database instance and return configuration for it.
+
+        Parameters
+        ----------
+        **kwargs : `Any`
+            Instance-specific parameters for the PPDB database.
+        """
         raise NotImplementedError()
 
     @abstractmethod
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
         """Make APDB instance and return configuration for it, APDB must have
         replication enabled.
+
+        Parameters
+        ----------
+        **kwargs : `Any`
+            Instance-specific parameters for the APDB.
         """
         raise NotImplementedError()
 

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -34,7 +34,7 @@ __all__ = ["Manifest", "TableStats"]
 
 def _utc_now() -> datetime:
     """Return the current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TableStats(BaseModel):
@@ -45,10 +45,8 @@ class TableStats(BaseModel):
 
 
 class Manifest(BaseModel):
-    """
-    Manifest record for replica chunk data that has been extracted into
+    """Manifest record for replica chunk data that has been extracted into
     parquet files.
-    compression_format: `str`
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -89,12 +87,11 @@ class Manifest(BaseModel):
         return f"chunk_{self.replica_chunk_id}.manifest.json"
 
     def write_json_file(self, dir_path: Path) -> None:
-        """
-        Save the manifest to a JSON file in the specified directory.
+        """Save the manifest to a JSON file in the specified directory.
 
         Parameters
         ----------
-        dir_path: `str`
+        dir_path : `Path`
             Path to the directory where the manifest file should be written.
         """
         file_path = os.path.join(dir_path, self.filename)
@@ -103,19 +100,18 @@ class Manifest(BaseModel):
 
     @classmethod
     def from_json_file(cls, file_path: Path) -> Manifest:
-        """
-        Load a manifest from a JSON file.
+        """Load a manifest from a JSON file.
 
         Parameters
         ----------
-        file_path: `pathlib.Path`
+        file_path : `pathlib.Path`
             Path to the JSON file containing the manifest.
 
         Returns
         -------
-        manifest: `Manifest`
+        manifest : `Manifest`
             The loaded manifest object.
         """
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
         return cls.model_validate(data)
