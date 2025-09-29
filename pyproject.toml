@@ -7,6 +7,7 @@ name = "lsst-dax-ppdb"
 requires-python = ">=3.12.0"
 description = "Prompt Products Database for LSST AP pipeline."
 license = "GPL-3.0-or-later"
+license-files = ["COPYRIGHT", "LICENSE"]
 readme = "README.md"
 authors = [
     {name="Rubin Observatory Data Management", email="dm-admin@lists.lsst.org"},
@@ -50,7 +51,6 @@ where = ["python"]
 
 [tool.setuptools]
 zip-safe = true
-license-files = ["COPYRIGHT", "LICENSE"]
 
 [tool.setuptools.package-data]
 "lsst.dax.ppdb" = ["py.typed"]
