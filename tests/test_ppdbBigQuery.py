@@ -24,6 +24,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 
 from lsst.dax.apdb import ApdbConfig
@@ -54,7 +55,7 @@ class SqliteTestCase(PpdbTest, unittest.TestCase):
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
         bq_config = PpdbBigQuery.init_database(db_url=self.ppdb_url, schema_file=TEST_SCHEMA, **kwargs)
-        bq_config.directory = self.tempdir
+        bq_config.directory = Path(self.tempdir)
         bq_config.delete_existing = True
         return bq_config
 
@@ -99,7 +100,7 @@ class PostgresTestCase(PpdbTest, unittest.TestCase):
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
         bq_config = PpdbBigQuery.init_database(db_url=self.server.url(), schema_file=TEST_SCHEMA, **kwargs)
-        bq_config.directory = self.tempdir
+        bq_config.directory = Path(self.tempdir)
         bq_config.delete_existing = True
         return bq_config
 
