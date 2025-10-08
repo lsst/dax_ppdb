@@ -174,9 +174,20 @@ class Replicator:
             dia_forced_sources = self._apdb.getTableDataChunks(ApdbTables.DiaForcedSource, [replica_chunk.id])
             timer.add_values(row_count=len(dia_objects.rows()))
         _LOG.info("Selected %s DiaForcedSources for replication", len(dia_forced_sources.rows()))
+        with Timer("get_update_records_time", _MON) as timer:
+            update_records = self._apdb.getUpdateRecordChunks([replica_chunk.id])
+            timer.add_values(row_count=len(update_records))
+        _LOG.info("Selected %s DiaForcedSources for replication", len(dia_forced_sources.rows()))
 
         with Timer("store_chunks_time", _MON):
-            self._ppdb.store(replica_chunk, dia_objects, dia_sources, dia_forced_sources, update=self._update)
+            self._ppdb.store(
+                replica_chunk,
+                dia_objects,
+                dia_sources,
+                dia_forced_sources,
+                update_records,
+                update=self._update,
+            )
 
     def run(self, single: bool = False, exit_on_empty: bool = False) -> None:
         """Run the replication loop.

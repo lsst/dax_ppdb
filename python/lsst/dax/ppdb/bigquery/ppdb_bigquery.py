@@ -22,7 +22,7 @@
 import datetime
 import logging
 import shutil
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from pathlib import Path
 
 import felis
@@ -32,6 +32,7 @@ from lsst.dax.apdb import (
     ApdbMetadata,
     ApdbTableData,
     ApdbTables,
+    ApdbUpdateRecord,
     ReplicaChunk,
     VersionTuple,
     monitor,
@@ -151,11 +152,18 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         objects: ApdbTableData,
         sources: ApdbTableData,
         forced_sources: ApdbTableData,
+        update_records: Collection[ApdbUpdateRecord],
         *,
         update: bool = False,
     ) -> None:
         # Docstring is inherited.
         _LOG.info("Processing %s", replica_chunk.id)
+
+        # TODO: APDB does not generate ApdbUpdateRecords yet, but we will
+        # eventually have to add support for it.
+        if update_records:
+            raise NotImplementedError("PpdbBigQuery does not support record updates yet.")
+
         try:
             chunk_dir = self._get_chunk_path(replica_chunk)
 

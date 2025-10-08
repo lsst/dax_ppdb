@@ -25,6 +25,7 @@ __all__ = ["PpdbSql", "PpdbSqlConfig"]
 
 import datetime
 import logging
+from collections import defaultdict
 from collections.abc import Iterable
 
 import astropy.time
@@ -32,8 +33,15 @@ import sqlalchemy
 from sqlalchemy.sql import expression, select
 
 from lsst.dax.apdb import (
+    ApdbCloseDiaObjectValidityRecord,
     ApdbMetadata,
+    ApdbReassignDiaSourceRecord,
     ApdbTableData,
+    ApdbTables,
+    ApdbUpdateNDiaSourcesRecord,
+    ApdbUpdateRecord,
+    ApdbWithdrawDiaForcedSourceRecord,
+    ApdbWithdrawDiaSourceRecord,
     ReplicaChunk,
     VersionTuple,
     monitor,
@@ -121,6 +129,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         objects: ApdbTableData,
         sources: ApdbTableData,
         forced_sources: ApdbTableData,
+        update_records: Iterable[ApdbUpdateRecord],
         *,
         update: bool = False,
     ) -> None:
@@ -142,6 +151,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             self._store_objects(objects, connection, update)
             self._store_table_data(sources, connection, update, "DiaSource", 100)
             self._store_table_data(forced_sources, connection, update, "DiaForcedSource", 1000)
+            self._store_updates(update_records, connection)
 
     def _store_insert_id(
         self, replica_chunk: ReplicaChunk, connection: sqlalchemy.engine.Connection, update: bool
@@ -254,6 +264,179 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             count = inserter.insert(table, table_data, chunk_size=chunk_size)
             timer.add_values(row_count=count)
             _LOG.info("Inserted %d rows into %s table", count, table_name)
+
+    def _store_updates(
+        self, update_records: Iterable[ApdbUpdateRecord], connection: sqlalchemy.engine.Connection
+    ) -> None:
+        # Group records by table so that we can vectorize some queries while
+        # still keeping the order of updates.
+        records_by_table = defaultdict(list)
+        for record in update_records:
+            records_by_table[record.apdb_table].append(record)
+
+        # Check that there are no unexpected tables in the records.
+        expected_tables = {ApdbTables.DiaObject, ApdbTables.DiaSource, ApdbTables.DiaForcedSource}
+        unexpected_tables = set(records_by_table) - expected_tables
+        if unexpected_tables:
+            raise ValueError(f"Unexpected tables in update records: {unexpected_tables}")
+
+        if ApdbTables.DiaObject in records_by_table:
+            self._update_objects(records_by_table[ApdbTables.DiaObject], connection)
+        if ApdbTables.DiaSource in records_by_table:
+            self._update_sources(records_by_table[ApdbTables.DiaSource], connection)
+        if ApdbTables.DiaForcedSource in records_by_table:
+            self._update_forced_sources(records_by_table[ApdbTables.DiaForcedSource], connection)
+
+    def _update_objects(
+        self, records: list[ApdbUpdateRecord], connection: sqlalchemy.engine.Connection
+    ) -> None:
+        # Collect all primary keys
+        ids = set()
+        for record in records:
+            match record:
+                case ApdbCloseDiaObjectValidityRecord() | ApdbUpdateNDiaSourcesRecord():
+                    ids.add(record.diaObjectId)
+                case _:
+                    raise TypeError(f"Unexpected type of update record: {record}")
+
+        # Find all existing records with open validity range.
+        table = self.get_table("DiaObject")
+        query = sqlalchemy.select(table.columns["diaObjectId"], table.columns["validityStartMjdTai"]).where(
+            sqlalchemy.and_(
+                table.columns["diaObjectId"].in_(sorted(ids)), table.columns["validityEndMjdTai"].is_(None)
+            )
+        )
+        result = connection.execute(query)
+        found = {row[0]: row[1] for row in result.tuples()}
+        if len(found) != len(ids):
+            missing_ids = ids - set(found)
+            raise ValueError(f"Failed to find open intervals for DIAObjects {missing_ids}")
+
+        updates = []
+        for record in records:
+            match record:
+                case ApdbCloseDiaObjectValidityRecord():
+                    validityStartMjdTai = found[record.diaObjectId]
+                    values = {"validityEndMjdTai": record.validityEndMjdTai}
+                    if record.nDiaSources is not None:
+                        values["nDiaSources"] = record.nDiaSources
+                    updates.append(
+                        sqlalchemy.update(table)
+                        .where(
+                            sqlalchemy.and_(
+                                table.columns["diaObjectId"] == record.diaObjectId,
+                                table.columns["validityStartMjdTai"] == validityStartMjdTai,
+                            )
+                        )
+                        .values(**values)
+                    )
+                case ApdbUpdateNDiaSourcesRecord():
+                    validityStartMjdTai = found[record.diaObjectId]
+                    updates.append(
+                        sqlalchemy.update(table)
+                        .where(
+                            sqlalchemy.and_(
+                                table.columns["diaObjectId"] == record.diaObjectId,
+                                table.columns["validityStartMjdTai"] == validityStartMjdTai,
+                            )
+                        )
+                        .values(nDiaSources=record.nDiaSources)
+                    )
+
+        for update in updates:
+            result = connection.execute(update)
+            if result.rowcount != 1:
+                raise ValueError(f"Failed to update an existing DiaForcedSource record: {update}")
+
+    def _update_sources(
+        self, records: list[ApdbUpdateRecord], connection: sqlalchemy.engine.Connection
+    ) -> None:
+        # Collect all primary keys
+        ids = set()
+        for record in records:
+            match record:
+                case ApdbReassignDiaSourceRecord() | ApdbWithdrawDiaSourceRecord():
+                    ids.add(record.diaSourceId)
+                case _:
+                    raise TypeError(f"Unexpected type of update record: {record}")
+
+        # We want to check that all records actually exist on PPDB side and
+        # they match whatever comes in the updates.
+        table = self.get_table("DiaSource")
+        query = sqlalchemy.select(table.columns["diaSourceId"], table.columns["diaObjectId"]).where(
+            table.columns["diaSourceId"].in_(sorted(ids))
+        )
+        result = connection.execute(query)
+        source_id_to_object_id = {}
+        for row in result.tuples():
+            source_id_to_object_id[row[0]] = row[1]
+
+        # Check update records against what was returned.
+        for record in records:
+            match record:
+                case ApdbReassignDiaSourceRecord() | ApdbWithdrawDiaSourceRecord():
+                    diaObjectId = source_id_to_object_id.get(record.diaSourceId)
+                    if diaObjectId is None:
+                        raise ValueError(f"Unknown DIASource ID in update records: {record.diaSourceId}")
+                    if diaObjectId != record.diaObjectId:
+                        raise ValueError(
+                            f"Mismatch in DIAObject Id for DIASource {record.diaSourceId}:"
+                            f" database has diaObjectId={diaObjectId},"
+                            f" update record has diaObjectId={record.diaObjectId},"
+                        )
+
+        # Can proceed with updates.
+        updates = []
+        for record in records:
+            match record:
+                case ApdbReassignDiaSourceRecord():
+                    updates.append(
+                        sqlalchemy.update(table)
+                        .where(table.columns["diaSourceId"] == record.diaSourceId)
+                        .values(
+                            ssObjectId=record.ssObjectId,
+                            ssObjectReassocTimeMjdTai=record.ssObjectReassocTimeMjdTai,
+                            diaObjectId=None,
+                        )
+                    )
+                case ApdbWithdrawDiaSourceRecord():
+                    updates.append(
+                        sqlalchemy.update(table)
+                        .where(table.columns["diaSourceId"] == record.diaSourceId)
+                        .values(timeWithdrawnMjdTai=record.timeWithdrawnMjdTai)
+                    )
+
+        for update in updates:
+            result = connection.execute(update)
+            if result.rowcount != 1:
+                raise ValueError(f"Failed to update an existing DiaForcedSource record: {update}")
+
+    def _update_forced_sources(
+        self, records: list[ApdbUpdateRecord], connection: sqlalchemy.engine.Connection
+    ) -> None:
+        table = self.get_table("DiaForcedSource")
+        updates = []
+        for record in records:
+            match record:
+                case ApdbWithdrawDiaForcedSourceRecord():
+                    updates.append(
+                        sqlalchemy.update(table)
+                        .where(
+                            sqlalchemy.and_(
+                                table.columns["diaObjectId"] == record.diaObjectId,
+                                table.columns["visit"] == record.visit,
+                                table.columns["detector"] == record.detector,
+                            )
+                        )
+                        .values(timeWithdrawnMjdTai=record.timeWithdrawnMjdTai)
+                    )
+                case _:
+                    raise TypeError(f"Unexpected type of update record: {record}")
+
+        for update in updates:
+            result = connection.execute(update)
+            if result.rowcount != 1:
+                raise ValueError(f"Failed to update an existing DiaForcedSource record: {update}")
 
     @classmethod
     def read_schema(
