@@ -180,14 +180,12 @@ tables:
     mysql:datatype: DOUBLE
     fits:tunit: d
     ivoa:ucd: time.epoch
-  - name: flags
-    "@id": "#DiaSource.flags"
-    datatype: long
-    nullable: false
-    description: Flags, bitwise OR tbd.
-    value: 0
-    mysql:datatype: BIGINT
-    ivoa:ucd: meta.code
+  - name: centroid_flag
+    "@id": "#DiaSource.centroid_flag"
+    datatype: boolean
+    nullable: true
+    description: General centroid algorithm failure flag.
+    fits:tunit:
   - name: timeProcessedMjdTai
     "@id": "#DiaSource.timeProcessedMjdTai"
     datatype: double
