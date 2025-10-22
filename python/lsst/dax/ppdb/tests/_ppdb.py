@@ -30,7 +30,17 @@ from typing import TYPE_CHECKING, Any
 
 import astropy.time
 
-from lsst.dax.apdb import Apdb, ApdbConfig, ApdbReplica, ReplicaChunk
+from lsst.dax.apdb import (
+    Apdb,
+    ApdbCloseDiaObjectValidityRecord,
+    ApdbConfig,
+    ApdbReassignDiaSourceRecord,
+    ApdbReplica,
+    ApdbUpdateRecord,
+    ApdbWithdrawDiaForcedSourceRecord,
+    ReplicaChunk,
+)
+from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.apdb.tests.data_factory import makeForcedSourceCatalog, makeObjectCatalog, makeSourceCatalog
 from lsst.sphgeom import Angle, Circle, Region, UnitVector3d
 
@@ -39,6 +49,7 @@ from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..replicator import Replicator
 
 if TYPE_CHECKING:
+    import pandas
 
     class TestCaseMixin(unittest.TestCase):
         """Base class for mixin test classes that use TestCase methods."""
@@ -64,6 +75,9 @@ class PpdbTest(TestCaseMixin, ABC):
     This can only be used as a mixin class for a unittest.TestCase and it
     calls various assert methods.
     """
+
+    include_update_records = False
+    """If True then test replication of ApdbUpdateRecords."""
 
     @abstractmethod
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
@@ -121,12 +135,77 @@ class PpdbTest(TestCaseMixin, ABC):
             (astropy.time.Time("2021-03-01T00:02:00", format="isot", scale="tai"), objects2),
         ]
 
+        # Time when apdates are applied.
+        update_time = astropy.time.Time("2021-03-01T12:00:00")
+
+        update_records = []
         start_id = 0
-        for visit_time, objects in visits:
-            sources = makeSourceCatalog(objects, visit_time, start_id=start_id)
-            fsources = makeForcedSourceCatalog(objects, visit_time, visit=start_id)
+        for visit, (visit_time, objects) in enumerate(visits):
+            sources = makeSourceCatalog(objects, visit_time, visit=visit, start_id=start_id)
+            fsources = makeForcedSourceCatalog(objects, visit_time, visit=visit)
             apdb.store(visit_time, objects, sources, fsources)
             start_id += nobj
+
+            if self.include_update_records and visit == (len(visits) - 1):
+                # Generate few update records.
+                update_records = self._make_update_records(sources, fsources, update_time)
+
+        if self.include_update_records:
+            chunk = ReplicaChunk.make_replica_chunk(update_time, apdb.getConfig().replica_chunk_seconds)
+            # All our tests use SQL APDB.
+            assert isinstance(apdb, ApdbSql), "Expecting ApdbSql instance"
+            apdb._storeUpdateRecords(update_records, chunk, store_chunk=True)
+
+    def _make_update_records(
+        self, sources: pandas.DataFrame, fsources: pandas.DataFrame, update_time: astropy.time.Time
+    ) -> list[ApdbUpdateRecord]:
+        update_time_ns = int(update_time.unix_tai * 1e9)
+        records: list[ApdbUpdateRecord] = []
+
+        # Reassign one DIASource to SSObject.
+        dia_source = sources.iloc[0]
+        records.append(
+            ApdbReassignDiaSourceRecord(
+                update_time_ns=update_time_ns,
+                update_order=0,
+                diaSourceId=int(dia_source["diaSourceId"]),
+                diaObjectId=int(dia_source["diaObjectId"]),
+                ssObjectId=1,
+                ssObjectReassocTimeMjdTai=float(update_time.tai.mjd),
+                ra=float(dia_source["ra"]),
+                dec=float(dia_source["dec"]),
+            )
+        )
+
+        # Close validity interval for matching DIAObject.
+        records.append(
+            ApdbCloseDiaObjectValidityRecord(
+                update_time_ns=update_time_ns,
+                update_order=1,
+                diaObjectId=int(dia_source["diaObjectId"]),
+                validityEndMjdTai=update_time.tai.mjd,
+                nDiaSources=None,
+                ra=float(dia_source["ra"]),
+                dec=float(dia_source["dec"]),
+            )
+        )
+
+        # Withdraw one DIAForcedSource.
+        dia_fsource = fsources.iloc[0]
+        records.append(
+            ApdbWithdrawDiaForcedSourceRecord(
+                update_time_ns=update_time_ns,
+                update_order=2,
+                diaObjectId=int(dia_fsource["diaObjectId"]),
+                visit=int(dia_fsource["visit"]),
+                detector=int(dia_fsource["detector"]),
+                timeWithdrawnMjdTai=update_time.tai.mjd,
+                ra=float(dia_source["ra"]),
+                dec=float(dia_source["dec"]),
+            )
+        )
+
+        return records
 
     def _check_chunks(
         self, apdb_chunks: Sequence[ReplicaChunk], ppdb_chunks: Sequence[PpdbReplicaChunk]
@@ -145,11 +224,13 @@ class PpdbTest(TestCaseMixin, ABC):
 
         self._fill_apdb(apdb)
 
+        expected_chunks = 5 if self.include_update_records else 4
+
         # Get list of chunks from APDB.
         apdb_replica = ApdbReplica.from_config(apdb_config)
         apdb_chunks = apdb_replica.getReplicaChunks()
         assert apdb_chunks is not None
-        self.assertEqual(len(apdb_chunks), 4)
+        self.assertEqual(len(apdb_chunks), expected_chunks)
 
         # Make PPDB instance.
         ppdb_config = self.make_instance()
@@ -186,11 +267,18 @@ class PpdbTest(TestCaseMixin, ABC):
         self.assertEqual(len(ppdb_chunks), 4)
         self._check_chunks(apdb_chunks, ppdb_chunks)
 
+        if expected_chunks > 4:
+            replicator.run(single=True)
+            ppdb_chunks = ppdb.get_replica_chunks()
+            assert ppdb_chunks is not None
+            self.assertEqual(len(ppdb_chunks), 5)
+            self._check_chunks(apdb_chunks, ppdb_chunks)
+
         # All is done, this should just return.
         replicator.run(single=True)
         ppdb_chunks = ppdb.get_replica_chunks()
         assert ppdb_chunks is not None
-        self.assertEqual(len(ppdb_chunks), 4)
+        self.assertEqual(len(ppdb_chunks), expected_chunks)
 
     def test_replication_all(self) -> None:
         """Test replication from APDB to PPDB with multiple chunks."""
@@ -199,11 +287,13 @@ class PpdbTest(TestCaseMixin, ABC):
 
         self._fill_apdb(apdb)
 
+        expected_chunks = 5 if self.include_update_records else 4
+
         # Get list of chunks from APDB.
         apdb_replica = ApdbReplica.from_config(apdb_config)
         apdb_chunks = apdb_replica.getReplicaChunks()
         assert apdb_chunks is not None
-        self.assertEqual(len(apdb_chunks), 4)
+        self.assertEqual(len(apdb_chunks), expected_chunks)
 
         # Make PPDB instance.
         ppdb_config = self.make_instance()
@@ -221,11 +311,11 @@ class PpdbTest(TestCaseMixin, ABC):
         replicator.run(exit_on_empty=True)
         ppdb_chunks = ppdb.get_replica_chunks()
         assert ppdb_chunks is not None
-        self.assertEqual(len(ppdb_chunks), 4)
+        self.assertEqual(len(ppdb_chunks), expected_chunks)
         self._check_chunks(apdb_chunks, ppdb_chunks)
 
         # All is done, this should just return.
         replicator.run(single=True)
         ppdb_chunks = ppdb.get_replica_chunks()
         assert ppdb_chunks is not None
-        self.assertEqual(len(ppdb_chunks), 4)
+        self.assertEqual(len(ppdb_chunks), expected_chunks)

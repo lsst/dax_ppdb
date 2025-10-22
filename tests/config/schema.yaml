@@ -191,6 +191,12 @@ tables:
     datatype: double
     nullable: false
     description: Time when the image was processed and this DiaSource record was generated.
+  - name: timeWithdrawnMjdTai
+    "@id": "#DiaSource.timeWithdrawnMjdTai"
+    datatype: double
+    nullable: true
+    description: Time when this record was marked invalid,
+      expressed as Modified Julian Date, International Atomic Time.
   primaryKey: "#DiaSource.diaSourceId"
   indexes:
   - name: IDX_DiaSource_visitDetector
@@ -264,6 +270,12 @@ tables:
     datatype: double
     nullable: false
     description: Time when this record was generated.
+  - name: timeWithdrawnMjdTai
+    "@id": "#DiaForcedSource.timeWithdrawnMjdTai"
+    datatype: double
+    nullable: true
+    description: Time when this record was marked invalid,
+      expressed as Modified Julian Date, International Atomic Time.
   primaryKey:
   - "#DiaForcedSource.diaObjectId"
   - "#DiaForcedSource.visit"

@@ -43,6 +43,8 @@ TEST_SCHEMA = os.path.join(os.path.abspath(os.path.dirname(__file__)), "config/s
 class ApdbSQLiteTestCase(PpdbTest, unittest.TestCase):
     """A test case for PpdbSql class using SQLite backend."""
 
+    include_update_records = True
+
     def setUp(self) -> None:
         self.tempdir = tempfile.mkdtemp()
         self.apdb_url = f"sqlite:///{self.tempdir}/apdb.sqlite3"
@@ -70,6 +72,8 @@ class ApdbPostgresTestCase(PpdbTest, unittest.TestCase):
     """A test case for ApdbSql class using Postgres backend."""
 
     postgresql: Any
+
+    include_update_records = True
 
     @classmethod
     def setUpClass(cls) -> None:

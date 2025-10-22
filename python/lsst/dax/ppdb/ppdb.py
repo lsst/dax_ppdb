@@ -24,12 +24,12 @@ from __future__ import annotations
 __all__ = ["Ppdb"]
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
 import astropy.time
 
-from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ReplicaChunk
+from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ApdbUpdateRecord, ReplicaChunk
 from lsst.resources import ResourcePathExpression
 
 from ._factory import ppdb_from_config
@@ -116,6 +116,7 @@ class Ppdb(ABC):
         objects: ApdbTableData,
         sources: ApdbTableData,
         forced_sources: ApdbTableData,
+        update_records: Collection[ApdbUpdateRecord],
         *,
         update: bool = False,
     ) -> None:
@@ -131,6 +132,10 @@ class Ppdb(ABC):
             Matching APDB data for DiaSources.
         forced_sources : `~lsst.dax.apdb.ApdbTableData`
             Matching APDB data for DiaForcedSources.
+        update_records : `~collections.abc.Collection` \
+                [`~lsst.dax.apdb.ApdbUpdateRecord`]
+            Records of updates to be applied to pre-existing data. The records
+            must be in the same order as they were originally applied to APDB.
         update : `bool`, optional
             If `True` then allow updates for existing  data from the same
             ``replica_chunk``.
