@@ -239,7 +239,7 @@ class PpdbSqlBase:
         sub-classes may fail to override the methods to provide them. We check
         for `None` values and raise if they are not set.
         """
-        _LOG.info("Store metadata %s = %s", key, value)
+        _LOG.info("store metadata %s = %s", key, value)
         metadata.set(key, value, force=True)
 
     @classmethod

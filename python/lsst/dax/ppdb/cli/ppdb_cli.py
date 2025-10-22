@@ -38,7 +38,7 @@ def main() -> None:
 
     subparsers = parser.add_subparsers(title="available subcommands", required=True)
     _create_sql_subcommand(subparsers)
-    _create_bigquery_replica_chunk_sql_subcommand(subparsers)
+    _create_bigquery(subparsers)
 
     args = parser.parse_args()
     log_cli.process_args(args)
@@ -60,15 +60,20 @@ def _create_sql_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(method=scripts.create_sql)
 
 
-def _create_bigquery_replica_chunk_sql_subcommand(subparsers: argparse._SubParsersAction) -> None:
+def _create_bigquery(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
-        "create-bq-replica-chunk-sql", help="Create database for tracking replica chunks in BigQuery."
+        "create-bq", help="Create BigQuery PPDB configuration and database for tracking replica chunks."
     )
-    parser.add_argument("db_url", help="Database URL in SQLAlchemy format.")
+    parser.add_argument("db_url", help="Database URL in SQLAlchemy format for PPDB instance.")
     parser.add_argument("output_config", help="Name of the new BigQuery PPDB configuration file.")
-    options.felis_schema_options(parser)
-    options.sql_db_options(parser)
+    # We don't reuse the SQL options here because we don't need most of them.
+    parser.add_argument("--db-drop", help="Drop existing SQL db tables.", default=False, action="store_true")
     parser.add_argument(
-        "--drop", help="If True then drop existing tables.", default=False, action="store_true"
+        "--db-schema",
+        help="Optional schema name for db.",
+        metavar="DB_SCHEMA",
+        default=None,
     )
-    parser.set_defaults(method=scripts.create_bigquery_replica_chunk_sql)
+    options.felis_schema_options(parser)
+    options.bigquery_options(parser)
+    parser.set_defaults(method=scripts.create_bigquery)

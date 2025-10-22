@@ -39,6 +39,19 @@ except ImportError:
 
 TEST_SCHEMA = os.path.join(os.path.abspath(os.path.dirname(__file__)), "config/schema.yaml")
 
+TEST_CONFIG = {
+    "db_drop": True,
+    "validate_config": False,
+    "delete_existing_dirs": True,
+    "stage_chunk_topic": "stage-chunk-topic",
+    "parq_batch_size": 10000,
+    "parq_compression": "snappy",
+    "bucket_name": "test_bucket",
+    "object_prefix": "test_prefix",
+    "dataset_id": "test_dataset",
+    "project_id": "test_project",
+}
+
 
 class SqliteTestCase(PpdbTest, unittest.TestCase):
     """A test case for the PpdbBigQuery class using a SQLite backend."""
@@ -53,9 +66,16 @@ class SqliteTestCase(PpdbTest, unittest.TestCase):
 
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
-        bq_config = PpdbBigQuery.init_database(db_url=self.ppdb_url, schema_file=TEST_SCHEMA, **kwargs)
-        bq_config.directory = self.tempdir
-        bq_config.delete_existing = True
+        kw = {
+            **TEST_CONFIG,
+            "db_url": self.ppdb_url,
+            "db_schema": None,
+            "felis_path": TEST_SCHEMA,
+            "replication_dir": self.tempdir,
+        }
+        bq_config = PpdbBigQuery.init_bigquery(
+            **kw,
+        )  # type: ignore[arg-type]
         return bq_config
 
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
@@ -98,9 +118,14 @@ class PostgresTestCase(PpdbTest, unittest.TestCase):
 
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
-        bq_config = PpdbBigQuery.init_database(db_url=self.server.url(), schema_file=TEST_SCHEMA, **kwargs)
-        bq_config.directory = self.tempdir
-        bq_config.delete_existing = True
+        kw = {
+            **TEST_CONFIG,
+            "db_url": self.server.url(),
+            "db_schema": None,
+            "felis_path": TEST_SCHEMA,
+            "replication_dir": self.tempdir,
+        }
+        bq_config = PpdbBigQuery.init_bigquery(**kw)  # type: ignore[arg-type]
         return bq_config
 
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:

@@ -21,4 +21,4 @@
 
 from .manifest import Manifest
 from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
-from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
+from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
