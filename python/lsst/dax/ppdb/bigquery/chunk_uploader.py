@@ -46,7 +46,7 @@ except ImportError as e:
 from ..config import PpdbConfig
 from .manifest import Manifest
 from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
-from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
+from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 
 __all__ = ["ChunkUploadError", "ChunkUploader"]
 

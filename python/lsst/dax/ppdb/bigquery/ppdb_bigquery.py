@@ -38,16 +38,24 @@ from lsst.dax.apdb import (
     schema_model,
 )
 from lsst.dax.apdb.timer import Timer
-from lsst.dax.ppdbx.gcp.bq import check_dataset_exists
-from lsst.dax.ppdbx.gcp.gcs import check_bucket_exists
-from lsst.dax.ppdbx.gcp.pubsub import Publisher
+
+try:
+    from lsst.dax.ppdbx.gcp.bq import check_dataset_exists
+    from lsst.dax.ppdbx.gcp.gcs import check_bucket_exists
+    from lsst.dax.ppdbx.gcp.pubsub import Publisher
+except ImportError as e:
+    raise ImportError(
+        "The lsst.dax.ppdbx.gcp module is required for BigQuery support.\n"
+        "Please 'pip install' the lsst-dax-ppdbx-gcp package from:\n"
+        "https://github.com/lsst-dm/dax_ppdbx_gcp"
+    ) from e
 
 from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, TableStats
-from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
+from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 
 __all__ = ["ConfigValidationError", "PpdbBigQuery", "PpdbBigQueryConfig"]
 
