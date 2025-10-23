@@ -39,17 +39,6 @@ from lsst.dax.apdb import (
 )
 from lsst.dax.apdb.timer import Timer
 
-try:
-    from lsst.dax.ppdbx.gcp.bq import check_dataset_exists
-    from lsst.dax.ppdbx.gcp.gcs import check_bucket_exists
-    from lsst.dax.ppdbx.gcp.pubsub import Publisher
-except ImportError as e:
-    raise ImportError(
-        "The lsst.dax.ppdbx.gcp module is required for BigQuery support.\n"
-        "Please 'pip install' the lsst-dax-ppdbx-gcp package from:\n"
-        "https://github.com/lsst-dm/dax_ppdbx_gcp"
-    ) from e
-
 from .._arrow import write_parquet
 from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
@@ -544,6 +533,19 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         credentials, which will then be used automatically. There will likely
         be 403 errors if the permissions are insufficient in either case.
         """
+        # Check for GCP dependencies and import the necessary modules. Raise an
+        # error with instructions if the module is not found.
+        try:
+            from lsst.dax.ppdbx.gcp.bq import check_dataset_exists
+            from lsst.dax.ppdbx.gcp.gcs import check_bucket_exists
+            from lsst.dax.ppdbx.gcp.pubsub import Publisher
+        except ImportError as e:
+            raise ConfigValidationError(
+                "The lsst.dax.ppdbx.gcp module is required for GCP support.\n"
+                "Please 'pip install' the lsst-dax-ppdbx-gcp package from:\n"
+                "https://github.com/lsst-dm/dax_ppdbx_gcp"
+            ) from e
+
         # Check existence of the Pub/Sub stage chunk topic.
         try:
             Publisher(config.project_id, config.stage_chunk_topic).validate_topic_exists()
