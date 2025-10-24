@@ -5,5 +5,7 @@ setupRequired(sconsUtils)
 setupRequired(sdm_schemas)
 setupRequired(utils)
 
+setupOptional(dax_ppdbx_gcp)
+
 envPrepend(PATH, ${PRODUCT_DIR}/bin)
 envPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)
