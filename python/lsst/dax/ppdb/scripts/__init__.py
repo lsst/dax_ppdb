@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from .create_bigquery_replica_chunk_sql import create_bigquery_replica_chunk_sql
+from .create_bigquery import create_bigquery
 from .create_sql import create_sql
 from .replication_list_chunks_apdb import replication_list_chunks_apdb
 from .replication_list_chunks_ppdb import replication_list_chunks_ppdb

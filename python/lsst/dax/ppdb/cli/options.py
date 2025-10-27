@@ -65,14 +65,12 @@ def sql_db_options(parser: argparse.ArgumentParser) -> None:
         metavar="DB_SCHEMA",
         default=None,
     )
-
     group.add_argument(
         "--connection-pool",
         help="Enable/disable use of connection pool.",
         action=argparse.BooleanOptionalAction,
         default=True,
     )
-
     group.add_argument(
         "--isolation-level",
         help="Transaction isolation level, allowed values: %(choices)s",
@@ -80,7 +78,6 @@ def sql_db_options(parser: argparse.ArgumentParser) -> None:
         choices=["READ_COMMITTED", "READ_UNCOMMITTED", "REPEATABLE_READ", "SERIALIZABLE"],
         default=None,
     )
-
     group.add_argument(
         "--connection-timeout",
         type=float,
@@ -166,4 +163,83 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
         help="Exit if an error occurs during upload.",
         default=False,
         action="store_true",
+    )
+
+
+def bigquery_options(parser: argparse.ArgumentParser) -> None:
+    """Define CLI options for BigQuery.
+
+    Parameters
+    ----------
+    parser : `~argparse.ArgumentParser`
+        The argument parser to which the options are added.
+    """
+    group = parser.add_argument_group("BigQuery options")
+    group.add_argument(
+        "--replication-dir",
+        help="Local directory for writing replica chunk data.",
+        metavar="DIRECTORY",
+        required=True,
+    )
+    group.add_argument(
+        "--delete-existing-dirs",
+        help="Delete existing directories for chunks before export.",
+        default=False,
+        action="store_true",
+    )
+    group.add_argument(
+        "--stage-chunk-topic",
+        type=str,
+        help="Pub/Sub topic name for triggering chunk staging process.",
+        metavar="STRING",
+        default=None,
+    )
+    group.add_argument(
+        "--parq-batch-size",
+        type=int,
+        help="Number of rows to process in each batch when writing parquet files, default: 10000.",
+        default=None,
+    )
+    group.add_argument(
+        "--parq-compression",
+        type=str,
+        help="Compression format for Parquet files, default: 'snappy'.",
+        # List is not comprehensive but provides the most common options and a
+        # few zstd levels; more can be added later if needed.
+        choices={"none", "snappy", "gzip", "brotli", "lz4", "zstd", "zstd_lvl8", "zstd_lvl15"},
+        default=None,
+    )
+    group.add_argument(
+        "--bucket-name",
+        type=str,
+        help="Name of Google Cloud Storage bucket for uploading chunks.",
+        metavar="BUCKET_NAME",
+        required=True,
+    )
+    group.add_argument(
+        "--dataset-id",
+        type=str,
+        help="BigQuery dataset ID, e.g., 'my_dataset'.",
+        metavar="DATASET_NAME",
+        required=True,
+    )
+    group.add_argument(
+        "--project-id",
+        type=str,
+        help="Google Cloud project ID containing the dataset.",
+        metavar="PROJECT_ID",
+        required=True,
+    )
+    group.add_argument(
+        "--object-prefix",
+        type=str,
+        help="Base prefix for replication objects in cloud storage.",
+        metavar="PREFIX",
+        required=True,
+    )
+    group.add_argument(
+        "--validate-config",
+        help="Enable/disable validation of configuration against GCP resources (enabled by default).",
+        action=argparse.BooleanOptionalAction,
+        default=True,
     )
