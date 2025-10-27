@@ -46,7 +46,7 @@ except ImportError as e:
 from ..config import PpdbConfig
 from .manifest import Manifest
 from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
-from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
+from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 
 __all__ = ["ChunkUploadError", "ChunkUploader"]
 
@@ -123,15 +123,15 @@ class ChunkUploader:
         self._bq = PpdbBigQuery(config)
 
         # Read parameters from config
-        if config.prefix is None:
+        if config.object_prefix is None:
             raise ValueError("GCS prefix is not set in configuration.")
-        self.prefix: str = config.prefix
-        if config.bucket is None:
+        self.prefix: str = config.object_prefix
+        if config.bucket_name is None:
             raise ValueError("GCS bucket name is not set in configuration.")
-        self.bucket_name: str = config.bucket
-        if config.dataset is None:
+        self.bucket_name: str = config.bucket_name
+        if config.dataset_id is None:
             raise ValueError("BigQuery dataset is not set in configuration.")
-        self.dataset: str = config.dataset
+        self.dataset_id: str = config.fq_dataset_id
         self.topic_name = config.stage_chunk_topic
 
         # Command line parameters
@@ -298,7 +298,7 @@ class ChunkUploader:
 
     def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_prefix: str, chunk_id: int) -> None:
         message = {
-            "dataset": self.dataset,
+            "dataset": self.dataset_id,
             "chunk_id": str(chunk_id),
             "folder": f"gs://{posixpath.join(bucket_name, chunk_prefix)}",
         }

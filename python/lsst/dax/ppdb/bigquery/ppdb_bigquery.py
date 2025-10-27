@@ -45,9 +45,9 @@ from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, TableStats
-from .replica_chunk import ChunkStatus, PpdbReplicaChunkExtended
+from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 
-__all__ = ["PpdbBigQuery", "PpdbBigQueryConfig"]
+__all__ = ["ConfigValidationError", "PpdbBigQuery", "PpdbBigQueryConfig"]
 
 _LOG = logging.getLogger(__name__)
 
@@ -63,38 +63,58 @@ VERSION = VersionTuple(0, 1, 0)
 class PpdbBigQueryConfig(PpdbConfig):
     """Configuration for BigQuery-based PPDB."""
 
-    directory: Path | None = None
+    project_id: str
+    """Google Cloud project ID."""
+
+    dataset_id: str
+    """Target BigQuery dataset ID, without the project."""
+
+    bucket_name: str
+    """Name of Google Cloud Storage bucket for uploading chunks."""
+
+    object_prefix: str
+    """Base prefix for the object in cloud storage."""
+
+    replication_dir: str
     """Directory where the exported chunks will be stored."""
 
-    delete_existing: bool = False
+    stage_chunk_topic: str = "stage-chunk-topic"
+    """Pub/Sub topic name for triggering chunk staging process."""
+
+    parq_batch_size: int = 10000
+    """Number of rows to process in each batch when writing parquet files."""
+
+    parq_compression: str = "snappy"
+    """Compression format for Parquet files."""
+
+    delete_existing_dirs: bool = False
     """If `True`, existing directories for chunks will be deleted before
     export. If `False`, an error will be raised if the directory already
     exists.
     """
 
-    stage_chunk_topic: str = "stage-chunk-topic"
-    """Pub/Sub topic name for triggering chunk staging process."""
+    sql: PpdbSqlBaseConfig
+    """SQL database configuration (`PpdbSqlBaseConfig`)."""
 
-    batch_size: int = 1000
-    """Number of rows to process in each batch when writing parquet files."""
+    @property
+    def replication_path(self) -> Path:
+        """Return path for writing replica chunk data (`pathlib.Path`)."""
+        return Path(self.replication_dir)
 
-    compression_format: str = "snappy"
-    """Compression format for Parquet files."""
+    @property
+    def fq_dataset_id(self) -> str:
+        """Fully qualified BigQuery dataset ID, including project.
 
-    bucket: str | None = None
-    """Name of Google Cloud Storage bucket for uploading chunks."""
+        Returns
+        -------
+        fq_dataset_id : `str`
+            Fully qualified BigQuery dataset ID, including project.
+        """
+        return f"{self.project_id}:{self.dataset_id}"
 
-    prefix: str | None = None
-    """Base prefix for the object in cloud storage."""
 
-    dataset: str | None = None
-    """Target BigQuery dataset, e.g., 'my_project:my_dataset'
-    (`str` or `None`). If not provided the project will be derived from the
-    Google Cloud environment at runtime.
-    """
-
-    sql: PpdbSqlBaseConfig | None = None
-    """SQL database configuration (`PpdbSqlBaseConfig` or `None`)."""
+class ConfigValidationError(Exception):
+    """Indicates an error validating the configuration."""
 
 
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
@@ -107,17 +127,16 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     """
 
     def __init__(self, config: PpdbBigQueryConfig):
-        if config.sql is None:
-            raise ValueError("The 'sql' section is missing from the BigQuery config.")
+        # Initialize the SQL interface for the PPDB.
         PpdbSqlBase.__init__(self, config.sql)
 
         # Read parameters from config.
-        if config.directory is None:
+        if config.replication_dir is None:
             raise ValueError("Directory for chunk export is not set in configuration.")
-        self.directory: Path = config.directory
-        self.batch_size = config.batch_size
-        self.compression_format = config.compression_format
-        self.delete_existing = config.delete_existing
+        self.replication_path = config.replication_path
+        self.parq_batch_size = config.parq_batch_size
+        self.parq_compression = config.parq_compression
+        self.delete_existing_dirs = config.delete_existing_dirs
 
     @property
     def metadata(self) -> ApdbMetadata:
@@ -143,7 +162,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             table_data={
                 table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
             },
-            compression_format=self.compression_format,
+            compression_format=self.parq_compression,
         )
 
     def store(
@@ -168,7 +187,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             chunk_dir = self._get_chunk_path(replica_chunk)
 
             if chunk_dir.exists():
-                if not self.delete_existing:
+                if not self.delete_existing_dirs:
                     raise FileExistsError(f"Directory already exists for {replica_chunk.id}: {chunk_dir}")
                 _LOG.warning("Overwriting existing directory for %s: %s", replica_chunk.id, chunk_dir)
                 shutil.rmtree(chunk_dir)
@@ -196,8 +215,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                             table_name,
                             table_data,
                             parquet_file_path,
-                            batch_size=self.batch_size,
-                            compression_format=self.compression_format,
+                            batch_size=self.parq_batch_size,
+                            compression_format=self.parq_compression,
                             exclude_columns={"apdb_replica_subchunk"},
                         )
                         timer.add_values(row_count=row_count)
@@ -241,7 +260,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         last_update_time = chunk.last_update_time.to_datetime()
         assert isinstance(last_update_time, datetime.datetime)
         path = Path(
-            self.directory,
+            self.replication_path,
             chunk.last_update_time.strftime("%Y/%m/%d"),
             str(chunk.id),
         )
@@ -376,56 +395,97 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         return ["metadata"]
 
     @classmethod
-    def init_database(
+    def init_bigquery(
         cls,
         db_url: str,
-        schema_file: str | None = None,
-        schema_name: str | None = None,
-        felis_schema: str | None = None,
-        use_connection_pool: bool = True,
-        isolation_level: str | None = None,
-        connection_timeout: float | None = None,
-        drop: bool = False,
+        project_id: str,
+        dataset_id: str,
+        bucket_name: str,
+        object_prefix: str,
+        replication_dir: str,
+        db_drop: bool,
+        *,
+        db_schema: str | None = None,
+        felis_path: str | None = None,
+        felis_schema: str | None = None,  # TODO: Remove this eventually (DM-52584)
+        stage_chunk_topic: str | None = None,
+        parq_batch_size: int | None = None,
+        parq_compression: str | None = None,
+        delete_existing_dirs: bool = False,
+        validate_config: bool = False,
     ) -> PpdbBigQueryConfig:
         """Initialize PPDB database and return configuration object.
 
         Parameters
         ----------
         db_url : `str`
-            SQLAlchemy database connection URI.
-        schema_file : `str` or `None`
-            Name of YAML file with ``felis`` schema, if `None` then default
-            schema file is used.
-        schema_name : `str` or `None`
-            Database schema name, if `None` then default schema is used.
-        felis_schema : `str` or `None`
-            Name of the schema in YAML file, if `None` then file has to contain
-            single schema.
-        use_connection_pool : `bool`
-            If True then allow use of connection pool.
-        isolation_level : `str` or `None`
-            Transaction isolation level, if unset then backend-default value is
-            used.
-        connection_timeout : `float` or `None`
-            Maximum connection timeout in seconds.
-        drop : `bool`
-            If `True` then drop existing tables.
+            Database URL in SQLAlchemy format for PPDB instance.
+        project_id : `str`
+            GCP project ID.
+        dataset_id : `str`
+            BigQuery dataset name without the project ID.
+        bucket_name : `str`
+            GCS bucket name to use for Parquet output.
+        object_prefix : `str`
+            Object prefix to use in GCS bucket for Parquet output.
+        replication_dir : `str`
+            Directory used for replication staging area.
+        db_drop : `bool`
+            If True then drop existing db tables.
+        db_schema : `str`, optional
+            Database schema name for PPDB instance.
+        felis_path : `str`, optional
+            Path to Felis database. If `None`, defaults to the default path in
+            SDM Schemas.
+        felis_schema : `str`, optional
+            Felis schema name within the YAML file.
+        stage_chunk_topic : `str`, optional
+            Pub/Sub topic to use for staging chunks.
+        parq_batch_size : `int`, optional
+            Number of rows to use when batching Parquet output.
+        parq_compression : `str`, optional
+            Compression codec to use for Parquet output.
+        delete_existing_dirs : `bool`, optional
+            If True then delete existing replication staging directories.
+        validate_config : `bool`, optional
+            If `True`, validate the configuration against GCP resources.
+
+        Raises
+        ------
+        ConfigValidationError
+            Raised if validation of the configuration fails.
         """
-        sa_metadata, schema_version = cls.read_schema(schema_file, schema_name, felis_schema, db_url)
+        # Create the schema and SQL db for tracking replica chunks; values of
+        # None are handled by these methods.
+        sa_metadata, schema_version = cls.read_schema(felis_path, db_schema, felis_schema, db_url)
         sql_config = PpdbSqlBaseConfig(
-            db_url=db_url,
-            schema_name=schema_name,
-            felis_path=schema_file,
-            felis_schema=felis_schema,
-            use_connection_pool=use_connection_pool,
-            isolation_level=isolation_level,
-            connection_timeout=connection_timeout,
+            db_url=db_url, schema_name=db_schema, felis_path=felis_path, felis_schema=felis_schema
         )
-        cls.make_database(sql_config, sa_metadata, schema_version, drop)
-        # DM-52460: This method or whatever eventually creates this
-        # configuration object needs to be updated to allow setting
-        # the BigQuery-specific parameters here.
-        bq_config = PpdbBigQueryConfig(sql=sql_config)
+        cls.make_database(sql_config, sa_metadata, schema_version, db_drop)
+
+        # Build config parameters.
+        bq_config = PpdbBigQueryConfig(
+            sql=sql_config,
+            replication_dir=replication_dir,
+            bucket_name=bucket_name,
+            dataset_id=dataset_id,
+            project_id=project_id,
+            object_prefix=object_prefix,
+            delete_existing_dirs=delete_existing_dirs,
+        )
+        if parq_batch_size is not None:
+            bq_config.parq_batch_size = parq_batch_size
+        if parq_compression is not None:
+            bq_config.parq_compression = parq_compression
+        if stage_chunk_topic is not None:
+            bq_config.stage_chunk_topic = stage_chunk_topic
+
+        # Validate the config if requested.
+        if validate_config:
+            _LOG.info("validating BigQuery configuration")
+            PpdbBigQuery.validate_config(bq_config)
+            _LOG.info("BigQuery configuration validated successfully")
+
         return bq_config
 
     @classmethod
@@ -437,3 +497,68 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     def get_code_version(cls) -> VersionTuple:
         # Docstring is inherited.
         return VERSION
+
+    @classmethod
+    def validate_config(cls, config: PpdbBigQueryConfig) -> None:
+        """Validate the BigQuery PPDB configuration against GCP resources.
+
+        A number of resources need to be created before the PPDB can be used
+        and this method checks that they exist and are accessible with the
+        current Google Cloud credentials.
+
+        Parameters
+        ----------
+        config : `PpdbBigQueryConfig`
+            Configuration to validate.
+
+        Raises
+        ------
+        ConfigValidationError
+            Raised if the configuration is invalid.
+
+        Notes
+        -----
+        This method does not do any authentication to Google Cloud itself but
+        depends on the environment being set up beforehand with a user
+        account that has the appropriate permissions. This would typically be
+        the identity of whoever is managing the PPDB and its project(s) and
+        running the ``ppdb-cli`` command line interface. By design, a single
+        service account would not have all of the permissions for checking
+        these resources and so should not be used here.
+
+        The best way to configure the environment for the validation will be to
+        ensure that ``GOOGLE_APPLICATION_CREDENTIALS`` is unset and then run
+        ``gcloud auth application-default login`` to set up the default user
+        credentials, which will then be used automatically. There will likely
+        be 403 errors if the permissions are insufficient in either case.
+        """
+        # Check for GCP dependencies and import the necessary modules. Raise an
+        # error with instructions if the module is not found.
+        try:
+            from lsst.dax.ppdbx.gcp.bq import check_dataset_exists
+            from lsst.dax.ppdbx.gcp.gcs import check_bucket_exists
+            from lsst.dax.ppdbx.gcp.pubsub import Publisher
+        except ImportError as e:
+            raise ConfigValidationError(
+                "The lsst.dax.ppdbx.gcp module is required for GCP support.\n"
+                "Please 'pip install' the lsst-dax-ppdbx-gcp package from:\n"
+                "https://github.com/lsst-dm/dax_ppdbx_gcp"
+            ) from e
+
+        # Check existence of the Pub/Sub stage chunk topic.
+        try:
+            Publisher(config.project_id, config.stage_chunk_topic).validate_topic_exists()
+        except Exception as e:
+            raise ConfigValidationError("Failed to validate Pub/Sub topic") from e
+
+        # Check existence of the storage bucket for chunks.
+        try:
+            check_bucket_exists(config.bucket_name)
+        except Exception as e:
+            raise ConfigValidationError("Failed to validate GCS bucket") from e
+
+        # Check existence of the BigQuery dataset.
+        try:
+            check_dataset_exists(config.project_id, config.dataset_id)
+        except Exception as e:
+            raise ConfigValidationError("Failed to validate BigQuery dataset") from e
