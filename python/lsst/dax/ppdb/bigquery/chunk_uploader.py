@@ -25,7 +25,6 @@ import logging
 import posixpath
 import sys
 import time
-from pathlib import Path
 
 from lsst.dax.apdb import monitor
 from lsst.dax.apdb.timer import Timer
@@ -218,7 +217,7 @@ class ChunkUploader:
 
         if replica_chunk.directory is None:
             raise ChunkUploadError(chunk_id, "No directory specified on replica chunk")
-        chunk_dir = Path(replica_chunk.directory)
+        chunk_dir = replica_chunk.directory
 
         # Read the manifest file to get metadata about the chunk.
         manifest: Manifest | None = None
