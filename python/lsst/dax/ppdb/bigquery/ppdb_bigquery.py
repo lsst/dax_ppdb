@@ -319,7 +319,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         unique_id=row[2],
                         replica_time=replica_time,
                         status=row[4],
-                        directory=row[5],
+                        directory=Path(row[5]),
                     )
                 )
         return ids
