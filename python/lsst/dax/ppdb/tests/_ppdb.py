@@ -118,8 +118,8 @@ class PpdbTest(TestCaseMixin, ABC):
         region1 = _make_region((1.0, 1.0, -1.0))
         region2 = _make_region((-1.0, -1.0, -1.0))
         nobj = 100
-        objects1 = makeObjectCatalog(region1, nobj, visit_time)
-        objects2 = makeObjectCatalog(region2, nobj, visit_time, start_id=nobj * 2)
+        objects1 = makeObjectCatalog(region1, nobj)
+        objects2 = makeObjectCatalog(region2, nobj, start_id=nobj * 2)
 
         # With the default 10 minutes replica chunk window we should have 4
         # records. All timestamps are far in the past, means that replication
