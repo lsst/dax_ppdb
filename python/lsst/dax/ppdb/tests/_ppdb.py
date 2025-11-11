@@ -34,7 +34,7 @@ from lsst.dax.apdb import (
     Apdb,
     ApdbCloseDiaObjectValidityRecord,
     ApdbConfig,
-    ApdbReassignDiaSourceRecord,
+    ApdbReassignDiaSourceToSSObjectRecord,
     ApdbReplica,
     ApdbUpdateRecord,
     ApdbWithdrawDiaForcedSourceRecord,
@@ -165,15 +165,15 @@ class PpdbTest(TestCaseMixin, ABC):
         # Reassign one DIASource to SSObject.
         dia_source = sources.iloc[0]
         records.append(
-            ApdbReassignDiaSourceRecord(
+            ApdbReassignDiaSourceToSSObjectRecord(
                 update_time_ns=update_time_ns,
                 update_order=0,
                 diaSourceId=int(dia_source["diaSourceId"]),
-                diaObjectId=int(dia_source["diaObjectId"]),
                 ssObjectId=1,
                 ssObjectReassocTimeMjdTai=float(update_time.tai.mjd),
                 ra=float(dia_source["ra"]),
                 dec=float(dia_source["dec"]),
+                midpointMjdTai=60000.0,
             )
         )
 
@@ -202,6 +202,7 @@ class PpdbTest(TestCaseMixin, ABC):
                 timeWithdrawnMjdTai=update_time.tai.mjd,
                 ra=float(dia_source["ra"]),
                 dec=float(dia_source["dec"]),
+                midpointMjdTai=60000.0,
             )
         )
 
