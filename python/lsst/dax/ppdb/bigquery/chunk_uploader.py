@@ -232,7 +232,8 @@ class ChunkUploader:
 
         # Construct the GCS prefix for this chunk's files.
         gcs_prefix = posixpath.join(
-            self.prefix, f"chunks/{manifest.exported_at.strftime('%Y/%m/%d')}/{chunk_id}"
+            self.prefix,
+            f"{manifest.exported_at.strftime('%Y/%m/%d')}/{chunk_id}",
         )
 
         # Make a list of local parquet files to upload.
