@@ -78,6 +78,7 @@ class SqliteTestCase(PpdbTest, unittest.TestCase):
         """Make APDB instance for tests."""
         kw = {
             "schema_file": TEST_SCHEMA,
+            "ss_schema_file": "",
             "db_url": self.apdb_url,
             "enable_replica": True,
         }
@@ -128,6 +129,7 @@ class PostgresTestCase(PpdbTest, unittest.TestCase):
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
         kw = {
             "schema_file": TEST_SCHEMA,
+            "ss_schema_file": "",
             "db_url": self.server.url(),
             "namespace": "apdb",
             "enable_replica": True,
