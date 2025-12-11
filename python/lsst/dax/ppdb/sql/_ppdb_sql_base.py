@@ -375,7 +375,10 @@ class PpdbSqlBase:
             table for table in schema_dict.get("tables", []) if table["name"] in filtered_table_names
         ]
 
-        dm_schema: FelisSchema = felis.datamodel.Schema.model_validate(schema_dict)
+        dm_schema: FelisSchema = felis.datamodel.Schema.model_validate(
+            schema_dict,
+            context={"id_generation": True},
+        )
         schema = schema_model.Schema.from_felis(dm_schema)
 
         # Replace schema name with a configured one, just in case it may be
