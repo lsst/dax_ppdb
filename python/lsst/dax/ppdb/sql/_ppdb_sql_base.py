@@ -115,7 +115,7 @@ class PpdbSqlBase:
     Sub-classes which need to do that should use multiple inheritance.
     """
 
-    default_felis_schema_file = "${SDM_SCHEMAS_DIR}/yml/apdb.yaml"
+    default_felis_schema_file = "resource://lsst.sdm.schemas/apdb.yaml"
     """Default location of the YAML file defining APDB schema."""
 
     meta_schema_version_key = "version:schema"
