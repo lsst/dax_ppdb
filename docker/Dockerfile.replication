@@ -16,22 +16,21 @@ RUN pip install --upgrade --no-cache-dir pip setuptools wheel uv
 WORKDIR /build
 COPY . /build
 
-# Install requirements
+# Install database drivers (Cassandra and PostgreSQL)
 RUN uv pip install --no-cache-dir --system cassandra-driver psycopg2-binary
+
+# Install package requirements
 RUN uv pip install --no-cache-dir --system -r requirements.txt
 
 # Install the package
 RUN uv pip install --no-cache-dir --system --no-deps .
 
+# Install SDM Schemas so that resource URIs can be resolved
+ENV SDM_SCHEMAS_REF=main
+RUN uv pip install --no-cache-dir --system git+https://github.com/lsst/sdm_schemas.git@${SDM_SCHEMAS_REF}
+
 # Setup the application scripts
 WORKDIR /app
-
-# Install sdm_schemas
-# Change this using: -e SDM_SCHEMAS_REF=branch_or_tag_name
-ENV SDM_SCHEMAS_REF=main
-COPY ./docker/scripts/download-sdm-schemas.sh .
-RUN ./download-sdm-schemas.sh && rm download-sdm-schemas.sh
-ENV SDM_SCHEMAS_DIR=/app/sdm_schemas
 
 # Copy the entrypoint script
 COPY docker/scripts/entrypoint-replication.sh .
