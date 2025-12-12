@@ -28,6 +28,7 @@ dependencies = [
     "pyyaml >= 5.1",
     "sqlalchemy",
     "lsst-felis",
+    "lsst-sdm-schemas",
     "lsst-utils",
     "lsst-resources",
     "lsst-dax-apdb",

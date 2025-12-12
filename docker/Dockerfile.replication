@@ -25,10 +25,6 @@ RUN uv pip install --no-cache-dir --system -r requirements.txt
 # Install the package
 RUN uv pip install --no-cache-dir --system --no-deps .
 
-# Install SDM Schemas so that resource URIs can be resolved
-ENV SDM_SCHEMAS_REF=main
-RUN uv pip install --no-cache-dir --system git+https://github.com/lsst/sdm_schemas.git@${SDM_SCHEMAS_REF}
-
 # Setup the application scripts
 WORKDIR /app
 
