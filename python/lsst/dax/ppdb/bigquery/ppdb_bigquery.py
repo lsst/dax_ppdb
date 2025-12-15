@@ -243,11 +243,16 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
             raise
 
+        if manifest.is_empty_chunk():
+            # Mark as skipped if there is no data to export.
+            status = ChunkStatus.SKIPPED
+            _LOG.warning("No data to export for %s, marking chunk as skipped", replica_chunk.id)
+        else:
+            status = ChunkStatus.EXPORTED
+
         # Store the replica chunk info in the database, including status and
         # directory.
-        replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(
-            replica_chunk, ChunkStatus.EXPORTED, chunk_dir
-        )
+        replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(replica_chunk, status, chunk_dir)
         try:
             self.store_chunk(replica_chunk_ext, False)
         except Exception as e:

@@ -238,30 +238,44 @@ class ChunkUploader:
 
         # Make a list of local parquet files to upload.
         parquet_files = list(chunk_dir.glob("*.parquet"))
-        if not parquet_files:
-            raise ChunkUploadError(chunk_id, f"No parquet files found in {chunk_dir}")
 
-        # Calculate total size of files to upload in bytes.
-        total_bytes = sum(p.stat().st_size for p in parquet_files)
+        # Check if the chunk is expected to be empty.
+        is_empty = manifest.is_empty_chunk()
 
-        uploads_completed = False
+        if not parquet_files and not is_empty:
+            # There is a mismatch between the manifest and the actual files.
+            # Some processing error may have occurred when exporting.
+            raise ChunkUploadError(chunk_id, f"No parquet files found in {chunk_dir} for non-empty chunk")
+
+        # Check that all expected parquet files from the manifest are present.
+        for table_name, table_stats in manifest.table_data.items():
+            if table_stats.row_count > 0:
+                expected_file = chunk_dir / f"{table_name}.parquet"
+                if not expected_file.exists():
+                    raise ChunkUploadError(
+                        chunk_id,
+                        f"Expected parquet file for table '{table_name}' does not exist: {expected_file}",
+                    )
 
         try:
-            # 1) Upload parquet files (may raise ExceptionGroup[UploadError]).
-            gcs_names = {path: posixpath.join(gcs_prefix, path.name) for path in parquet_files}
-            try:
-                _LOG.info("Uploading %d parquet files to GCS under prefix: %s", len(gcs_names), gcs_prefix)
-                with Timer(
-                    "upload_files_time", _MON, tags={"prefix": str(gcs_prefix), "chunk_id": str(chunk_id)}
-                ) as timer:
-                    self.storage.upload_files(gcs_names)
-                    timer.add_values(file_count=len(gcs_names), total_bytes=total_bytes)
-            except* UploadError as eg:
-                raise ChunkUploadError(chunk_id, f"{len(eg.exceptions)} upload(s) failed") from eg
+            # 1) Upload parquet files, which will happen only for non-empty
+            # chunks.
+            if parquet_files:
+                gcs_names = {path: posixpath.join(gcs_prefix, path.name) for path in parquet_files}
+                try:
+                    _LOG.info(
+                        "Uploading %d parquet files to GCS under prefix: %s", len(gcs_names), gcs_prefix
+                    )
+                    with Timer(
+                        "upload_files_time", _MON, tags={"prefix": str(gcs_prefix), "chunk_id": str(chunk_id)}
+                    ) as timer:
+                        self.storage.upload_files(gcs_names)
+                        total_bytes = sum(p.stat().st_size for p in parquet_files)
+                        timer.add_values(file_count=len(gcs_names), total_bytes=total_bytes)
+                except* UploadError as eg:
+                    raise ChunkUploadError(chunk_id, f"{len(eg.exceptions)} upload(s) failed") from eg
 
-            uploads_completed = True
-
-            # 2) Upload manifest (catch single UploadError on failure).
+            # 2) Upload manifest, even for empty chunks.
             try:
                 self.storage.upload_from_string(
                     posixpath.join(gcs_prefix, replica_chunk.manifest_name),
@@ -270,30 +284,36 @@ class ChunkUploader:
             except UploadError as e:
                 raise ChunkUploadError(chunk_id, "Manifest upload failed") from e
 
-            # 3) Update DB status.
-            try:
-                self._bq.store_chunk(replica_chunk.with_new_status(ChunkStatus.UPLOADED), True)
-            except Exception as e:
-                raise ChunkUploadError(chunk_id, "failed to update replica chunk status in database") from e
+            # 3) Update DB status, but not for empty chunks.
+            if not is_empty:
+                try:
+                    self._bq.store_chunk(replica_chunk.with_new_status(ChunkStatus.UPLOADED), True)
+                except Exception as e:
+                    raise ChunkUploadError(
+                        chunk_id, "failed to update replica chunk status in database"
+                    ) from e
 
-            # 4) Publish Pub/Sub staging message.
-            try:
-                self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix, chunk_id)
-            except Exception as e:
-                raise ChunkUploadError(chunk_id, "failed to publish staging message") from e
+            # 4) Publish Pub/Sub staging message to trigger BigQuery load, but
+            # not for empty chunks. (Empty chunks cannot be staged.)
+            if not is_empty:
+                try:
+                    self._post_to_stage_chunk_topic(self.bucket_name, gcs_prefix, chunk_id)
+                except Exception as e:
+                    raise ChunkUploadError(chunk_id, "failed to publish staging message") from e
 
         except ChunkUploadError as err:
-            # Best-effort cleanup only if parquet uploads did not complete.
-            if not uploads_completed:
-                try:
-                    self.storage.delete_recursive(gcs_prefix)
-                except DeleteError as cleanup_err:
-                    # Note (Python 3.11+): annotate without masking the
-                    # original error.
-                    err.add_note(
-                        f"cleanup warning: failed to delete "
-                        f"gs://{posixpath.join(self.bucket_name, gcs_prefix)}: {cleanup_err}"
-                    )
+            try:
+                # Recursively delete any uploaded files from cloud storage
+                # on error. Locally written files should be used for debugging
+                # errors rather than partially uploaded files in GCS.
+                self.storage.delete_recursive(gcs_prefix)
+            except DeleteError as cleanup_err:
+                # Note (Python 3.11+): annotate without masking the
+                # original error.
+                err.add_note(
+                    f"cleanup warning: failed to delete "
+                    f"gs://{posixpath.join(self.bucket_name, gcs_prefix)}: {cleanup_err}"
+                )
             raise
 
     def _post_to_stage_chunk_topic(self, bucket_name: str, chunk_prefix: str, chunk_id: int) -> None:

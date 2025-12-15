@@ -45,6 +45,8 @@ class ChunkStatus(StrEnum):
     """Chunk has been uploaded to cloud storage."""
     FAILED = "failed"
     """Chunk processing failed and an error occurred."""
+    SKIPPED = "skipped"
+    """Chunk processing is skipped because there is no data to export."""
 
 
 @dataclass(frozen=True)
