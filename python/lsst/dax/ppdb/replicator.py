@@ -177,7 +177,6 @@ class Replicator:
         with Timer("get_update_records_time", _MON) as timer:
             update_records = self._apdb.getUpdateRecordChunks([replica_chunk.id])
             timer.add_values(row_count=len(update_records))
-        _LOG.info("Selected %s DiaForcedSources for replication", len(dia_forced_sources.rows()))
 
         with Timer("store_chunks_time", _MON):
             self._ppdb.store(

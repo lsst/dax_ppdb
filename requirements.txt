@@ -8,3 +8,4 @@ lsst-utils @ git+https://github.com/lsst/utils@main
 lsst-resources[s3] @ git+https://github.com/lsst/resources@main
 lsst-felis @ git+https://github.com/lsst/felis@main
 lsst-dax-ppdbx-gcp @ git+https://github.com/lsst-dm/dax_ppdbx_gcp@main
+lsst-sdm-schemas @ git+https://github.com/lsst/sdm_schemas@main

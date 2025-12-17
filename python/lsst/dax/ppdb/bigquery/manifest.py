@@ -115,3 +115,15 @@ class Manifest(BaseModel):
         with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
         return cls.model_validate(data)
+
+    def is_empty_chunk(self) -> bool:
+        """Check if the manifest represents an empty replica chunk in which
+        all tables have zero rows.
+
+        Returns
+        -------
+        bool
+            `True` if all tables have zero rows, indicating an empty chunk,
+            `False` otherwise.
+        """
+        return all(table.row_count == 0 for table in self.table_data.values())
