@@ -35,7 +35,8 @@ from sqlalchemy.sql import expression, select
 from lsst.dax.apdb import (
     ApdbCloseDiaObjectValidityRecord,
     ApdbMetadata,
-    ApdbReassignDiaSourceRecord,
+    ApdbReassignDiaSourceToDiaObjectRecord,
+    ApdbReassignDiaSourceToSSObjectRecord,
     ApdbTableData,
     ApdbTables,
     ApdbUpdateNDiaSourcesRecord,
@@ -355,7 +356,11 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         ids = set()
         for record in records:
             match record:
-                case ApdbReassignDiaSourceRecord() | ApdbWithdrawDiaSourceRecord():
+                case (
+                    ApdbReassignDiaSourceToDiaObjectRecord()
+                    | ApdbReassignDiaSourceToSSObjectRecord()
+                    | ApdbWithdrawDiaSourceRecord()
+                ):
                     ids.add(record.diaSourceId)
                 case _:
                     raise TypeError(f"Unexpected type of update record: {record}")
@@ -374,22 +379,26 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         # Check update records against what was returned.
         for record in records:
             match record:
-                case ApdbReassignDiaSourceRecord() | ApdbWithdrawDiaSourceRecord():
+                case (
+                    ApdbReassignDiaSourceToDiaObjectRecord()
+                    | ApdbReassignDiaSourceToSSObjectRecord()
+                    | ApdbWithdrawDiaSourceRecord()
+                ):
                     diaObjectId = source_id_to_object_id.get(record.diaSourceId)
                     if diaObjectId is None:
                         raise ValueError(f"Unknown DIASource ID in update records: {record.diaSourceId}")
-                    if diaObjectId != record.diaObjectId:
-                        raise ValueError(
-                            f"Mismatch in DIAObject Id for DIASource {record.diaSourceId}:"
-                            f" database has diaObjectId={diaObjectId},"
-                            f" update record has diaObjectId={record.diaObjectId},"
-                        )
 
         # Can proceed with updates.
         updates = []
         for record in records:
             match record:
-                case ApdbReassignDiaSourceRecord():
+                case ApdbReassignDiaSourceToDiaObjectRecord():
+                    updates.append(
+                        sqlalchemy.update(table)
+                        .where(table.columns["diaSourceId"] == record.diaSourceId)
+                        .values(diaObjectId=record.diaObjectId)
+                    )
+                case ApdbReassignDiaSourceToSSObjectRecord():
                     updates.append(
                         sqlalchemy.update(table)
                         .where(table.columns["diaSourceId"] == record.diaSourceId)

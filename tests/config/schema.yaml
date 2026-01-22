@@ -66,6 +66,11 @@ tables:
     datatype: int
     nullable: false
     description: Total number of DiaSources associated with this DiaObject.
+  - name: firstDiaSourceMjdTai
+    "@id": "#DiaObject.firstDiaSourceMjdTai"
+    datatype: double
+    description: Time of the first diaSource.
+    ivoa:ucd: time.epoch
   primaryKey:
   - "#DiaObject.diaObjectId"
   - "#DiaObject.validityStartMjdTai"
@@ -347,4 +352,9 @@ tables:
     datatype: int
     nullable: false
     description: Total number of DiaSources associated with this DiaObject.
+  - name: firstDiaSourceMjdTai
+    "@id": "#DiaObjectLast.firstDiaSourceMjdTai"
+    datatype: double
+    description: Time of the first diaSource.
+    ivoa:ucd: time.epoch
   primaryKey: "#DiaObjectLast.diaObjectId"
