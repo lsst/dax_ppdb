@@ -136,6 +136,11 @@ class PpdbSqlBase:
         self._check_schema_version(self._schema_version)
         self._check_code_version()
 
+    @property
+    def engine(self) -> sqlalchemy.engine.Engine:
+        """Return the SQLAlchemy engine."""
+        return self._engine
+
     @classmethod
     def make_engine(cls, config: PpdbSqlBaseConfig) -> sqlalchemy.engine.Engine:
         """Make SQLALchemy engine based on configured parameters.

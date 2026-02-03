@@ -24,11 +24,12 @@ import os
 import shutil
 import tempfile
 import unittest
+import uuid
 from typing import Any
 
 from lsst.dax.apdb import ApdbConfig
 from lsst.dax.apdb.sql import ApdbSql
-from lsst.dax.ppdb import PpdbConfig
+from lsst.dax.ppdb import Ppdb, PpdbConfig
 from lsst.dax.ppdb.bigquery import PpdbBigQuery
 from lsst.dax.ppdb.tests import PpdbTest
 
@@ -50,8 +51,10 @@ TEST_CONFIG = {
 }
 
 
-class SqliteTestCase(PpdbTest, unittest.TestCase):
-    """A test case for the PpdbBigQuery class using a SQLite backend."""
+class _SqliteMixin:
+    """Mixin class to provide Sqlite-specific setup/teardown and instance
+    creation.
+    """
 
     def setUp(self) -> None:
         self.tempdir = tempfile.mkdtemp()
@@ -86,9 +89,10 @@ class SqliteTestCase(PpdbTest, unittest.TestCase):
         return ApdbSql.init_database(**kw)  # type: ignore[arg-type]
 
 
-@unittest.skipUnless(testing is not None, "testing.postgresql module not found")
-class PostgresTestCase(PpdbTest, unittest.TestCase):
-    """A test case for the PpdbBigQuery class using a Postgres backend."""
+class _PostgresMixin:
+    """Mixin class to provide Postgres-specific setup/teardown and instance
+    creation.
+    """
 
     postgresql: Any
 
@@ -119,7 +123,7 @@ class PostgresTestCase(PpdbTest, unittest.TestCase):
         kw = {
             **TEST_CONFIG,
             "db_url": self.server.url(),
-            "db_schema": None,
+            "db_schema": "ppdb_test",
             "felis_path": TEST_SCHEMA,
             "replication_dir": self.tempdir,
         }
@@ -136,3 +140,49 @@ class PostgresTestCase(PpdbTest, unittest.TestCase):
         }
         kw.update(kwargs)
         return ApdbSql.init_database(**kw)  # type: ignore[arg-type]
+
+
+class SqliteTestCase(_SqliteMixin, PpdbTest, unittest.TestCase):
+    """A test case for the PpdbBigQuery class using a SQLite backend."""
+
+
+@unittest.skipUnless(testing is not None, "testing.postgresql module not found")
+class PostgresTestCase(_PostgresMixin, PpdbTest, unittest.TestCase):
+    """A test case for the PpdbBigQuery class using a Postgres backend."""
+
+
+@unittest.skipUnless(testing is not None, "testing.postgresql module not found")
+class PromotionTestCase(_PostgresMixin, unittest.TestCase):
+    """A test case for testing replica chunk promotion logic in
+    PpdbBigQuery.
+    """
+
+    def test_get_promotable_replica_chunk_ids(self) -> None:
+        """Test getting promotable chunks."""
+        config = self.make_instance()
+        ppdb = Ppdb.from_config(config)
+        with ppdb._engine.begin() as connection:
+            table = ppdb.get_table(ppdb.PPDB_REPLICA_CHUNK_TABLE_NAME)
+            # Insert chunks 1 to 5 with varying statuses
+            chunks = [
+                (1, "promoted"),
+                (2, "promoted"),
+                (3, "staged"),
+                (4, "staged"),
+                (5, "promoted"),
+                (6, "staged"),
+            ]
+            for chunk_id, status in chunks:
+                connection.execute(
+                    table.insert().values(
+                        apdb_replica_chunk=chunk_id,
+                        last_update_time="2024-01-01 00:00:00",
+                        directory=f"/replica/chunk_{chunk_id}",
+                        status=status,
+                        unique_id=uuid.uuid4(),
+                        replica_time="2024-01-01 00:00:00",
+                    )
+                )
+        promotable_chunks = ppdb.get_promotable_replica_chunk_ids()
+        print(f"Promotable chunks: {promotable_chunks}")
+        self.assertEqual(promotable_chunks, [3, 4])

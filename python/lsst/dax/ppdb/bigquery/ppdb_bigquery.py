@@ -27,6 +27,7 @@ from pathlib import Path
 
 import felis
 import sqlalchemy
+from sqlalchemy import text
 
 from lsst.dax.apdb import (
     ApdbMetadata,
@@ -126,6 +127,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         Configuration object with BigQuery and SQL database parameters.
     """
 
+    PPDB_REPLICA_CHUNK_TABLE_NAME = "PpdbReplicaChunk"
+
     def __init__(self, config: PpdbBigQueryConfig):
         # Initialize the SQL interface for the PPDB.
         PpdbSqlBase.__init__(self, config.sql)
@@ -148,6 +151,16 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             APDB metadata object.
         """
         return self._metadata
+
+    @property
+    def bq_config(self) -> PpdbBigQueryConfig:
+        """Return the configuration object."""
+        return self._bq_config
+
+    @property
+    def sql_config(self) -> PpdbSqlBaseConfig:
+        """Return the SQL configuration object."""
+        return self._sql_config
 
     def _generate_manifest(
         self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
@@ -298,7 +311,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             their ``last_update_time`` and include the ``directory`` and
             ``status`` fields.
         """
-        table = self.get_table("PpdbReplicaChunk")
+        table = self.get_table(self.PPDB_REPLICA_CHUNK_TABLE_NAME)
         query = sqlalchemy.sql.select(
             table.columns["apdb_replica_chunk"],
             table.columns["last_update_time"],
@@ -344,7 +357,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         """
         _LOG.info("Storing replica chunk: %s", replica_chunk)
         with self._engine.begin() as connection:
-            table = self.get_table("PpdbReplicaChunk")
+            table = self.get_table(self.PPDB_REPLICA_CHUNK_TABLE_NAME)
             row = {
                 "apdb_replica_chunk": replica_chunk.id,
                 "last_update_time": replica_chunk.last_update_time_dt_utc,
@@ -567,3 +580,81 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             check_dataset_exists(config.project_id, config.dataset_id)
         except Exception as e:
             raise ConfigValidationError("Failed to validate BigQuery dataset") from e
+
+    def _get_quoted_table_name(self, table, connection) -> str:
+        """Get properly quoted table name using SQLAlchemy's dialect preparer.
+
+        Parameters
+        ----------
+        table : `sqlalchemy.Table`
+            The SQLAlchemy table object.
+        connection : `sqlalchemy.Connection`
+            The database connection to get the dialect from.
+
+        Returns
+        -------
+        table_name : `str`
+            The properly quoted table name including schema if present.
+        """
+        dialect = connection.dialect
+        preparer = dialect.preparer(dialect)
+
+        if table.schema:
+            quoted_schema = preparer.quote_schema(table.schema)
+            quoted_table = preparer.quote(table.name)
+            return f"{quoted_schema}.{quoted_table}"
+        else:
+            return preparer.quote(table.name)
+
+    def get_promotable_replica_chunk_ids(self) -> list[int]:
+        """
+        Return the first uninterrupted sequence of staged chunks such that all
+        prior chunks are promoted.
+
+        Returns
+        -------
+        chunk_ids : `list`[`int`]
+            A list of tuples containing the `apdb_replica_chunk` values of the
+            promotable chunks.
+
+        Notes
+        -----
+        This query finds the contiguous sequence of ``staged`` chunks beginning
+        with the earliest chunk that is not yet ``promoted``, and ending just
+        before the first chunk that is not ``staged``. If no such ending
+        exists, all `staged` chunks from that point onward are returned. If no
+        chunks are `staged` after the first non-`promoted` chunk, an empty list
+        is returned.
+        """
+        table = self.get_table(self.PPDB_REPLICA_CHUNK_TABLE_NAME)
+        with self.engine.begin() as connection:
+            table_name = self._get_quoted_table_name(table, connection)
+            query = f"""
+            WITH start AS (
+            SELECT MIN(apdb_replica_chunk) AS s
+            FROM {table_name}
+            WHERE status <> 'promoted'
+                AND status <> 'skipped'
+            ),
+            stop AS (
+            SELECT MIN(p.apdb_replica_chunk) AS e
+            FROM {table_name} p
+            JOIN start ON TRUE
+            WHERE start.s IS NOT NULL
+                AND p.apdb_replica_chunk >= start.s
+                AND p.status <> 'staged'
+                AND status <> 'skipped'
+            )
+            SELECT p.apdb_replica_chunk
+            FROM {table_name} p
+            JOIN start ON TRUE
+            LEFT JOIN stop ON TRUE
+            WHERE start.s IS NOT NULL
+            AND p.status = 'staged'
+            AND p.apdb_replica_chunk >= start.s
+            AND (stop.e IS NULL OR p.apdb_replica_chunk < stop.e)
+            ORDER BY p.apdb_replica_chunk;
+            """
+            result = connection.execute(text(query))
+            rows = result.fetchall()
+        return [r[0] for r in rows]
