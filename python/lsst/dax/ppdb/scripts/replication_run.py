@@ -26,6 +26,8 @@ __all__ = ["replication_run"]
 import logging
 
 from lsst.dax.apdb import ApdbReplica
+from lsst.dax.apdb.cassandra.config import ApdbCassandraConfig
+from lsst.dax.apdb.config import ApdbConfig
 
 from ..ppdb import Ppdb
 from ..replicator import Replicator
@@ -68,7 +70,18 @@ def replication_run(
         If `True` then exit if there are no chunks to replicate, otherwise
         keep waiting for new chunks.
     """
+    config = ApdbConfig.from_uri(apdb_config)
+    if isinstance(config, ApdbCassandraConfig):
+        _LOG.info("Using Cassandra APDB configuration with keyspace '%s'", config.keyspace)
+
     apdb = ApdbReplica.from_uri(apdb_config)
+
+    chunks = apdb.getReplicaChunks()
+    if chunks:
+        _LOG.info("Found %d chunks to replicate", len(chunks))
+    else:
+        _LOG.info("No chunks to replicate")
+
     ppdb = Ppdb.from_uri(ppdb_config)
 
     replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time, check_interval)
