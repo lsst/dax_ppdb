@@ -37,6 +37,7 @@ dynamic = ["version"]
 
 [project.urls]
 "Homepage" = "https://github.com/lsst/dax_ppdb"
+"Source" = "https://github.com/lsst/dax_ppdb"
 
 [project.optional-dependencies]
 test = [

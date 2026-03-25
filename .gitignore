@@ -27,3 +27,6 @@ pytest_session.txt
 
 # VS Code
 .vscode
+
+# Generated Sphinx API doc
+doc/api
