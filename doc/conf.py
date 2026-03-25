@@ -5,9 +5,4 @@ For more information, see:
 https://developer.lsst.io/stack/building-single-package-docs.html
 """
 
-from documenteer.conf.pipelinespkg import *
-
-project = "dax_ppdb"
-html_theme_options["logotext"] = project
-html_title = project
-html_short_title = project
+from documenteer.conf.guide import *
