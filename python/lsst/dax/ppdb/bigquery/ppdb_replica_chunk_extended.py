@@ -34,6 +34,7 @@ import astropy.time
 from lsst.dax.apdb import ReplicaChunk
 
 from ..ppdb import PpdbReplicaChunk
+from .manifest import Manifest
 
 
 class ChunkStatus(StrEnum):
@@ -43,6 +44,10 @@ class ChunkStatus(StrEnum):
     """Chunk has been exported from the APDB to a local parquet file."""
     UPLOADED = "uploaded"
     """Chunk has been uploaded to cloud storage."""
+    STAGED = "staged"
+    """Chunk data has been copied into the staging tables."""
+    PROMOTED = "promoted"
+    """Chunk data has been promoted from the staging to production tables."""
     FAILED = "failed"
     """Chunk processing failed and an error occurred."""
     SKIPPED = "skipped"
@@ -59,10 +64,9 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     directory: Path
     """Directory where the exported replica chunk data is stored locally."""
 
-    @property
-    def manifest_name(self) -> str:
-        """Filename of the manifest file for this chunk."""
-        return f"chunk_{self.id}.manifest.json"
+    gcs_uri: str | None = None
+    """GCS URI where the replica chunk data is stored, or `None` if not
+    uploaded yet."""
 
     @property
     def manifest_path(self) -> Path:
@@ -71,7 +75,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         """
         if self.directory is None:
             raise ValueError(f"directory for replica chunk {self.id} is not set")
-        return self.directory / self.manifest_name
+        return self.directory / Manifest.FILE_NAME
 
     @property
     def replica_time_dt_utc(self) -> datetime:
@@ -127,3 +131,19 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             The new chunk with the updated status.
         """
         return dataclasses.replace(self, status=new_status)
+
+    def with_new_gcs_uri(self, new_gcs_uri: str) -> PpdbReplicaChunkExtended:
+        """Create a new `PpdbReplicaChunkExtended` with the same properties as
+        this one, but with a different GCS URI.
+
+        Parameters
+        ----------
+        new_gcs_uri : `str`
+            The new GCS URI to set.
+
+        Returns
+        -------
+        new_chunk : `PpdbReplicaChunkExtended`
+            The new chunk with the updated GCS URI.
+        """
+        return dataclasses.replace(self, gcs_uri=new_gcs_uri)
