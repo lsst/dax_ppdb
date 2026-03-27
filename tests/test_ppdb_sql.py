@@ -20,7 +20,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import gc
-import os
 import shutil
 import tempfile
 import unittest
@@ -30,14 +29,12 @@ from lsst.dax.apdb import ApdbConfig
 from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.ppdb import PpdbConfig
 from lsst.dax.ppdb.sql import PpdbSql
-from lsst.dax.ppdb.tests import PpdbTest
+from lsst.dax.ppdb.tests import TEST_SCHEMA_RESOURCE_PATH, PpdbTest
 
 try:
     import testing.postgresql
 except ImportError:
     testing = None
-
-TEST_SCHEMA = os.path.join(os.path.abspath(os.path.dirname(__file__)), "config/schema.yaml")
 
 
 class ApdbSQLiteTestCase(PpdbTest, unittest.TestCase):
@@ -55,11 +52,11 @@ class ApdbSQLiteTestCase(PpdbTest, unittest.TestCase):
 
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
-        return PpdbSql.init_database(db_url=self.ppdb_url, schema_file=TEST_SCHEMA, **kwargs)
+        return PpdbSql.init_database(db_url=self.ppdb_url, schema_file=TEST_SCHEMA_RESOURCE_PATH, **kwargs)
 
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
         kw = {
-            "schema_file": TEST_SCHEMA,
+            "schema_file": TEST_SCHEMA_RESOURCE_PATH,
             "ss_schema_file": "",
             "db_url": self.apdb_url,
             "enable_replica": True,
@@ -98,11 +95,13 @@ class ApdbPostgresTestCase(PpdbTest, unittest.TestCase):
 
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
-        return PpdbSql.init_database(db_url=self.server.url(), schema_file=TEST_SCHEMA, **kwargs)
+        return PpdbSql.init_database(
+            db_url=self.server.url(), schema_file=TEST_SCHEMA_RESOURCE_PATH, **kwargs
+        )
 
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
         kw = {
-            "schema_file": TEST_SCHEMA,
+            "schema_file": TEST_SCHEMA_RESOURCE_PATH,
             "ss_schema_file": "",
             "db_url": self.server.url(),
             "namespace": "apdb",
