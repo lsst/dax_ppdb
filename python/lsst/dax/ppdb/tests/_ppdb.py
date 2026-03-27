@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["PpdbTest"]
+__all__ = ["TEST_SCHEMA_RESOURCE_PATH", "PpdbTest", "fill_apdb"]
 
 import unittest
 from abc import ABC, abstractmethod
@@ -44,20 +44,15 @@ from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.apdb.tests.data_factory import makeForcedSourceCatalog, makeObjectCatalog, makeSourceCatalog
 from lsst.sphgeom import Angle, Circle, Region, UnitVector3d
 
-from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
+from ..ppdb_config import PpdbConfig
 from ..replicator import Replicator
 
 if TYPE_CHECKING:
     import pandas
 
-    class TestCaseMixin(unittest.TestCase):
-        """Base class for mixin test classes that use TestCase methods."""
 
-else:
-
-    class TestCaseMixin:
-        """Do-nothing definition of mixin base class for regular execution."""
+TEST_SCHEMA_RESOURCE_PATH = "resource://lsst.dax.ppdb/resources/config/schemas/test_apdb_schema.yaml"
 
 
 def _make_region(xyz: tuple[float, float, float] = (1.0, 1.0, -1.0)) -> Region:
@@ -68,12 +63,107 @@ def _make_region(xyz: tuple[float, float, float] = (1.0, 1.0, -1.0)) -> Region:
     return region
 
 
-class PpdbTest(TestCaseMixin, ABC):
+def _make_update_records(
+    sources: pandas.DataFrame, fsources: pandas.DataFrame, update_time: astropy.time.Time
+) -> list[ApdbUpdateRecord]:
+    """Create update records from source catalogs for testing."""
+    update_time_ns = int(update_time.unix_tai * 1e9)
+    records: list[ApdbUpdateRecord] = []
+
+    # Reassign one DIASource to SSObject.
+    dia_source = sources.iloc[0]
+    records.append(
+        ApdbReassignDiaSourceToSSObjectRecord(
+            update_time_ns=update_time_ns,
+            update_order=0,
+            diaSourceId=int(dia_source["diaSourceId"]),
+            ssObjectId=1,
+            ssObjectReassocTimeMjdTai=float(update_time.tai.mjd),
+            ra=float(dia_source["ra"]),
+            dec=float(dia_source["dec"]),
+            midpointMjdTai=60000.0,
+        )
+    )
+
+    # Close validity interval for matching DIAObject.
+    records.append(
+        ApdbCloseDiaObjectValidityRecord(
+            update_time_ns=update_time_ns,
+            update_order=1,
+            diaObjectId=int(dia_source["diaObjectId"]),
+            validityEndMjdTai=update_time.tai.mjd,
+            nDiaSources=None,
+            ra=float(dia_source["ra"]),
+            dec=float(dia_source["dec"]),
+        )
+    )
+
+    # Withdraw one DIAForcedSource.
+    dia_fsource = fsources.iloc[0]
+    records.append(
+        ApdbWithdrawDiaForcedSourceRecord(
+            update_time_ns=update_time_ns,
+            update_order=2,
+            diaObjectId=int(dia_fsource["diaObjectId"]),
+            visit=int(dia_fsource["visit"]),
+            detector=int(dia_fsource["detector"]),
+            timeWithdrawnMjdTai=update_time.tai.mjd,
+            ra=float(dia_source["ra"]),
+            dec=float(dia_source["dec"]),
+            midpointMjdTai=60000.0,
+        )
+    )
+
+    return records
+
+
+def fill_apdb(apdb: Apdb, include_update_records: bool = False) -> None:
+    """Populate APDB with some data to replicate."""
+    region1 = _make_region((1.0, 1.0, -1.0))
+    region2 = _make_region((-1.0, -1.0, -1.0))
+    nobj = 100
+    objects1 = makeObjectCatalog(region1, nobj)
+    objects2 = makeObjectCatalog(region2, nobj, start_id=nobj * 2)
+
+    # With the default 10 minutes replica chunk window we should have 4
+    # records. All timestamps are far in the past, means that replication
+    # of the last chunk can run without waiting.
+    visits = [
+        (astropy.time.Time("2021-01-01T00:01:00", format="isot", scale="tai"), objects1),
+        (astropy.time.Time("2021-01-01T00:02:00", format="isot", scale="tai"), objects2),
+        (astropy.time.Time("2021-01-01T00:11:00", format="isot", scale="tai"), objects1),
+        (astropy.time.Time("2021-01-01T00:12:00", format="isot", scale="tai"), objects2),
+        (astropy.time.Time("2021-01-01T00:45:00", format="isot", scale="tai"), objects1),
+        (astropy.time.Time("2021-01-01T00:46:00", format="isot", scale="tai"), objects2),
+        (astropy.time.Time("2021-03-01T00:01:00", format="isot", scale="tai"), objects1),
+        (astropy.time.Time("2021-03-01T00:02:00", format="isot", scale="tai"), objects2),
+    ]
+
+    # Time when updates are applied.
+    update_time = astropy.time.Time("2021-03-01T12:00:00")
+
+    update_records = []
+    start_id = 0
+    for visit, (visit_time, objects) in enumerate(visits):
+        sources = makeSourceCatalog(objects, visit_time, visit=visit, start_id=start_id)
+        fsources = makeForcedSourceCatalog(objects, visit_time, visit=visit)
+        apdb.store(visit_time, objects, sources, fsources)
+        start_id += nobj
+
+        if include_update_records and visit == (len(visits) - 1):
+            # Generate a few update records.
+            update_records = _make_update_records(sources, fsources, update_time)
+
+    if include_update_records:
+        chunk = ReplicaChunk.make_replica_chunk(update_time, apdb.getConfig().replica_chunk_seconds)
+        # All our tests use SQL APDB.
+        assert isinstance(apdb, ApdbSql), "Expecting ApdbSql instance"
+        apdb._storeUpdateRecords(update_records, chunk, store_chunk=True)
+
+
+class PpdbTest(unittest.TestCase, ABC):
     """Base class for Ppdb tests that can be specialized for concrete
     implementation.
-
-    This can only be used as a mixin class for a unittest.TestCase and it
-    calls various assert methods.
     """
 
     include_update_records = False
@@ -102,112 +192,6 @@ class PpdbTest(TestCaseMixin, ABC):
         """
         raise NotImplementedError()
 
-    def test_empty_db(self) -> None:
-        """Test for instantiation a database and making queries on empty
-        database.
-        """
-        config = self.make_instance()
-        ppdb = Ppdb.from_config(config)
-        chunks = ppdb.get_replica_chunks()
-        if chunks is not None:
-            self.assertEqual(len(chunks), 0)
-
-    def _fill_apdb(self, apdb: Apdb) -> None:
-        """Populate APDB with some data to replicate."""
-        visit_time = astropy.time.Time("2021-01-01T00:01:00", format="isot", scale="tai")
-        region1 = _make_region((1.0, 1.0, -1.0))
-        region2 = _make_region((-1.0, -1.0, -1.0))
-        nobj = 100
-        objects1 = makeObjectCatalog(region1, nobj)
-        objects2 = makeObjectCatalog(region2, nobj, start_id=nobj * 2)
-
-        # With the default 10 minutes replica chunk window we should have 4
-        # records. All timestamps are far in the past, means that replication
-        # of the last chunk can run without waiting.
-        visits = [
-            (astropy.time.Time("2021-01-01T00:01:00", format="isot", scale="tai"), objects1),
-            (astropy.time.Time("2021-01-01T00:02:00", format="isot", scale="tai"), objects2),
-            (astropy.time.Time("2021-01-01T00:11:00", format="isot", scale="tai"), objects1),
-            (astropy.time.Time("2021-01-01T00:12:00", format="isot", scale="tai"), objects2),
-            (astropy.time.Time("2021-01-01T00:45:00", format="isot", scale="tai"), objects1),
-            (astropy.time.Time("2021-01-01T00:46:00", format="isot", scale="tai"), objects2),
-            (astropy.time.Time("2021-03-01T00:01:00", format="isot", scale="tai"), objects1),
-            (astropy.time.Time("2021-03-01T00:02:00", format="isot", scale="tai"), objects2),
-        ]
-
-        # Time when apdates are applied.
-        update_time = astropy.time.Time("2021-03-01T12:00:00")
-
-        update_records = []
-        start_id = 0
-        for visit, (visit_time, objects) in enumerate(visits):
-            sources = makeSourceCatalog(objects, visit_time, visit=visit, start_id=start_id)
-            fsources = makeForcedSourceCatalog(objects, visit_time, visit=visit)
-            apdb.store(visit_time, objects, sources, fsources)
-            start_id += nobj
-
-            if self.include_update_records and visit == (len(visits) - 1):
-                # Generate few update records.
-                update_records = self._make_update_records(sources, fsources, update_time)
-
-        if self.include_update_records:
-            chunk = ReplicaChunk.make_replica_chunk(update_time, apdb.getConfig().replica_chunk_seconds)
-            # All our tests use SQL APDB.
-            assert isinstance(apdb, ApdbSql), "Expecting ApdbSql instance"
-            apdb._storeUpdateRecords(update_records, chunk, store_chunk=True)
-
-    def _make_update_records(
-        self, sources: pandas.DataFrame, fsources: pandas.DataFrame, update_time: astropy.time.Time
-    ) -> list[ApdbUpdateRecord]:
-        update_time_ns = int(update_time.unix_tai * 1e9)
-        records: list[ApdbUpdateRecord] = []
-
-        # Reassign one DIASource to SSObject.
-        dia_source = sources.iloc[0]
-        records.append(
-            ApdbReassignDiaSourceToSSObjectRecord(
-                update_time_ns=update_time_ns,
-                update_order=0,
-                diaSourceId=int(dia_source["diaSourceId"]),
-                ssObjectId=1,
-                ssObjectReassocTimeMjdTai=float(update_time.tai.mjd),
-                ra=float(dia_source["ra"]),
-                dec=float(dia_source["dec"]),
-                midpointMjdTai=60000.0,
-            )
-        )
-
-        # Close validity interval for matching DIAObject.
-        records.append(
-            ApdbCloseDiaObjectValidityRecord(
-                update_time_ns=update_time_ns,
-                update_order=1,
-                diaObjectId=int(dia_source["diaObjectId"]),
-                validityEndMjdTai=update_time.tai.mjd,
-                nDiaSources=None,
-                ra=float(dia_source["ra"]),
-                dec=float(dia_source["dec"]),
-            )
-        )
-
-        # Withdraw one DIAForcedSource.
-        dia_fsource = fsources.iloc[0]
-        records.append(
-            ApdbWithdrawDiaForcedSourceRecord(
-                update_time_ns=update_time_ns,
-                update_order=2,
-                diaObjectId=int(dia_fsource["diaObjectId"]),
-                visit=int(dia_fsource["visit"]),
-                detector=int(dia_fsource["detector"]),
-                timeWithdrawnMjdTai=update_time.tai.mjd,
-                ra=float(dia_source["ra"]),
-                dec=float(dia_source["dec"]),
-                midpointMjdTai=60000.0,
-            )
-        )
-
-        return records
-
     def _check_chunks(
         self, apdb_chunks: Sequence[ReplicaChunk], ppdb_chunks: Sequence[PpdbReplicaChunk]
     ) -> None:
@@ -218,12 +202,22 @@ class PpdbTest(TestCaseMixin, ABC):
             self.assertEqual(ppdb_chunks[i].last_update_time, apdb_chunks[i].last_update_time)
             self.assertEqual(ppdb_chunks[i].unique_id, apdb_chunks[i].unique_id)
 
+    def test_empty_db(self) -> None:
+        """Test for instantiation a database and making queries on empty
+        database.
+        """
+        config = self.make_instance()
+        ppdb = Ppdb.from_config(config)
+        chunks = ppdb.get_replica_chunks()
+        if chunks is not None:
+            self.assertEqual(len(chunks), 0)
+
     def test_replication_single(self) -> None:
         """Test replication from APDB to PPDB using a single chunk option."""
         apdb_config = self.make_apdb_instance()
         apdb = Apdb.from_config(apdb_config)
 
-        self._fill_apdb(apdb)
+        fill_apdb(apdb, self.include_update_records)
 
         expected_chunks = 5 if self.include_update_records else 4
 
@@ -286,7 +280,7 @@ class PpdbTest(TestCaseMixin, ABC):
         apdb_config = self.make_apdb_instance()
         apdb = Apdb.from_config(apdb_config)
 
-        self._fill_apdb(apdb)
+        fill_apdb(apdb, self.include_update_records)
 
         expected_chunks = 5 if self.include_update_records else 4
 
