@@ -201,7 +201,8 @@ class Replicator:
         wait_time = 0
         while True:
             if wait_time > 0:
-                _LOG.info("Waiting %s seconds before next iteration.", wait_time)
+                # This clutters the logs too much at INFO level so use DEBUG.
+                _LOG.debug("Waiting %s seconds before next iteration.", wait_time)
                 time.sleep(wait_time)
 
             # Get existing chunks in APDB.
@@ -211,8 +212,9 @@ class Replicator:
             min_chunk_id = min((chunk.id for chunk in apdb_chunks), default=None)
             if min_chunk_id is None:
                 # No chunks in APDB?
-                _LOG.info("No replica chunks found in APDB.")
+                _LOG.debug("No replica chunks found in APDB.")
                 if single or exit_on_empty:
+                    _LOG.info("No replica chunks found in APDB, exiting.")
                     return
                 else:
                     wait_time = self._check_interval
