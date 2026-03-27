@@ -25,6 +25,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,6 +49,9 @@ class Manifest(BaseModel):
     """Manifest record for replica chunk data that has been extracted into
     parquet files.
     """
+
+    FILE_NAME: ClassVar[str] = "manifest.json"
+    """Name of the manifest file."""
 
     model_config = ConfigDict(extra="forbid")
     """Pydantic model configuration."""
@@ -79,12 +83,9 @@ class Manifest(BaseModel):
     """Name of the compression format used for artifacts (e.g., "gzip",
     "zstd", "snappy", etc.)."""
 
-    @property
-    def filename(self) -> str:
-        """Generate the filename for this manifest based on the replica chunk
-        ID (`str`).
-        """
-        return f"chunk_{self.replica_chunk_id}.manifest.json"
+    includes_update_records: bool = False
+    """Whether the exported data includes update records (e.g., in a separate
+    file) or not (`bool`)."""
 
     def write_json_file(self, dir_path: Path) -> None:
         """Save the manifest to a JSON file in the specified directory.
@@ -94,7 +95,7 @@ class Manifest(BaseModel):
         dir_path : `Path`
             Path to the directory where the manifest file should be written.
         """
-        file_path = os.path.join(dir_path, self.filename)
+        file_path = os.path.join(dir_path, self.FILE_NAME)
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(self.model_dump(), f, indent=2, default=str)
 
@@ -116,14 +117,41 @@ class Manifest(BaseModel):
             data = json.load(f)
         return cls.model_validate(data)
 
+    @classmethod
+    def from_json_str(cls, content: str) -> Manifest:
+        """Load a manifest from a string with JSON data.
+
+        Parameters
+        ----------
+        content : `str`
+            The string with the JSON data.
+        """
+        data = json.loads(content)
+        return cls.model_validate(data)
+
     def is_empty_chunk(self) -> bool:
         """Check if the manifest represents an empty replica chunk in which
-        all tables have zero rows.
+        all tables have zero rows and no update records are included.
 
         Returns
         -------
         bool
-            `True` if all tables have zero rows, indicating an empty chunk,
-            `False` otherwise.
+            `True` if all tables have zero rows and no update records are
+            included, indicating an empty chunk, `False` otherwise.
         """
-        return all(table.row_count == 0 for table in self.table_data.values())
+        return (
+            all(table.row_count == 0 for table in self.table_data.values())
+            and not self.includes_update_records
+        )
+
+    def has_table_data(self) -> bool:
+        """Check if the manifest contains any table data with non-zero row
+        counts.
+
+        Returns
+        -------
+        bool
+            `True` if at least one table has a non-zero row count, `False`
+            otherwise.
+        """
+        return any(table.row_count > 0 for table in self.table_data.values())
