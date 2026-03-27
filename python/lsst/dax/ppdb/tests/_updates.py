@@ -151,6 +151,5 @@ def _create_test_update_records() -> UpdateRecords:
 
     return UpdateRecords(
         replica_chunk_id=test_replica_chunk_id,
-        record_count=len(records),
         records=records,
     )
