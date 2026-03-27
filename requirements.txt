@@ -1,4 +1,5 @@
 astropy
+google-cloud-bigquery
 pyarrow
 pydantic >=2,<3
 pyyaml >= 5.1
