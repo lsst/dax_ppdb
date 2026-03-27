@@ -37,7 +37,8 @@ from lsst.dax.apdb import (
 )
 from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.ppdb import PpdbConfig
-from lsst.dax.ppdb.bigquery import ChunkUploader, PpdbBigQuery
+from lsst.dax.ppdb.bigquery import PpdbBigQuery
+from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.tests._ppdb import TEST_SCHEMA_RESOURCE_PATH
 
 try:
