@@ -21,6 +21,8 @@
 
 from __future__ import annotations
 
+__all__ = ["Manifest", "TableStats"]
+
 import json
 import os
 from datetime import UTC, datetime
@@ -29,8 +31,6 @@ from typing import ClassVar
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-
-__all__ = ["Manifest", "TableStats"]
 
 
 def _utc_now() -> datetime:
@@ -135,7 +135,7 @@ class Manifest(BaseModel):
 
         Returns
         -------
-        bool
+        empty : `bool`
             `True` if all tables have zero rows and no update records are
             included, indicating an empty chunk, `False` otherwise.
         """

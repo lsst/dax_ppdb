@@ -19,14 +19,21 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
+__all__ = ["ConfigValidationError", "PpdbBigQuery", "PpdbBigQueryConfig"]
+
 import datetime
 import logging
+import os
 import shutil
 from collections.abc import Collection, Iterable, Sequence
 from pathlib import Path
+from typing import Any
 
 import felis
 import sqlalchemy
+from google.cloud import secretmanager
 
 from lsst.dax.apdb import (
     ApdbMetadata,
@@ -41,13 +48,13 @@ from lsst.dax.apdb import (
 from lsst.dax.apdb.timer import Timer
 
 from .._arrow import write_parquet
-from ..config import PpdbConfig
 from ..ppdb import Ppdb, PpdbReplicaChunk
-from ..sql import PpdbSqlBase, PpdbSqlBaseConfig
+from ..ppdb_config import PpdbConfig
+from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, TableStats
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
-
-__all__ = ["ConfigValidationError", "PpdbBigQuery", "PpdbBigQueryConfig"]
+from .sql_resource import SqlResource
+from .updates.update_records import UpdateRecords
 
 _LOG = logging.getLogger(__name__)
 
@@ -113,6 +120,30 @@ class PpdbBigQueryConfig(PpdbConfig):
         return f"{self.project_id}:{self.dataset_id}"
 
 
+class _SecretManagerPasswordProvider(PasswordProvider):
+    """Retrieves a database password from Google Cloud Secret Manager.
+
+    Parameters
+    ----------
+    project_id : `str`
+        GCP project that owns the secret.
+    secret_name : `str`, optional
+        Name of the secret. Defaults to ``"ppdb-db-password"``.
+    """
+
+    def __init__(self, project_id: str, secret_name: str = "ppdb-db-password") -> None:
+        self._project_id = project_id
+        self._secret_name = secret_name
+
+    def get_password(self) -> str:
+        """Return the password fetched from Secret Manager."""
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{self._project_id}/secrets/{self._secret_name}/versions/latest"
+        _LOG.debug("Retrieving database password from Secret Manager: %s", name)
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+
+
 class ConfigValidationError(Exception):
     """Indicates an error validating the configuration."""
 
@@ -127,30 +158,57 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     """
 
     def __init__(self, config: PpdbBigQueryConfig):
-        # Initialize the SQL interface for the PPDB.
-        PpdbSqlBase.__init__(self, config.sql)
-
-        # Read parameters from config.
+        # Read parameters from config
         if config.replication_dir is None:
             raise ValueError("Directory for chunk export is not set in configuration.")
-        self.replication_path = config.replication_path
-        self.parq_batch_size = config.parq_batch_size
-        self.parq_compression = config.parq_compression
-        self.delete_existing_dirs = config.delete_existing_dirs
+
+        # Build an optional password provider for GCP Secret Manager
+        password_provider: PasswordProvider | None = None
+        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
+            _LOG.debug("Using Secret Manager to retrieve database password")
+            password_provider = _SecretManagerPasswordProvider(config.project_id)
+
+        # Delegate SQL initialisation (schema load, engine, metadata, version
+        # checks) to the base class, passing the optional password provider
+        PpdbSqlBase.__init__(self, config.sql, password_provider=password_provider)
+
+        self._config = config
 
     @property
     def metadata(self) -> ApdbMetadata:
-        """Implement `Ppdb` interface to return APDB metadata object.
+        """APDB metadata object from `Ppdb` interface (`ApdbMetadata`)."""
+        return self._metadata
+
+    @property
+    def config(self) -> PpdbBigQueryConfig:
+        """PPDB config associated with this instance."""
+        return self._config
+
+    @classmethod
+    def from_env(cls) -> PpdbBigQuery:
+        """Create an instance of this class from a config pointed to by an
+        environment variable.
 
         Returns
         -------
-        metadata : `ApdbMetadata`
-            APDB metadata object.
+        ppdb: `PpdbBigQuery`
+            An instance of the PPDB BigQuery interface.
         """
-        return self._metadata
+        ppdb_config_uri = os.environ.get("PPDB_CONFIG_URI", None)
+        if ppdb_config_uri:
+            logging.info("PPDB_CONFIG_URI: %s", ppdb_config_uri)
+        else:
+            raise OSError("PPDB_CONFIG_URI is not set in the environment")
+        ppdb = Ppdb.from_uri(ppdb_config_uri)
+        if not isinstance(ppdb, PpdbBigQuery):
+            raise ValueError(f"Ppdb from environment has wrong type: {type(ppdb)}")
+        return ppdb
 
     def _generate_manifest(
-        self, replica_chunk: ReplicaChunk, table_dict: dict[str, ApdbTableData]
+        self,
+        replica_chunk: ReplicaChunk,
+        table_dict: dict[str, ApdbTableData],
+        update_records: Collection[ApdbUpdateRecord],
     ) -> Manifest:
         """Generate the manifest data for the replica chunk."""
         return Manifest(
@@ -162,7 +220,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             table_data={
                 table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
             },
-            compression_format=self.parq_compression,
+            compression_format=self.config.parq_compression,
+            includes_update_records=bool(update_records),
         )
 
     def store(
@@ -178,22 +237,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         # Docstring is inherited.
         _LOG.info("Processing %s", replica_chunk.id)
 
-        # TODO: APDB does not generate ApdbUpdateRecords yet, but we will
-        # eventually have to add support for it.
-        if update_records:
-            raise NotImplementedError("PpdbBigQuery does not support record updates yet.")
-
         try:
-            chunk_dir = self._get_chunk_path(replica_chunk)
+            chunk_dir = self._create_chunk_dir(replica_chunk)
 
-            if chunk_dir.exists():
-                if not self.delete_existing_dirs:
-                    raise FileExistsError(f"Directory already exists for {replica_chunk.id}: {chunk_dir}")
-                _LOG.warning("Overwriting existing directory for %s: %s", replica_chunk.id, chunk_dir)
-                shutil.rmtree(chunk_dir)
-
-            chunk_dir.mkdir(parents=True)
-            _LOG.info("Created directory for %s: %s", replica_chunk.id, chunk_dir)
+            if update_records:
+                self._handle_updates(replica_chunk, update_records, chunk_dir)
 
             table_dict = {
                 ApdbTables.DiaObject.value: objects,
@@ -215,8 +263,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                             table_name,
                             table_data,
                             parquet_file_path,
-                            batch_size=self.parq_batch_size,
-                            compression_format=self.parq_compression,
+                            batch_size=self.config.parq_batch_size,
+                            compression_format=self.config.parq_compression,
                             exclude_columns={"apdb_replica_subchunk"},
                         )
                         timer.add_values(row_count=row_count)
@@ -227,7 +275,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
             # Create manifest for the replica chunk.
             try:
-                manifest = self._generate_manifest(replica_chunk, table_dict)
+                manifest = self._generate_manifest(replica_chunk, table_dict, update_records)
                 _LOG.info("Generated manifest for %s: %s", replica_chunk.id, manifest.model_dump_json())
             except Exception:
                 _LOG.exception("Failed to generate manifest for %d", replica_chunk.id)
@@ -261,15 +309,32 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         _LOG.info("Done processing %s", replica_chunk.id)
 
-    def _get_chunk_path(self, chunk: ReplicaChunk) -> Path:
+    def _create_chunk_dir(self, chunk: ReplicaChunk) -> Path:
+        """Create the directory for the replica chunk based on its last update
+        time and ID.
+
+        Returns
+        -------
+        chunk_dir
+            Path to the created directory for the replica chunk.
+        """
         last_update_time = chunk.last_update_time.to_datetime()
         assert isinstance(last_update_time, datetime.datetime)
-        path = Path(
-            self.replication_path,
+        chunk_dir = Path(
+            self.config.replication_path,
             chunk.last_update_time.strftime("%Y/%m/%d"),
             str(chunk.id),
         )
-        return path
+        if chunk_dir.exists():
+            if not self.config.delete_existing_dirs:
+                raise FileExistsError(f"Directory already exists for {chunk.id}: {chunk_dir}")
+            _LOG.warning("Overwriting existing directory for %s: %s", chunk.id, chunk_dir)
+            shutil.rmtree(chunk_dir)
+
+        chunk_dir.mkdir(parents=True)
+        _LOG.info("Created directory for %s: %s", chunk.id, chunk_dir)
+
+        return chunk_dir
 
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         # Docstring is inherited.
@@ -306,6 +371,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             table.columns["replica_time"],
             table.columns["status"],  # Extended column
             table.columns["directory"],  # Extended column
+            table.columns["gcs_uri"],  # Extended column
         ).order_by(table.columns["last_update_time"])
         if start_chunk_id is not None:
             query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)
@@ -325,9 +391,60 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         replica_time=replica_time,
                         status=row[4],
                         directory=Path(row[5]),
+                        gcs_uri=row[6],
                     )
                 )
         return ids
+
+    def get_replica_chunks_ext_by_ids(self, chunk_ids: Sequence[int]) -> Sequence[PpdbReplicaChunkExtended]:
+        """Find replica chunks for a list of chunk IDs.
+
+        Parameters
+        ----------
+        chunk_ids : `~collections.abc.Sequence` [ `int` ]
+            Replica chunk IDs to retrieve.
+
+        Returns
+        -------
+        chunks : `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
+            List of matching chunks ordered by ``apdb_replica_chunk``.
+        """
+        if not chunk_ids:
+            return []
+
+        table = self.get_table("PpdbReplicaChunk")
+        query = (
+            sqlalchemy.sql.select(
+                table.columns["apdb_replica_chunk"],
+                table.columns["last_update_time"],
+                table.columns["unique_id"],
+                table.columns["replica_time"],
+                table.columns["status"],
+                table.columns["directory"],
+                table.columns["gcs_uri"],
+            )
+            .where(table.columns["apdb_replica_chunk"].in_(chunk_ids))
+            .order_by(table.columns["apdb_replica_chunk"])
+        )
+
+        chunks: list[PpdbReplicaChunkExtended] = []
+        with self._engine.connect() as conn:
+            result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
+            for row in result:
+                last_update_time = self.to_astropy_tai(row[1])
+                replica_time = self.to_astropy_tai(row[3])
+                chunks.append(
+                    PpdbReplicaChunkExtended(
+                        id=row[0],
+                        last_update_time=last_update_time,
+                        unique_id=row[2],
+                        replica_time=replica_time,
+                        status=row[4],
+                        directory=Path(row[5]),
+                        gcs_uri=row[6],
+                    )
+                )
+        return chunks
 
     def store_chunk(self, replica_chunk: PpdbReplicaChunkExtended, update: bool) -> None:
         """Insert or replace single record in PpdbReplicaChunk table, including
@@ -352,6 +469,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 "replica_time": replica_chunk.replica_time_dt_utc,
                 "status": replica_chunk.status,
                 "directory": str(replica_chunk.directory),
+                "gcs_uri": replica_chunk.gcs_uri,
             }
             if update:
                 self.upsert(connection, table, row, "apdb_replica_chunk")
@@ -388,6 +506,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                     id=f"#{table_name}.directory",
                     datatype=felis.datamodel.DataType.string,
                     nullable=True,  # We might want to allow NULL if an error occurs when exporting.
+                ),
+                schema_model.Column(
+                    name="gcs_uri",
+                    id=f"#{table_name}.gcs_uri",
+                    datatype=felis.datamodel.DataType.string,
+                    nullable=True,
                 ),
             ]
         )
@@ -466,7 +590,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         sql_config = PpdbSqlBaseConfig(
             db_url=db_url, schema_name=db_schema, felis_path=felis_path, felis_schema=felis_schema
         )
-        cls.make_database(sql_config, sa_metadata, schema_version, db_drop)
 
         # Build config parameters.
         bq_config = PpdbBigQueryConfig(
@@ -484,6 +607,13 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             bq_config.parq_compression = parq_compression
         if stage_chunk_topic is not None:
             bq_config.stage_chunk_topic = stage_chunk_topic
+
+        password_provider: PasswordProvider | None = None
+        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
+            _LOG.info("Using Secret Manager to retrieve database password")
+            password_provider = _SecretManagerPasswordProvider(bq_config.project_id)
+        engine = cls.make_engine(bq_config.sql, password_provider=password_provider)
+        cls.make_database(engine, bq_config.sql, sa_metadata, schema_version, db_drop)
 
         # Validate the config if requested.
         if validate_config:
@@ -567,3 +697,138 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             check_dataset_exists(config.project_id, config.dataset_id)
         except Exception as e:
             raise ConfigValidationError("Failed to validate BigQuery dataset") from e
+
+    def _handle_updates(
+        self, replica_chunk: ReplicaChunk, apdb_update_records: Collection[ApdbUpdateRecord], chunk_dir: Path
+    ) -> None:
+        """Handle updates to existing records in the PPDB by writing a JSON
+        file with the update information for the replica chunk.
+
+        Parameters
+        ----------
+        replica_chunk : `ReplicaChunk`
+            The replica chunk associated with the updates.
+        update_records : `~collections.abc.Collection` [ `ApdbUpdateRecord` ]
+            Collection of update records to process.
+
+        Notes
+        -----
+        Serializes the ApdbUpdateRecord objects into a dictionary structure
+        for processing.
+        """
+        update_records = UpdateRecords(
+            replica_chunk_id=replica_chunk.id,
+            records=list(apdb_update_records),
+        )
+        update_records.write_json_file(chunk_dir / "update_records.json")
+
+        _LOG.info(
+            "Saved %d update records for %s to %s",
+            len(update_records.records),
+            replica_chunk.id,
+            chunk_dir / "update_records.json",
+        )
+
+    def get_promotable_chunks(self) -> list[int]:
+        """
+        Return the first uninterrupted sequence of staged chunks such that all
+        prior chunks are promoted.
+
+        Returns
+        -------
+        chunk_ids : `list`[`int`]
+            A list of tuples containing the ``apdb_replica_chunk`` values of
+            the promotable chunks.
+
+        Notes
+        -----
+        This query finds the contiguous sequence of ``staged`` chunks beginning
+        with the earliest chunk that is not yet ``promoted``, and ending just
+        before the first chunk that is not ``staged``. If no such ending
+        exists, all ``staged`` chunks from that point onward are returned. If
+        no chunks are ``staged`` after the first non-``promoted`` chunk, an
+        empty list is returned.
+        """
+        table = self.get_table("PpdbReplicaChunk")
+        if not table.schema:
+            raise ValueError("Table schema is not set, cannot construct query")
+        quoted_table_name = (
+            self._engine.dialect.identifier_preparer.quote(table.schema)
+            + "."
+            + self._engine.dialect.identifier_preparer.quote(table.name)
+        )
+
+        sql = SqlResource("select_promotable_chunks", {"table_name": quoted_table_name}).sql
+
+        with self._engine.connect() as conn:
+            result = conn.execute(sqlalchemy.text(sql))
+            chunk_ids = [row[0] for row in result]
+        return chunk_ids
+
+    def mark_chunks_promoted(self, promotable_chunks: list[int]) -> int:
+        """Set status='promoted' for the given chunk IDs. Returns number
+        updated.
+
+        Parameters
+        ----------
+        promotable_chunks : `list`[`int`]
+            List of integers containing the ``apdb_replica_chunk`` values of
+            the promotable chunks.
+
+        Returns
+        -------
+        count: `int`
+            The number of rows updated in the database, which should be equal
+            to the number of promotable chunks provided, if they were all found
+            and updated successfully.
+        """
+        table = self.get_table("PpdbReplicaChunk")
+        stmt = (
+            sqlalchemy.update(table)
+            .where(table.c.apdb_replica_chunk.in_(promotable_chunks), table.c.status != "promoted")
+            .values(status="promoted")
+        )
+
+        with self._engine.begin() as conn:
+            result: sqlalchemy.engine.CursorResult = conn.execute(stmt)
+            return result.rowcount or 0
+
+    def update(self, chunk_id: int, values: dict[str, Any]) -> int:
+        """Update an existing replica chunk in the database.
+
+        Parameters
+        ----------
+        chunk_id : `int`
+            The ID of the replica chunk to update.
+        values : `dict`[`str`, `Any`]
+            A dictionary of column names and their new values to update.
+
+        Returns
+        -------
+        count : `int`
+            The number of rows updated. This should be 1 if the update is
+            successful, or 0 if no rows were updated (e.g., if the chunk ID
+            does not exist or the status is already set to the new value).
+        """
+        logging.info("Preparing to update replica chunk %d with values: %s", chunk_id, values)
+        table = self.get_table("PpdbReplicaChunk")
+        stmt = sqlalchemy.update(table).where(table.c.apdb_replica_chunk == chunk_id).values(values)
+        with self._engine.begin() as conn:
+            result = conn.execute(stmt)
+            affected_rows = result.rowcount
+
+        new_status = values.get("status")
+        if affected_rows == 0:
+            logging.warning(
+                "No rows updated for replica chunk %s with status '%s'",
+                chunk_id,
+                new_status,
+            )
+        else:
+            logging.info(
+                "Successfully updated %d row(s) for replica chunk %s to status '%s'",
+                affected_rows,
+                chunk_id,
+                new_status,
+            )
+        return affected_rows

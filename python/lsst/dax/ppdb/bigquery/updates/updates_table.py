@@ -68,13 +68,13 @@ class UpdatesTable:
         self._deduplicated_table_fqn = f"{project_id}.{dataset_id}.{deduplicated_table_name}"
 
     @staticmethod
-    def _make_record_key(record_id: list[int]) -> str:
+    def _make_record_key(record_id: Iterable[int]) -> str:
         """Compute a string key for a record_id list for deduplication.
 
         Parameters
         ----------
-        record_id : list[int]
-            The record ID as a list of integers.
+        record_id : `Iterable`[`int`]
+            The record ID as an iterable of integers.
 
         Returns
         -------
