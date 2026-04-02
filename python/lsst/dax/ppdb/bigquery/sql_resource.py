@@ -22,6 +22,8 @@
 
 from lsst.resources import ResourcePath
 
+__all__ = ["SqlResource"]
+
 
 class SqlResource:
     """Class for loading SQL query text from a resource file and optionally

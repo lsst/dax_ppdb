@@ -81,7 +81,6 @@ class ChunkPromoter:
         # Build a mapping of phases to run during the promotion process, not
         # including cleanup, which is executed separately
         _phase_methods = [
-            self._fetch_promotable_chunks,
             self._copy_to_promoted_tmp,
             self._apply_record_updates,
             self._promote_tmp_to_prod,
@@ -102,35 +101,10 @@ class ChunkPromoter:
         """List of promotable chunks (`list` [ `int` ], read-only)."""
         return self._promotable_chunks
 
-    @promotable_chunks.setter
-    def promotable_chunks(self, chunks: list[int]) -> None:
-        if not chunks:
-            raise NoPromotableChunksError("No promotable chunks provided")
-        self._promotable_chunks = chunks
-
     @property
     def table_refs(self) -> TableRefs:
         """Table references (`TableRefs`, read-only)."""
         return self._table_refs
-
-    def _execute_phase(self, phase: str) -> None:
-        """Execute a specific promotion phase.
-
-        Parameters
-        ----------
-        phase : `str`
-            The name of the promotion phase to execute. This should be one of
-            the keys in the `phases` property.
-        """
-        if phase not in self._phases:
-            raise ValueError(f"Unknown promotion phase: {phase}")
-        logging.debug("Executing promotion phase: %s", phase)
-        self._phases[phase]()
-
-    def _fetch_promotable_chunks(self) -> None:
-        """Cache the list of promotable chunks from the database."""
-        self._promotable_chunks = self._ppdb.get_promotable_chunks()
-        logging.info("Promotable chunk count: %s", len(self.promotable_chunks))
 
     def _copy_to_promoted_tmp(self) -> None:
         """Build ``_{table_name}_promoted_tmp`` efficiently by cloning prod and
@@ -231,17 +205,33 @@ class ChunkPromoter:
         """Mark the replica chunks as promoted in the database."""
         self._ppdb.mark_chunks_promoted(self.promotable_chunks)
 
-    def promote_chunks(self) -> None:
+    # TODO: It would be preferable if this method received a list of
+    # `PpdbReplicaChunkExtended` objects rather than integer IDs. This could
+    # be easily provided with the `PpdbBigquery` interface.
+    def promote_chunks(self, chunks: list[int]) -> None:
         """Promote APDB replica chunks into production by executing a series of
         phases.
         """
+        if not chunks:
+            raise NoPromotableChunksError("No promotable chunks provided for promotion")
+
+        logging.info("Starting promotion of %d chunk(s): %s", len(chunks), chunks)
+
+        # Set the list of promotable chunks for use in the promotion phases.
+        self._promotable_chunks = chunks
+
+        # Execute the promotion phases in order.
         try:
-            for phase in self._phases.keys():
-                self._execute_phase(phase)
+            for name, phase in self._phases.items():
+                logging.debug("Starting phase: %s", name)
+                phase()
+                logging.debug("Completed phase: %s", name)
+
         finally:
+            # Always execute the cleanup, even if there were errors.
             try:
-                # Cleanup is always executed separately, not as an ordered
-                # phase.
                 self._cleanup()
             except Exception:
                 logging.exception("Cleanup of chunk promotion failed")
+
+        logging.info("Completed promotion of %d chunk(s)", len(chunks))
