@@ -122,8 +122,8 @@ def _create_test_update_records() -> UpdateRecords:
         )
     )
 
-    # Add duplicate records for testing deduplication
-    # Duplicate of the first record but with later timestamp (should be kept)
+    # Add records with the same record identifier but different timestamps to
+    # test the latest-only functionality of the updates table.
     records.append(
         ApdbReassignDiaSourceToDiaObjectRecord(
             update_time_ns=test_update_time_ns + 1000000000,  # 1 second later

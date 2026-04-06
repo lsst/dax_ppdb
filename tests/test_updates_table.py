@@ -149,8 +149,7 @@ class TestUpdatesTable(unittest.TestCase):
         self.assertEqual(list(forced[0].record_id), [200001, 12345, 42])
         self.assertEqual(forced[0].field_name, "timeWithdrawnMjdTai")
 
-        # Verify the duplicate DiaSource reassignment (both original and
-        # later duplicate should be present before deduplication)
+        # Verify the DiaSource records
         reassign = [r for r in results if r.table_name == "DiaSource" and r.field_name == "diaObjectId"]
         self.assertEqual(len(reassign), 2)
         self.assertTrue(all(list(r.record_id) == [100001] for r in reassign))
@@ -172,38 +171,37 @@ class TestUpdatesTable(unittest.TestCase):
         record_count = result[0].count
         self.assertEqual(record_count, 0)
 
-    def test_deduplicate_records(self) -> None:
-        """Test deduplication functionality."""
+    def test_latest_updates_only(self) -> None:
+        """Test functionality for getting only the latest updates."""
         # Create the source table
         self.updates_table.create()
 
-        # Get test records (which now include duplicates) and expand them
+        # Get test records and expand them
         update_records = _create_test_update_records()
         expanded_records = UpdateRecordExpander.expand_updates(update_records)
 
-        # Insert all records (including duplicates)
+        # Insert all of the records into the updates table
         self.updates_table.insert(expanded_records)
 
-        # Count original records
+        # Count the original records
         query = f"SELECT COUNT(*) as count FROM `{self.table_fqn}`"
         original_count = list(self.client.query(query).result())[0].count
 
-        # Create deduplicated table
-        dedup_table_fqn = f"{self.table_fqn}_dedup"
-        self.updates_table.deduplicate_to(dedup_table_fqn)
+        # Create table with only the latest updates
+        self.updates_table.create_latest_only()
 
-        # Count deduplicated records
-        query = f"SELECT COUNT(*) as count FROM `{dedup_table_fqn}`"
-        dedup_count = list(self.client.query(query).result())[0].count
+        # Count the new number of records
+        query = f"SELECT COUNT(*) as count FROM `{self.updates_table.latest_only_table_fqn}`"
+        latest_only_count = list(self.client.query(query).result())[0].count
 
-        # Should have fewer records after deduplication
-        self.assertLess(dedup_count, original_count)
+        # There should be fewer records now.
+        self.assertLess(latest_only_count, original_count)
 
-        # Verify specific deduplication behavior
+        # Verify specific record has the later update value
         record_key = UpdatesTable._make_record_key([100001])
         query = f"""
         SELECT value_json
-        FROM `{dedup_table_fqn}`
+        FROM `{self.updates_table.latest_only_table_fqn}`
         WHERE record_key = '{record_key}' AND field_name = 'diaObjectId'
         """
         result = list(self.client.query(query).result())

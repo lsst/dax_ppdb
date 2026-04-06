@@ -55,8 +55,8 @@ _LOG = logging.getLogger(__name__)
 class UpdatesManager:
     """Class responsible for managing the process of applying updates to the
     PPDB database, including expanding them into a generic format from JSON and
-    inserting into the updates table, deduplicating those to a new table, and,
-    finally, merging the updates into target BigQuery tables.
+    inserting into the updates table, selecting only the latest updates to a
+    new table, and, finally, merging the updates into target BigQuery tables.
 
     Parameters
     ----------
@@ -124,11 +124,11 @@ class UpdatesManager:
 
         # Check if there were any updates in this set of chunks
         if bq_updates_table.num_rows > 0:
-            # Deduplicate the expanded update records to a new table
-            self._updates_table.deduplicate()
+            # Select only the latest update records to a new table
+            self._updates_table.create_latest_only()
 
-            # Merge the deduplicated updates into the target tables
-            self._merge_updates(self._updates_table.deduplicated_table_fqn)
+            # Merge the latest-only updates into the target tables
+            self._merge_updates(self._updates_table.latest_only_table_fqn)
         else:
             # No updates were present in the processed replica chunks
             _LOG.info("No update records found when processing replica chunks")
