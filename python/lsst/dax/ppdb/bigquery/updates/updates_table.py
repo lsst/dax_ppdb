@@ -32,8 +32,8 @@ from .expanded_update_record import ExpandedUpdateRecord
 
 
 class UpdatesTable:
-    """Manage the table in BigQuery used for inserting and deduplicating
-    expanded update records which contain one update per row.
+    """Manage the BigQuery table used for inserting expanded update records
+    which contain one update per row.
 
     Parameters
     ----------
@@ -45,13 +45,13 @@ class UpdatesTable:
         BigQuery dataset ID.
     table_name : `str`, optional
         Name of the updates table. Defaults to ``"updates"``.
-    deduplicated_table_name : `str`, optional
-        Name of the deduplicated updates table. Defaults to
-        ``"updates_dedup"``.
+    latest_only_table_name : `str`, optional
+        Name of the latest-only updates table. Defaults to
+        ``"updates_latest_only"``.
     """
 
     _DEFAULT_TABLE_NAME: str = "updates"
-    _DEFAULT_DEDUPLICATED_TABLE_NAME: str = "updates_dedup"
+    _DEFAULT_LATEST_ONLY_TABLE_NAME: str = "updates_latest_only"
 
     def __init__(
         self,
@@ -59,17 +59,24 @@ class UpdatesTable:
         project_id: str,
         dataset_id: str,
         table_name: str | None = None,
-        deduplicated_table_name: str | None = None,
+        latest_only_table_name: str | None = None,
     ) -> None:
         self._client: bigquery.Client = client
         table_name = table_name or self._DEFAULT_TABLE_NAME
-        deduplicated_table_name = deduplicated_table_name or self._DEFAULT_DEDUPLICATED_TABLE_NAME
+        latest_only_table_name = latest_only_table_name or self._DEFAULT_LATEST_ONLY_TABLE_NAME
         self._table_fqn = f"{project_id}.{dataset_id}.{table_name}"
-        self._deduplicated_table_fqn = f"{project_id}.{dataset_id}.{deduplicated_table_name}"
+        self._latest_only_table_fqn = f"{project_id}.{dataset_id}.{latest_only_table_name}"
+
+    @property
+    def latest_only_table_fqn(self) -> str:
+        """Fully-qualified BigQuery latest-only table name in the form
+        ``"project.dataset.table"`` (`str`, read-only).
+        """
+        return self._latest_only_table_fqn
 
     @staticmethod
     def _make_record_key(record_id: Iterable[int]) -> str:
-        """Compute a string key for a record_id list for deduplication.
+        """Make a string key from a list of integer ID values.
 
         Parameters
         ----------
@@ -89,13 +96,6 @@ class UpdatesTable:
         ``"project.dataset.table"`` (`str`, read-only).
         """
         return self._table_fqn
-
-    @property
-    def deduplicated_table_fqn(self) -> str:
-        """Fully-qualified BigQuery deduplicated table name in the form
-        ``"project.dataset.table"`` (`str`, read-only).
-        """
-        return self._deduplicated_table_fqn
 
     def create(self) -> bigquery.Table:
         """Create the updates table.
@@ -197,30 +197,16 @@ class UpdatesTable:
 
         return job
 
-    def deduplicate(self) -> bigquery.QueryJob:
-        """Deduplicate this table's records to the deduplicated table.
-
-        Returns
-        -------
-        job : `google.cloud.bigquery.QueryJob`
-            Completed BigQuery query job that created the deduplicated
-            table.
-        """
-        return self.deduplicate_to(self._deduplicated_table_fqn)
-
-    def deduplicate_to(self, target_table_fqn: str) -> bigquery.QueryJob:
-        """Deduplicate this table's records to a target table.
+    def create_latest_only(self) -> None:
+        """Select only the latest update for each unique
+        ``(table_name, record_id, field_name)`` combination and write them to a
+        new table.
 
         Parameters
         ----------
         target_table_fqn : `str`
             Target fully-qualified BigQuery table name in the form
             ``"project.dataset.table"``.
-
-        Returns
-        -------
-        job : `google.cloud.bigquery.QueryJob`
-            Completed BigQuery query job that created the deduplicated table.
 
         Notes
         -----
@@ -230,7 +216,7 @@ class UpdatesTable:
         ``update_order``.
         """
         query = f"""
-        CREATE OR REPLACE TABLE `{target_table_fqn}`
+        CREATE OR REPLACE TABLE `{self._latest_only_table_fqn}`
         AS
         SELECT * EXCEPT(row_num)
         FROM (
@@ -249,4 +235,3 @@ class UpdatesTable:
 
         job = self._client.query(query)
         job.result()
-        return job

@@ -87,14 +87,15 @@ class TestUpdatesMerger(unittest.TestCase):
         update_records = _create_test_update_records()
         expanded = UpdateRecordExpander.expand_updates(update_records)
         updates_table.insert(expanded)
-        dedup_fqn = f"{self.updates_table_fqn}_dedup"
-        updates_table.deduplicate_to(dedup_fqn)
+        updates_table.create_latest_only()
         table_fqn = f"{self.target_dataset_fqn}.DiaObject"
         query = f"SELECT * FROM `{table_fqn}` ORDER BY diaObjectId"
         before = {r.diaObjectId: r for r in self.client.query(query).result()}
         merger = DiaObjectUpdatesMerger()
         merger.merge(
-            client=self.client, updates_table_fqn=dedup_fqn, target_dataset_fqn=self.target_dataset_fqn
+            client=self.client,
+            updates_table_fqn=updates_table.latest_only_table_fqn,
+            target_dataset_fqn=self.target_dataset_fqn,
         )
         after = {r.diaObjectId: r for r in self.client.query(query).result()}
         self.assertEqual(after[200001].validityEndMjdTai, 59580.0)
@@ -157,14 +158,15 @@ class TestUpdatesMerger(unittest.TestCase):
         update_records = _create_test_update_records()
         expanded = UpdateRecordExpander.expand_updates(update_records)
         updates_table.insert(expanded)
-        dedup_fqn = f"{self.updates_table_fqn}_dedup"
-        updates_table.deduplicate_to(dedup_fqn)
+        updates_table.create_latest_only()
 
         query = f"SELECT * FROM `{table_fqn}` ORDER BY diaSourceId"
         before = {r.diaSourceId: r for r in self.client.query(query).result()}
         merger = DiaSourceUpdatesMerger()
         merger.merge(
-            client=self.client, updates_table_fqn=dedup_fqn, target_dataset_fqn=self.target_dataset_fqn
+            client=self.client,
+            updates_table_fqn=updates_table.latest_only_table_fqn,
+            target_dataset_fqn=self.target_dataset_fqn,
         )
         after = {r.diaSourceId: r for r in self.client.query(query).result()}
 
@@ -202,14 +204,15 @@ class TestUpdatesMerger(unittest.TestCase):
         update_records = _create_test_update_records()
         expanded = UpdateRecordExpander.expand_updates(update_records)
         updates_table.insert(expanded)
-        dedup_fqn = f"{self.updates_table_fqn}_dedup"
-        updates_table.deduplicate_to(dedup_fqn)
+        updates_table.create_latest_only()
 
         query = f"SELECT * FROM `{table_fqn}` ORDER BY diaObjectId, visit, detector"
         before = {(r.diaObjectId, r.visit, r.detector): r for r in self.client.query(query).result()}
         merger = DiaForcedSourceUpdatesMerger()
         merger.merge(
-            client=self.client, updates_table_fqn=dedup_fqn, target_dataset_fqn=self.target_dataset_fqn
+            client=self.client,
+            updates_table_fqn=updates_table.latest_only_table_fqn,
+            target_dataset_fqn=self.target_dataset_fqn,
         )
         after = {(r.diaObjectId, r.visit, r.detector): r for r in self.client.query(query).result()}
 
@@ -223,13 +226,14 @@ class TestUpdatesMerger(unittest.TestCase):
         self._create_target_table()
         updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
         updates_table.create()
-        dedup_fqn = f"{self.updates_table_fqn}_dedup"
-        updates_table.deduplicate_to(dedup_fqn)
+        updates_table.create_latest_only()
         table_fqn = f"{self.target_dataset_fqn}.DiaObject"
         before = {r.diaObjectId: r for r in self.client.query(f"SELECT * FROM `{table_fqn}`").result()}
         merger = DiaObjectUpdatesMerger()
         merger.merge(
-            client=self.client, updates_table_fqn=dedup_fqn, target_dataset_fqn=self.target_dataset_fqn
+            client=self.client,
+            updates_table_fqn=updates_table.latest_only_table_fqn,
+            target_dataset_fqn=self.target_dataset_fqn,
         )
         after = {r.diaObjectId: r for r in self.client.query(f"SELECT * FROM `{table_fqn}`").result()}
         for obj_id in before:
