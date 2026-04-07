@@ -82,8 +82,8 @@ class TestUpdatesTable(unittest.TestCase):
             "field_name": ("STRING", "REQUIRED"),
             "value_json": ("JSON", "REQUIRED"),
             "replica_chunk_id": ("INTEGER", "REQUIRED"),
-            "update_order": ("INTEGER", "NULLABLE"),
-            "update_time_ns": ("INTEGER", "NULLABLE"),
+            "update_order": ("INTEGER", "REQUIRED"),
+            "update_time_ns": ("INTEGER", "REQUIRED"),
         }
 
         actual_fields = {field.name: (field.field_type, field.mode) for field in table.schema}

@@ -130,8 +130,8 @@ class UpdatesTable:
             bigquery.SchemaField("field_name", "STRING", mode="REQUIRED"),
             bigquery.SchemaField("value_json", "JSON", mode="REQUIRED"),
             bigquery.SchemaField("replica_chunk_id", "INT64", mode="REQUIRED"),
-            bigquery.SchemaField("update_order", "INT64", mode="NULLABLE"),
-            bigquery.SchemaField("update_time_ns", "INT64", mode="NULLABLE"),
+            bigquery.SchemaField("update_order", "INT64", mode="REQUIRED"),
+            bigquery.SchemaField("update_time_ns", "INT64", mode="REQUIRED"),
         ]
 
         table = bigquery.Table(self._table_fqn, schema=schema)
