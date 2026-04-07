@@ -70,7 +70,7 @@ class UpdateRecordExpander:
         # Create an ExpandedUpdateRecord for each field being updated
         expanded_records = []
         record_id_values = tuple(value for _, value in update_record.record_id())
-        for field_name, field_value in update_record.record_payload():
+        for field_name, field_value, _ in update_record.record_payload():
             expanded_record = ExpandedUpdateRecord(
                 table_name=table_name,
                 record_id=record_id_values,

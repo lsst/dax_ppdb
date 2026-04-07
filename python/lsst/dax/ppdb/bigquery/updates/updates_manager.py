@@ -26,9 +26,12 @@ __all__ = ["UpdatesManager"]
 import logging
 import posixpath
 import urllib
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
 
 from google.cloud import bigquery, storage
+
+from lsst.dax.apdb import ApdbTables
 
 from ..manifest import Manifest
 from ..ppdb_bigquery import PpdbBigQueryConfig
@@ -36,18 +39,9 @@ from ..ppdb_replica_chunk_extended import PpdbReplicaChunkExtended
 from .update_record_expander import UpdateRecordExpander
 from .update_records import UpdateRecords
 from .updates_merger import (
-    DiaForcedSourceUpdatesMerger,
-    DiaObjectUpdatesMerger,
-    DiaSourceUpdatesMerger,
     UpdatesMerger,
 )
 from .updates_table import UpdatesTable
-
-_DEFAULT_MERGER_CLASSES: tuple[type[UpdatesMerger], ...] = (
-    DiaObjectUpdatesMerger,
-    DiaSourceUpdatesMerger,
-    DiaForcedSourceUpdatesMerger,
-)
 
 _LOG = logging.getLogger(__name__)
 
@@ -62,9 +56,6 @@ class UpdatesManager:
     ----------
     config : `PpdbBigQueryConfig`
         Configuration for the PPDB BigQuery interface.
-    mergers : `Sequence` [ `UpdatesMerger` ], optional
-        Sequence of `UpdatesMerger` instances to use for merging updates into
-        target tables. If not provided, a default set of mergers will be used.
     table_name_format : `str`, optional
         Optional format string for the target table names used by the mergers.
     """
@@ -72,21 +63,14 @@ class UpdatesManager:
     def __init__(
         self,
         config: PpdbBigQueryConfig,
-        mergers: Sequence[UpdatesMerger] | None = None,
         table_name_format: str | None = None,
     ) -> None:
+        self.table_name_format = table_name_format
+
         # Get some necessary setup information from the config
         project_id = config.project_id
         dataset_id = config.dataset_id
         bucket_name = config.bucket_name
-
-        # Merger instances for handling each target table
-        if mergers and table_name_format:
-            raise ValueError("Cannot specify both 'mergers' and 'table_name_format'")
-        if mergers:
-            self._mergers = mergers
-        else:
-            self._mergers = tuple(cls(table_name_format=table_name_format) for cls in _DEFAULT_MERGER_CLASSES)
 
         # Setup the updates table interface
         self._bq_client = bigquery.Client()
@@ -109,14 +93,14 @@ class UpdatesManager:
 
         Parameters
         ----------
-        replica_chunks: `Sequence` [ `PpdbReplicaChunkExtended` ]
+        replica_chunks : `Sequence` [ `PpdbReplicaChunkExtended` ]
             The replica chunks with the update records.
         """
         # Create the updates table, first dropping if it already exists
         self._updates_table.recreate()
 
         # Process the replica chunks to build the expanded updates table
-        self._process_chunks(replica_chunks)
+        mergers = self._process_chunks(replica_chunks)
 
         # Get a fresh reference to the updates table to check if there were
         # any update records generated from the processed replica chunks
@@ -128,7 +112,7 @@ class UpdatesManager:
             self._updates_table.create_latest_only()
 
             # Merge the latest-only updates into the target tables
-            self._merge_updates(self._updates_table.latest_only_table_fqn)
+            self._merge_updates(self._updates_table.latest_only_table_fqn, mergers)
         else:
             # No updates were present in the processed replica chunks
             _LOG.info("No update records found when processing replica chunks")
@@ -137,7 +121,11 @@ class UpdatesManager:
     # chunk interface that was read from the db so that this method received a
     # pre-filtered list of only those chunks with updates. This would also
     # make checking the manifests in GCS unnecessary.
-    def _process_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
+    # FIXME: Ingesting multiple chunks at once is a mistake. If there are
+    # regular inserts in the same chunk this can result in corrupted data.
+    def _process_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> list[UpdatesMerger]:
+        per_table_id_fields: dict[ApdbTables, tuple[str, ...]] = {}
+        per_table_payload_fields: dict[ApdbTables, set[tuple[str, str]]] = defaultdict(set)
         for chunk in chunks:
             if chunk.gcs_uri is None:
                 raise ValueError(f"Replica chunk {chunk.id} does not have a GCS URI")
@@ -171,8 +159,31 @@ class UpdatesManager:
                 expanded_update_records = UpdateRecordExpander.expand_updates(update_records)
                 self._updates_table.insert(expanded_update_records)
 
-    def _merge_updates(self, target_table_fqn: str) -> None:
-        for merger in self._mergers:
+                # Get identifying and payload field names from this chunks.
+                id_fields = update_records.id_field_names()
+                payload_fields = update_records.payload_field_names()
+
+                # Merge fields from multiple chunks.
+                per_table_id_fields.update(id_fields)
+                for table, fields in payload_fields.items():
+                    per_table_payload_fields[table].update(fields)
+
+        mergers = self._make_mergers(per_table_id_fields, per_table_payload_fields)
+        return mergers
+
+    def _make_mergers(
+        self,
+        per_table_id_fields: Mapping[ApdbTables, tuple[str, ...]],
+        per_table_payload_fields: Mapping[ApdbTables, set[tuple[str, str]]],
+    ) -> list[UpdatesMerger]:
+        assert list(per_table_id_fields) == list(per_table_payload_fields), "Set of table must be identical"
+        return [
+            UpdatesMerger(table, id_fields, per_table_payload_fields[table], self.table_name_format)
+            for table, id_fields in per_table_id_fields.items()
+        ]
+
+    def _merge_updates(self, target_table_fqn: str, mergers: list[UpdatesMerger]) -> None:
+        for merger in mergers:
             merger.merge(
                 client=self._bq_client,
                 updates_table_fqn=target_table_fqn,

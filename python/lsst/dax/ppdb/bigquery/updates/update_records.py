@@ -24,12 +24,14 @@ from __future__ import annotations
 __all__ = ["UpdateRecords"]
 
 import json
+from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
 from pydantic import BaseModel, field_serializer, field_validator
 
-from lsst.dax.apdb.apdbUpdateRecord import ApdbUpdateRecord
+from lsst.dax.apdb import ApdbTables, ApdbUpdateRecord
 
 
 class UpdateRecords(BaseModel):
@@ -123,3 +125,40 @@ class UpdateRecords(BaseModel):
     def from_json_string(cls, json_str: str) -> UpdateRecords:
         data = json.loads(json_str)
         return cls.model_validate(data)
+
+    def id_field_names(self) -> Mapping[ApdbTables, tuple[str, ...]]:
+        """Return the names of the identifying fields for each APD table.
+
+        Returns
+        -------
+        fields : `~collections.abc.Mapping` [`ApdbTables`, `tuple`[`str`, ...]]
+            Names of the identifying fields for each table, only tables that
+            actually appear in the update records are returned.
+        """
+        per_table_fields: dict[ApdbTables, tuple[str, ...]] = {}
+        for record in self.records:
+            table = record.apdb_table
+            table_fields = tuple(field[0] for field in record.record_id())
+            if existing_fields := per_table_fields.get(table):
+                assert table_fields == existing_fields, "Fields for the same table must be identical."
+            else:
+                per_table_fields[table] = table_fields
+
+        return per_table_fields
+
+    def payload_field_names(self) -> Mapping[ApdbTables, tuple[tuple[str, str], ...]]:
+        """Return the names and types of the payload fields for each APD table.
+
+        Returns
+        -------
+        fields : `~collections.abc.Mapping` [`ApdbTables`, `tuple`[`str`, ...]]
+            Names of the payload fields for each table, only tables that
+            actually appear in the update records are returned.
+        """
+        per_table_fields: dict[ApdbTables, set[tuple[str, str]]] = defaultdict(set)
+        for record in self.records:
+            per_table_fields[record.apdb_table].update(
+                (field.field, field.type) for field in record.record_payload()
+            )
+
+        return {table: tuple(fields) for table, fields in per_table_fields.items()}
