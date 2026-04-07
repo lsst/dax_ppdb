@@ -19,11 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import json
 import unittest
-
-import pytest
-from google.cloud import storage
 
 from lsst.dax.apdb import (
     Apdb,
@@ -36,19 +32,14 @@ from lsst.dax.ppdb.bigquery.updates import UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import fill_apdb
 from lsst.dax.ppdb.tests._bigquery import (
-    ChunkUploaderWithoutPubSub,
     PostgresMixin,
-    delete_test_bucket,
-    generate_test_bucket_name,
     have_valid_google_credentials,
 )
 
 
 @unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
 class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
-    """A test case for the handling of APDB record updates by PpdbBigQuery and
-    related classes including the ChunkUploader.
-    """
+    """A test case for the handling of APDB record updates by PpdbBigQuery."""
 
     def setUp(self):
         super().setUp()
@@ -252,75 +243,6 @@ class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
             "Unexpected dec in deserialized ApdbWithdrawDiaForcedSourceRecord, should not be 0.0",
         )
 
-    # FIXME: This should be in a separate test case and probably a separate
-    # module as well.
-    @pytest.mark.skipif(
-        pytest.importorskip("lsst.dax.ppdbx.gcp", reason="dax_ppdbx_gcp is not installed") is None,
-        reason="",
-    )
-    def test_chunk_uploader(self) -> None:
-        """Test that the update records are correctly uploaded to Google Cloud
-        Storage after replication.
-        """
-        # Change the configuration to use a unique test bucket name to avoid
-        # conflicts
-        self.ppdb_config.bucket_name = generate_test_bucket_name("ppdb-test-gcs-upload")
 
-        # Create the test GCS bucket
-        storage_client = storage.Client()
-        try:
-            bucket = storage_client.bucket(self.ppdb_config.bucket_name)
-            bucket.create(location="US")
-        except Exception as e:
-            self.fail(f"Failed to create test GCS bucket: {e}")
-
-        # Configure and run the uploader
-        uploader = ChunkUploaderWithoutPubSub(
-            self.ppdb,
-            wait_interval=0,
-            exit_on_empty=True,
-            exit_on_error=True,
-        )
-        print(f"Uploader will copy files to {uploader.config.bucket_name}/{uploader.config.object_prefix}/")
-        uploader.run()
-
-        # Retrieve the update records file.
-        blobs = list(bucket.list_blobs(match_glob="**/update_records.json"))
-        update_records_files = [b.name for b in blobs]
-        self.assertEqual(
-            len(update_records_files),
-            1,
-            f"Expected exactly one update_records.json file in GCS, found "
-            f"{len(update_records_files)}: {update_records_files}",
-        )
-
-        # Get the contents of the update records file and load it as JSON.
-        update_records_str = blobs[0].download_as_text()
-        update_records_json = json.loads(update_records_str)
-
-        # Load the update records into the data model and perform a few basic
-        # checks (test_json_serialization already tests this in detail, so we
-        # just check a few key fields here).
-        update_records = UpdateRecords.model_validate(update_records_json)
-        self.assertEqual(
-            update_records.replica_chunk_id,
-            1614600000,
-            "Unexpected replica chunk ID in update records file from GCS",
-        )
-        self.assertEqual(
-            len(update_records.records),
-            3,
-            f"Expected 3 update records in the file from GCS, found {len(update_records.records)}",
-        )
-        self.assertEqual(
-            len(update_records.records),
-            3,
-            f"Expected 3 update records in the file from GCS, found {len(update_records.records)}",
-        )
-
-        # FIXME: This should be in a tearDown() method.
-        # Delete the test GCS bucket
-        try:
-            delete_test_bucket(bucket)
-        except Exception as e:
-            raise RuntimeError(f"Failed to delete test GCS bucket: {e}") from e
+if __name__ == "__main__":
+    unittest.main()

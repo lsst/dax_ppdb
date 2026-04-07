@@ -22,6 +22,7 @@
 import gc
 import io
 import json
+import logging
 import shutil
 import tempfile
 import uuid
@@ -45,6 +46,8 @@ try:
     import testing.postgresql
 except ImportError:
     testing = None
+
+_LOG = logging.getLogger(__name__)
 
 
 TEST_CONFIG = {
@@ -94,7 +97,7 @@ def delete_test_bucket(bucket_or_bucket_name: str | storage.Bucket) -> None:
             blob.delete()
         bucket.delete()
     except Exception as e:
-        print(f"Failed to delete test GCS bucket: {e}")
+        _LOG.exception("Failed to delete test GCS bucket: %s", e)
 
 
 class ChunkUploaderWithoutPubSub(ChunkUploader):
