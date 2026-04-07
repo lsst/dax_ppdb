@@ -23,103 +23,108 @@ from __future__ import annotations
 
 __all__ = ["UpdateRecords"]
 
-import json
+from io import BytesIO
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from typing import ClassVar
 
-from pydantic import BaseModel, field_serializer, field_validator
+import pyarrow
+from pyarrow import parquet
 
 from lsst.dax.apdb.apdbUpdateRecord import ApdbUpdateRecord
 
 
-class UpdateRecords(BaseModel):
-    """Data model for APDB update records."""
+class UpdateRecords:
+    """Container for APDB update records with Parquet serialization.
 
-    FILE_NAME: ClassVar[str] = "update_records.json"
-    """Name of the JSON file with the updates."""
+    Parameters
+    ----------
+    records : `list` [ `ApdbUpdateRecord` ]
+        List of APDB update records.
+    """
 
-    replica_chunk_id: int
-    """Identifier of the replica chunk to which these update records belong."""
+    PARQUET_FILE_NAME: ClassVar[str] = "update_records.parquet"
+    """Name of the Parquet file with the updates."""
 
-    records: list[ApdbUpdateRecord]
-    """List of APDB update records included in this object."""
+    _PARQUET_SCHEMA: ClassVar[pyarrow.Schema] = pyarrow.schema(
+        [
+            pyarrow.field("update_time_ns", pyarrow.int64()),
+            pyarrow.field("update_order", pyarrow.int32()),
+            pyarrow.field("json_payload", pyarrow.string()),
+        ]
+    )
 
-    @field_serializer("records")
-    def serialize_records(
-        self,
-        records: list[ApdbUpdateRecord],
-    ) -> list[dict[str, Any]]:
-        """Serialize the ``ApdbUpdateRecord`` objects to JSON.
+    def __init__(self, records: list[ApdbUpdateRecord]) -> None:
+        self.records = records
 
-        Parameters
-        ----------
-        records : `list` [ `ApdbUpdateRecord` ]
-            The list of APDB update records to serialize.
+    def write_parquet_file(self, path: Path) -> None:
+        """Write the update records to a Parquet file.
 
-        Returns
-        -------
-        serialized_records : `list` [ `dict` [ `str`, `Any` ]]
-            The serialized JSON data.
-        """
-        serialized_records: list[dict[str, Any]] = []
-        for update_record in records:
-            record_dict: dict[str, Any] = json.loads(update_record.to_json())
-            record_dict["update_time_ns"] = update_record.update_time_ns
-            record_dict["update_order"] = update_record.update_order
-            serialized_records.append(record_dict)
-        return serialized_records
-
-    @field_validator("records", mode="before")
-    @classmethod
-    def deserialize_records(
-        cls,
-        records: list[dict[str, Any]] | list[ApdbUpdateRecord],
-    ) -> list[ApdbUpdateRecord]:
-        """Deserialize the JSON data to ``ApdbUpdateRecord`` objects.
+        Each record is stored with ``update_time_ns``, ``update_order``, and
+        ``json_payload`` columns, where ``json_payload`` contains the
+        serialized record data.
 
         Parameters
         ----------
-        records : `list` [ `dict` [ `str`, `Any` ] | `ApdbUpdateRecord` ]
-            The list of serialized JSON data or already deserialized
-            ApdbUpdateRecord objects.
+        path : `pathlib.Path`
+            Destination Parquet file path.
+        """
+        update_times: list[int] = []
+        update_orders: list[int] = []
+        json_payloads: list[str] = []
+        for record in self.records:
+            update_times.append(record.update_time_ns)
+            update_orders.append(record.update_order)
+            json_payloads.append(record.to_json())
+
+        table = pyarrow.table(
+            {
+                "update_time_ns": update_times,
+                "update_order": update_orders,
+                "json_payload": json_payloads,
+            },
+            schema=self._PARQUET_SCHEMA,
+        )
+        parquet.write_table(table, path)
+
+    @classmethod
+    def from_parquet_file(cls, path: Path) -> UpdateRecords:
+        """Read update records from a Parquet file.
+
+        Parameters
+        ----------
+        path : `pathlib.Path`
+            Path to the Parquet file.
 
         Returns
         -------
-        update_records : `list` [ `ApdbUpdateRecord` ]
-            The list of APDB update records.
+        update_records : `UpdateRecords`
+            The deserialized update records.
         """
-        if records and isinstance(records[0], ApdbUpdateRecord):
-            return cast(list[ApdbUpdateRecord], records)
-        deserialized_records: list[ApdbUpdateRecord] = []
-        for record in records:
-            if isinstance(record, dict):
-                record_copy = record.copy()
-                update_time_ns = record_copy.pop("update_time_ns")
-                update_order = record_copy.pop("update_order")
-                json_str = json.dumps(record_copy)
-                update_record = ApdbUpdateRecord.from_json(
-                    update_time_ns,
-                    update_order,
-                    json_str,
-                )
-                deserialized_records.append(update_record)
-            elif isinstance(record, ApdbUpdateRecord):
-                deserialized_records.append(record)
-            else:
-                raise TypeError("Each record must be a dict or ApdbUpdateRecord")
-        return deserialized_records
-
-    def write_json_file(self, path: Path) -> None:
-        with open(path, "w") as f:
-            json.dump(self.model_dump(), f, indent=2, default=str)
+        with open(path, "rb") as f:
+            return cls.from_parquet_bytes(f.read())
 
     @classmethod
-    def from_json_file(cls, path: Path) -> UpdateRecords:
-        with open(path) as f:
-            data = json.load(f)
-        return cls.model_validate(data)
+    def from_parquet_bytes(cls, data: bytes) -> UpdateRecords:
+        """Read update records from Parquet-formatted bytes.
 
-    @classmethod
-    def from_json_string(cls, json_str: str) -> UpdateRecords:
-        data = json.loads(json_str)
-        return cls.model_validate(data)
+        Parameters
+        ----------
+        data : `bytes`
+            Parquet file content as bytes.
+
+        Returns
+        -------
+        update_records : `UpdateRecords`
+            The deserialized update records.
+        """
+        table = parquet.read_table(BytesIO(data), schema=cls._PARQUET_SCHEMA)
+        records: list[ApdbUpdateRecord] = []
+        for update_time_ns, update_order, json_payload in zip(
+            table.column("update_time_ns").to_pylist(),
+            table.column("update_order").to_pylist(),
+            table.column("json_payload").to_pylist(),
+            strict=True,
+        ):
+            record = ApdbUpdateRecord.from_json(update_time_ns, update_order, json_payload)
+            records.append(record)
+        return cls(records=records)

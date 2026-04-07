@@ -179,15 +179,15 @@ class UpdatesManager:
             # Read the update records if the chunk was flagged as having them
             if manifest.includes_update_records:
                 try:
-                    # Get the update records file contents from the bucket
-                    object_name = posixpath.join(parsed_uri.path.lstrip("/"), UpdateRecords.FILE_NAME)
+                    # Download the update records parquet file from the bucket.
+                    object_name = posixpath.join(chunk_prefix, UpdateRecords.PARQUET_FILE_NAME)
                     blob = bucket.blob(object_name)
-                    content = blob.download_as_text()
+                    content = blob.download_as_bytes()
 
                     # Expand the update records into the appropriate format and
                     # insert them into the updates table
-                    update_records = UpdateRecords.from_json_string(content)
-                    expanded_update_records = UpdateRecordExpander.expand_updates(update_records)
+                    update_records = UpdateRecords.from_parquet_bytes(content)
+                    expanded_update_records = UpdateRecordExpander.expand_updates(update_records, chunk.id)
                     self._updates_table.insert(expanded_update_records)
                 except Exception as e:
                     raise UpdatesManagerError(

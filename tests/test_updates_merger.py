@@ -85,7 +85,7 @@ class TestUpdatesMerger(unittest.TestCase):
         updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
         updates_table.create()
         update_records = _create_test_update_records()
-        expanded = UpdateRecordExpander.expand_updates(update_records)
+        expanded = UpdateRecordExpander.expand_updates(update_records, 0)
         updates_table.insert(expanded)
         updates_table.create_latest_only()
         table_fqn = f"{self.target_dataset_fqn}.DiaObject"
@@ -156,7 +156,7 @@ class TestUpdatesMerger(unittest.TestCase):
         updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
         updates_table.create()
         update_records = _create_test_update_records()
-        expanded = UpdateRecordExpander.expand_updates(update_records)
+        expanded = UpdateRecordExpander.expand_updates(update_records, 0)
         updates_table.insert(expanded)
         updates_table.create_latest_only()
 
@@ -202,7 +202,7 @@ class TestUpdatesMerger(unittest.TestCase):
         updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
         updates_table.create()
         update_records = _create_test_update_records()
-        expanded = UpdateRecordExpander.expand_updates(update_records)
+        expanded = UpdateRecordExpander.expand_updates(update_records, 0)
         updates_table.insert(expanded)
         updates_table.create_latest_only()
 

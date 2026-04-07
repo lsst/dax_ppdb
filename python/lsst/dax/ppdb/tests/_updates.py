@@ -40,7 +40,6 @@ def _create_test_update_records() -> UpdateRecords:
     # Hardcoded test values
     test_update_time_ns = 1640995200000000000  # 2022-01-01 00:00:00 UTC in nanoseconds
     test_mjd_tai = 59580.0  # Corresponding MJD TAI for 2022-01-01
-    test_replica_chunk_id = 12345
 
     # Reassign DIASource to different DIAObject
     records.append(
@@ -150,6 +149,5 @@ def _create_test_update_records() -> UpdateRecords:
     )
 
     return UpdateRecords(
-        replica_chunk_id=test_replica_chunk_id,
         records=records,
     )

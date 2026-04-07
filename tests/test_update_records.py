@@ -61,29 +61,19 @@ class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
         )
         replicator.run(exit_on_empty=True)
 
-    def test_json_serialization(self) -> None:
-        """Test that the APDB update records are correctly saved to a JSON file
-        in the replication output and can be read back as valid UpdateRecords
-        objects.
+    def test_parquet_serialization(self) -> None:
+        """Test that the APDB update records are correctly saved to a Parquet
+        file in the replication output and can be read back as valid
+        UpdateRecords objects.
         """
         update_records_path = (
-            self.ppdb.config.replication_path / "2021/03/01/1614600000" / "update_records.json"
+            self.ppdb.config.replication_path / "2021/03/01/1614600000" / "update_records.parquet"
         )
         self.assertTrue(update_records_path.exists(), "Update records file not found in replication output")
 
-        update_records = UpdateRecords.from_json_file(update_records_path)
-
-        self.assertEqual(
-            update_records.replica_chunk_id,
-            1614600000,
-            "Unexpected replica chunk ID in deserialized update records",
-        )
+        update_records = UpdateRecords.from_parquet_file(update_records_path)
 
         self.assertEqual(len(update_records.records), 3, "Unexpected number of update records deserialized")
-
-        self.assertEqual(
-            len(update_records.records), 3, "Unexpected number of update records in the deserialized object"
-        )
 
         for record in update_records.records:
             self.assertIsInstance(

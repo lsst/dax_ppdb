@@ -19,7 +19,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import datetime
 import unittest
 
 import astropy.time
@@ -225,7 +224,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
     def test_update_records_all(self) -> None:
         """Test the full expand_updates method with multiple record types."""
         update_records = _create_test_update_records()
-        expanded = UpdateRecordExpander.expand_updates(update_records)
+        expanded = UpdateRecordExpander.expand_updates(update_records, self.replica_chunk_id)
 
         self.assertEqual(len(expanded), 10)
 
@@ -279,14 +278,9 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
 
     def test_empty_records(self) -> None:
         """Test expand_updates with empty records list."""
-        empty_update_records = UpdateRecords(
-            replica_chunk_id=self.replica_chunk_id,
-            record_count=0,
-            records=[],
-            file_created_at=datetime.datetime.now(datetime.UTC),
-        )
+        empty_update_records = UpdateRecords(records=[])
 
-        expanded = UpdateRecordExpander.expand_updates(empty_update_records)
+        expanded = UpdateRecordExpander.expand_updates(empty_update_records, self.replica_chunk_id)
         self.assertEqual(len(expanded), 0)
 
 

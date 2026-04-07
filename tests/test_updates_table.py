@@ -108,7 +108,7 @@ class TestUpdatesTable(unittest.TestCase):
 
         # Get test update records and expand them
         update_records = _create_test_update_records()
-        expanded_records = UpdateRecordExpander.expand_updates(update_records)
+        expanded_records = UpdateRecordExpander.expand_updates(update_records, 12345)
 
         # Insert the records
         job = self.updates_table.insert(expanded_records)
@@ -178,7 +178,7 @@ class TestUpdatesTable(unittest.TestCase):
 
         # Get test records and expand them
         update_records = _create_test_update_records()
-        expanded_records = UpdateRecordExpander.expand_updates(update_records)
+        expanded_records = UpdateRecordExpander.expand_updates(update_records, 0)
 
         # Insert all of the records into the updates table
         self.updates_table.insert(expanded_records)

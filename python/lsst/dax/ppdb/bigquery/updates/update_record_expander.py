@@ -93,13 +93,17 @@ class UpdateRecordExpander:
         return expanded_records
 
     @classmethod
-    def expand_updates(cls, update_records: UpdateRecords) -> list[ExpandedUpdateRecord]:
+    def expand_updates(
+        cls, update_records: UpdateRecords, replica_chunk_id: int
+    ) -> list[ExpandedUpdateRecord]:
         """Expand the APDB update records into a list of individual updates.
 
         Parameters
         ----------
         update_records : `UpdateRecords`
             The APDB update records to expand.
+        replica_chunk_id : `int`
+            The replica chunk ID associated with these update records.
 
         Returns
         -------
@@ -109,7 +113,7 @@ class UpdateRecordExpander:
         expanded_updates = []
 
         for update_record in update_records.records:
-            expanded_records = cls.expand_single_record(update_record, update_records.replica_chunk_id)
+            expanded_records = cls.expand_single_record(update_record, replica_chunk_id)
             expanded_updates.extend(expanded_records)
 
         # DEBUG: Print number of expanded update records that were generated

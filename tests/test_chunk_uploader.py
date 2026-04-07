@@ -19,7 +19,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import json
 import unittest
 
 from google.cloud import storage
@@ -88,29 +87,19 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         print(f"Uploader will copy files to {uploader.config.bucket_name}/{uploader.config.object_prefix}/")
         uploader.run()
 
-        # Retrieve the update records file.
-        blobs = list(self._bucket.list_blobs(match_glob="**/update_records.json"))
+        # Retrieve the update records file
+        blobs = list(self._bucket.list_blobs(match_glob="**/update_records.parquet"))
         update_records_files = [b.name for b in blobs]
         self.assertEqual(
             len(update_records_files),
             1,
-            f"Expected exactly one update_records.json file in GCS, found "
+            f"Expected exactly one update_records.parquet file in GCS, found "
             f"{len(update_records_files)}: {update_records_files}",
         )
 
-        # Get the contents of the update records file and load it as JSON.
-        update_records_str = blobs[0].download_as_text()
-        update_records_json = json.loads(update_records_str)
-
-        # Load the update records into the data model and perform a few basic
-        # checks (test_json_serialization already tests this in detail, so we
-        # just check a few key fields here).
-        update_records = UpdateRecords.model_validate(update_records_json)
-        self.assertEqual(
-            update_records.replica_chunk_id,
-            1614600000,
-            "Unexpected replica chunk ID in update records file from GCS",
-        )
+        # Download the parquet file and deserialize the update records
+        update_records_bytes = blobs[0].download_as_bytes()
+        update_records = UpdateRecords.from_parquet_bytes(update_records_bytes)
         self.assertEqual(
             len(update_records.records),
             3,

@@ -222,9 +222,10 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
 
         # Create and store the test update records
         update_records = _create_test_update_records()
+        test_replica_chunk_id = 12345
         self.ppdb.store(
             ReplicaChunk(
-                id=update_records.replica_chunk_id,
+                id=test_replica_chunk_id,
                 last_update_time=astropy.time.Time("2021-01-01T00:01:00", format="isot", scale="tai"),
                 unique_id=uuid.uuid4(),
             ),
@@ -246,5 +247,5 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
 
         # Apply the updates to the target tables using the UpdatesManager
         updates_manager = UpdatesManager(self.ppdb.config)
-        replica_chunks = self.ppdb.get_replica_chunks_ext_by_ids([update_records.replica_chunk_id])
+        replica_chunks = self.ppdb.get_replica_chunks_ext_by_ids([test_replica_chunk_id])
         updates_manager.apply_updates(replica_chunks)

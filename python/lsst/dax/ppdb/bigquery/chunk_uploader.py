@@ -215,27 +215,16 @@ class ChunkUploader:
         # Make a list of local parquet files to upload
         upload_file_list = list(chunk_dir.glob("*.parquet"))
 
-        # Include the update records file if the manifest indicates it should
-        # exist
-        if manifest.includes_update_records:
-            update_records_file = chunk_dir / UpdateRecords.FILE_NAME
-            if not update_records_file.exists():
-                raise ChunkUploadError(
-                    chunk_id,
-                    f"Manifest indicates that replica chunk {chunk_id} has update records but file does not "
-                    f"exist: {update_records_file}",
-                )
-            upload_file_list.append(update_records_file)
-
         # Check if the chunk is expected to be empty
         is_empty = manifest.is_empty_chunk()
 
+        # Raise an error if no files are present for non-empty chunks since
+        # this likely indicates a problem during the export process.
         if not upload_file_list and not is_empty:
-            # There is a mismatch between the manifest and the actual files.
-            # Some processing error may have occurred when exporting.
             raise ChunkUploadError(chunk_id, f"No files found to upload in {chunk_dir} for non-empty chunk")
 
-        # Check that all expected parquet files from the manifest are present
+        # Check that all expected parquet files from the manifest containing
+        # table data are present.
         for table_name, table_stats in manifest.table_data.items():
             if table_stats.row_count > 0:
                 expected_file = chunk_dir / f"{table_name}.parquet"
@@ -244,6 +233,17 @@ class ChunkUploader:
                         chunk_id,
                         f"Expected parquet file for table '{table_name}' does not exist: {expected_file}",
                     )
+
+        # Ensure that the parquet file containing updates exists if the
+        # manifest indicates that there are update records in this chunk.
+        if manifest.includes_update_records:
+            update_records_file = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
+            if not update_records_file.exists():
+                raise ChunkUploadError(
+                    chunk_id,
+                    f"Manifest indicates that replica chunk {chunk_id} has update records but file does not "
+                    f"exist: {update_records_file}",
+                )
 
         try:
             # 1) Upload the files to GCS for non-empty chunks

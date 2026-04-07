@@ -717,16 +717,16 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         for processing.
         """
         update_records = UpdateRecords(
-            replica_chunk_id=replica_chunk.id,
             records=list(apdb_update_records),
         )
-        update_records.write_json_file(chunk_dir / "update_records.json")
+        parquet_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
+        update_records.write_parquet_file(parquet_path)
 
         _LOG.info(
             "Saved %d update records for %s to %s",
             len(update_records.records),
             replica_chunk.id,
-            chunk_dir / "update_records.json",
+            parquet_path,
         )
 
     def get_promotable_chunks(self) -> list[int]:
