@@ -40,9 +40,15 @@ from .updates.updates_manager import UpdatesManager
 
 
 class NoPromotableChunksError(Exception):
-    """Exception raised when there are no promotable chunks available."""
+    """Exception raised when there are no promotable chunks available.
 
-    pass
+    This is not really an error condition, but it is useful for managing the
+    control flow of the promotion process when there are no chunks to promote.
+    """
+
+
+class ChunkPromoterError(Exception):
+    """Base exception for errors related to the chunk promotion process."""
 
 
 class ChunkPromoter:
@@ -226,7 +232,8 @@ class ChunkPromoter:
                 logging.debug("Starting phase: %s", name)
                 phase()
                 logging.debug("Completed phase: %s", name)
-
+        except Exception as e:
+            raise ChunkPromoterError("Chunk promotion failed") from e
         finally:
             # Always execute the cleanup, even if there were errors.
             try:
