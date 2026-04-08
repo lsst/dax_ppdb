@@ -221,7 +221,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
             },
             compression_format=self.config.parq_compression,
-            includes_update_records=bool(update_records),
+            update_count=len(update_records),
         )
 
     def store(

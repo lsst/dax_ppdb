@@ -177,7 +177,7 @@ class UpdatesManager:
                 raise UpdatesManagerError(f"Failed to load manifest for replica chunk {chunk.id}") from e
 
             # Read the update records if the chunk was flagged as having them
-            if manifest.includes_update_records:
+            if manifest.update_count > 0:
                 try:
                     # Download the update records parquet file from the bucket.
                     object_name = posixpath.join(chunk_prefix, UpdateRecords.PARQUET_FILE_NAME)

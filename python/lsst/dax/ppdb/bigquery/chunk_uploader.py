@@ -236,7 +236,7 @@ class ChunkUploader:
 
         # Ensure that the parquet file containing updates exists if the
         # manifest indicates that there are update records in this chunk.
-        if manifest.includes_update_records:
+        if manifest.update_count > 0:
             update_records_file = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
             if not update_records_file.exists():
                 raise ChunkUploadError(

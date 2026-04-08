@@ -44,6 +44,23 @@ class ManifestTestCase(unittest.TestCase):
         )
         self.assertTrue(manifest.is_empty_chunk())
 
+        # A manifest with update_count > 0 should not be empty
+        manifest_with_updates = Manifest(
+            replica_chunk_id="12345",
+            unique_id="550e8400-e29b-41d4-a716-446655440000",
+            schema_version="1.0",
+            exported_at="2025-12-17 07:03:09.991638+00:00",
+            last_update_time="1765951277.036",
+            compression_format="snappy",
+            table_data={
+                "DiaObject": {"row_count": 0},
+                "DiaSource": {"row_count": 0},
+                "DiaForcedSource": {"row_count": 0},
+            },
+            update_count=3,
+        )
+        self.assertFalse(manifest_with_updates.is_empty_chunk())
+
         manifest_non_empty = Manifest(
             replica_chunk_id="12345",
             unique_id="550e8400-e29b-41d4-a716-446655440000",

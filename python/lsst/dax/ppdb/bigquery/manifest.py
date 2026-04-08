@@ -83,9 +83,8 @@ class Manifest(BaseModel):
     """Name of the compression format used for artifacts (e.g., "gzip",
     "zstd", "snappy", etc.)."""
 
-    includes_update_records: bool = False
-    """Whether the exported data includes update records (e.g., in a separate
-    file) or not (`bool`)."""
+    update_count: int = Field(default=0, ge=0)
+    """Number of update records included in the exported data (`int`)."""
 
     def write_json_file(self, dir_path: Path) -> None:
         """Save the manifest to a JSON file in the specified directory.
@@ -139,10 +138,7 @@ class Manifest(BaseModel):
             `True` if all tables have zero rows and no update records are
             included, indicating an empty chunk, `False` otherwise.
         """
-        return (
-            all(table.row_count == 0 for table in self.table_data.values())
-            and not self.includes_update_records
-        )
+        return all(table.row_count == 0 for table in self.table_data.values()) and self.update_count == 0
 
     def has_table_data(self) -> bool:
         """Check if the manifest contains any table data with non-zero row
