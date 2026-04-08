@@ -108,10 +108,12 @@ class Replicator:
             (apdb_chunk for apdb_chunk in apdb_chunks if apdb_chunk.id not in existing_ppdb_ids),
             key=lambda apdb_chunk: apdb_chunk.id,
         )
-        _LOG.info("Replica chunks list contains %s chunks.", len(chunks_to_copy))
 
         copied = []
         while chunks_to_copy:
+            # Only print message when there are chunks to copy, otherwise it
+            # clutters the logs too much.
+            _LOG.info("Replica chunks list contains %s chunks.", len(chunks_to_copy))
             apdb_chunk = chunks_to_copy.pop(0)
             if not self._can_replicate(apdb_chunk, bool(chunks_to_copy)):
                 break

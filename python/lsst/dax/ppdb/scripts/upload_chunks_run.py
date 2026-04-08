@@ -19,8 +19,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import logging
+
 from ..bigquery.chunk_uploader import ChunkUploader
 from ..bigquery.ppdb_bigquery import PpdbBigQuery
+
+_LOG = logging.getLogger(__name__)
 
 
 def upload_chunks_run(
@@ -48,6 +52,7 @@ def upload_chunks_run(
     ppdb = PpdbBigQuery.from_uri(ppdb_config)
     if not isinstance(ppdb, PpdbBigQuery):
         raise TypeError(f"PPDB config URI {ppdb_config} did not resolve to a PpdbBigQuery instance.")
+    _LOG.info("Starting chunk uploader with PPDB config: %s", ppdb_config)
     chunk_exporter = ChunkUploader(
         ppdb,
         wait_interval=wait_interval,
@@ -56,3 +61,4 @@ def upload_chunks_run(
         exit_on_error=exit_on_error,
     )
     chunk_exporter.run()
+    _LOG.info("Chunk uploader is exiting.")

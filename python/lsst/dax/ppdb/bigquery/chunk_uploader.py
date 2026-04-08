@@ -167,7 +167,7 @@ class ChunkUploader:
             else:
                 # No replica chunks were found for upload.
                 # Log the information and check if we should exit.
-                _LOG.info("No replica chunks were found for upload.")
+                _LOG.debug("No replica chunks were found for upload.")
                 if self._exit_on_empty:
                     _LOG.info("Exiting: no ready replica chunks were found.")
                     break
