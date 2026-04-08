@@ -199,12 +199,15 @@ class ChunkPromoter:
         """Apply record updates to the promoted temporary tables."""
         updates_manager = UpdatesManager(
             self._ppdb.config,
-            table_name_format="_{}_promoted_tmp",
+            table_name_format="_{}_promoted_tmp",  # FIXME: Should use the table refs formatting instead.
         )
-        # TODO: It would be preferable if the extended replica chunk interface
-        # included a flag indicating if there were updates or not so that this
-        # list could be pre-filtered.
+
+        # Get the replica chunks and the total update count.
         replica_chunks = self._ppdb.get_replica_chunks_ext_by_ids(self.promotable_chunks)
+
+        # Apply the updates for the chunks. The manager will skip the process
+        # entirely if there are no updates, so we don't need to check that
+        # here.
         updates_manager.apply_updates(replica_chunks)
 
     def _mark_chunks_promoted(self) -> None:

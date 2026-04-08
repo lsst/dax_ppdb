@@ -30,7 +30,6 @@ from collections.abc import Sequence
 
 from google.cloud import bigquery, storage
 
-from ..manifest import Manifest
 from ..ppdb_bigquery import PpdbBigQueryConfig
 from ..ppdb_replica_chunk_extended import PpdbReplicaChunkExtended
 from .update_record_expander import UpdateRecordExpander
@@ -75,15 +74,15 @@ class UpdatesManager:
         config: PpdbBigQueryConfig,
         table_name_format: str | None = None,
     ) -> None:
-        # Get some necessary setup information from the config
+        # Get some necessary setup information from the config.
         project_id = config.project_id
         dataset_id = config.dataset_id
         bucket_name = config.bucket_name
 
-        # Merger instances for handling each target table
+        # Merger instances for handling each target table.
         self._mergers = tuple(cls(table_name_format=table_name_format) for cls in _DEFAULT_MERGER_CLASSES)
 
-        # Setup the updates table interface
+        # Setup the updates table interface.
         self._bq_client = bigquery.Client()
         self._updates_table = UpdatesTable(
             self._bq_client,
@@ -91,11 +90,11 @@ class UpdatesManager:
             dataset_id,
         )
 
-        # GCS setup
+        # Setup the GCS client and bucket.
         self._gcs_client = storage.Client()
         self._bucket = self._gcs_client.bucket(bucket_name)
 
-        # Dataset containing the target merge tables for the updates
+        # Set the target dataset FQN for the mergers to use.
         self._target_dataset_fqn = f"{project_id}.{dataset_id}"
 
     def apply_updates(self, replica_chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
@@ -110,93 +109,126 @@ class UpdatesManager:
         Raises
         ------
         UpdatesManagerError
-            If any step of the updates process fails.
+            Raised if any step of the updates process fails.
         """
-        # Create the updates table, first dropping if it already exists
+        # Filter the list of chunks to only those with updates and skip
+        # processing entirely if there are none. Caller may also already have
+        # done this but we don't rely on it.
+        update_chunks = [chunk for chunk in replica_chunks if chunk.update_count > 0]
+        if not update_chunks:
+            _LOG.info("No update records found in the provided replica chunks")
+            return
+
+        # Log the total number of update records. We already checked above
+        # that there is at least one update record in the batch of chunks.
+        total_update_count = sum(chunk.update_count for chunk in update_chunks)
+        _LOG.info("Processing %d update records from %d chunks", total_update_count, len(update_chunks))
+
+        # Recreate the updates table.
         try:
             self._updates_table.recreate()
         except Exception as e:
             raise UpdatesManagerError("Failed to recreate updates table") from e
 
-        # Process the replica chunks to build the expanded updates table
+        # Build the table with the expanded update records.
         try:
-            self._process_chunks(replica_chunks)
+            self._build_updates_table(update_chunks)
         except Exception as e:
-            raise UpdatesManagerError("Failed to process replica chunks") from e
+            raise UpdatesManagerError("Failed to build updates table") from e
 
-        # Get a fresh reference to the updates table to check if there were
-        # any update records generated from the processed replica chunks
+        # Select only the latest update records into a new table
         try:
-            bq_updates_table = self._bq_client.get_table(self._updates_table.table_fqn)
+            self._updates_table.create_latest_only()
         except Exception as e:
-            raise UpdatesManagerError(f"Failed to get updates table '{self._updates_table.table_fqn}'") from e
+            raise UpdatesManagerError("Failed to create latest-only updates table") from e
 
-        # Check if there were any updates in this set of chunks
-        if bq_updates_table.num_rows > 0:
-            # Select only the latest update records to a new table
-            try:
-                self._updates_table.create_latest_only()
-            except Exception as e:
-                raise UpdatesManagerError("Failed to create latest-only updates table") from e
+        # Merge the latest-only updates into the target tables
+        try:
+            self._merge_updates(self._updates_table.latest_only_table_fqn)
+        except Exception as e:
+            raise UpdatesManagerError("Failed to merge updates into target tables") from e
 
-            # Merge the latest-only updates into the target tables
-            try:
-                self._merge_updates(self._updates_table.latest_only_table_fqn)
-            except Exception as e:
-                raise UpdatesManagerError("Failed to merge updates into target tables") from e
-        else:
-            # No updates were present in the processed replica chunks
-            _LOG.info("No update records found when processing replica chunks")
+    def _build_updates_table(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
+        """Build the updates table by expanding the update records from the
+        replica chunks and inserting them.
 
-    # FIXME: It would be better if there were a flag on the extended replica
-    # chunk interface that was read from the db so that this method received a
-    # pre-filtered list of only those chunks with updates. This would also
-    # make checking the manifests in GCS unnecessary.
-    def _process_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
+        Parameters
+        ----------
+        chunks : `Sequence` [ `PpdbReplicaChunkExtended` ]
+            Replica chunks with update_count > 0.
+        """
         for chunk in chunks:
+            # A null value for the GCS URI should not be possible under
+            # normal circumstances but check anyways before proceeding so that
+            # strange errors are not encountered later.
             if chunk.gcs_uri is None:
                 raise UpdatesManagerError(f"Replica chunk {chunk.id} does not have a GCS URI")
 
-            # Parse the GCS URI
-            parsed_uri = urllib.parse.urlparse(chunk.gcs_uri)
-
-            # Create the GCS bucket
-            bucket_name = parsed_uri.netloc
-            bucket = self._gcs_client.bucket(bucket_name)
-
-            # Prefix of the chunk for building URIs
-            chunk_prefix = parsed_uri.path.lstrip("/")
-
-            # Load the manifest file for the chunk from GCS
             try:
-                manifest_uri = posixpath.join(chunk_prefix, Manifest.FILE_NAME)
-                manifest_blob = bucket.blob(manifest_uri)
-                manifest_content = manifest_blob.download_as_text()
-                manifest = Manifest.from_json_str(manifest_content)
+                # Parse the GCS URI.
+                parsed_uri = urllib.parse.urlparse(chunk.gcs_uri)
+
+                # Create the GCS bucket.
+                bucket_name = parsed_uri.netloc
+                bucket = self._gcs_client.bucket(bucket_name)
+
+                # Get the object prefix from the URI path, stripping any
+                # leading slash.
+                chunk_prefix = parsed_uri.path.lstrip("/")
+
+                if chunk_prefix == "":
+                    raise ValueError(f"GCS URI '{chunk.gcs_uri}' does not contain an object prefix")
+
             except Exception as e:
-                raise UpdatesManagerError(f"Failed to load manifest for replica chunk {chunk.id}") from e
+                raise UpdatesManagerError(
+                    f"Failed to parse GCS URI '{chunk.gcs_uri}' for replica chunk {chunk.id}"
+                ) from e
 
-            # Read the update records if the chunk was flagged as having them
-            if manifest.update_count > 0:
-                try:
-                    # Download the update records parquet file from the bucket.
-                    object_name = posixpath.join(chunk_prefix, UpdateRecords.PARQUET_FILE_NAME)
-                    blob = bucket.blob(object_name)
-                    content = blob.download_as_bytes()
+            # Download the parquet file containing the update records from the
+            # bucket.
+            try:
+                object_name = posixpath.join(chunk_prefix, UpdateRecords.PARQUET_FILE_NAME)
+                if not bucket.blob(object_name).exists():
+                    raise ValueError(f"GCS object '{object_name}' does not exist in bucket '{bucket_name}'")
+                blob = bucket.blob(object_name)
+                content = blob.download_as_bytes()
+            except Exception as e:
+                raise UpdatesManagerError(
+                    f"Failed to download update records for replica chunk {chunk.id} "
+                    f"from GCS URI '{chunk.gcs_uri}'"
+                ) from e
 
-                    # Expand the update records into the appropriate format and
-                    # insert them into the updates table
-                    update_records = UpdateRecords.from_parquet_bytes(content)
-                    expanded_update_records = UpdateRecordExpander.expand_updates(update_records, chunk.id)
-                    self._updates_table.insert(expanded_update_records)
-                except Exception as e:
-                    raise UpdatesManagerError(
-                        f"Failed to process update records for replica chunk {chunk.id}"
-                    ) from e
+            # Expand the update records into the appropriate format and insert
+            # them into the updates table.
+            try:
+                update_records = UpdateRecords.from_parquet_bytes(content)
+                if not update_records:
+                    raise ValueError(
+                        f"Empty file downloaded from GCS URI '{chunk.gcs_uri}' for replica chunk {chunk.id}"
+                    )
+                expanded_update_records = UpdateRecordExpander.expand_updates(update_records, chunk.id)
+                self._updates_table.insert(expanded_update_records)
+            except Exception as e:
+                raise UpdatesManagerError(
+                    f"Failed to build updates table for replica chunk {chunk.id} "
+                    f"from GCS URI '{chunk.gcs_uri}'"
+                ) from e
 
     def _merge_updates(self, target_table_fqn: str) -> None:
+        """Merge the latest-only updates into the target tables using the
+        table-specific merger classes.
+
+        Parameters
+        ----------
+        target_table_fqn : `str`
+            Fully qualified name of the latest-only updates table for the
+            merge operation.
+        """
         for merger in self._mergers:
             try:
+                _LOG.debug(
+                    "Merging updates into target table '%s' using %s", target_table_fqn, type(merger).__name__
+                )
                 merger.merge(
                     client=self._bq_client,
                     updates_table_fqn=target_table_fqn,

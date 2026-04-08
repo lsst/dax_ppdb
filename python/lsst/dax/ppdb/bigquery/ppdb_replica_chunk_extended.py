@@ -68,6 +68,10 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     """GCS URI where the replica chunk data is stored, or `None` if not
     uploaded yet."""
 
+    update_count: int = 0
+    """Count of APDB update records included in the chunk
+    (must be non-negative)."""
+
     @property
     def manifest_path(self) -> Path:
         """Path to the manifest file for this chunk, or `None` if directory is
@@ -89,7 +93,11 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
     @classmethod
     def from_replica_chunk(
-        cls, replica_chunk: ReplicaChunk, status: ChunkStatus, directory: Path
+        cls,
+        replica_chunk: ReplicaChunk,
+        status: ChunkStatus,
+        directory: Path,
+        update_count: int = 0,
     ) -> PpdbReplicaChunkExtended:
         """Create a `PpdbReplicaChunkExtended` from a `ReplicaChunk`.
 
@@ -114,6 +122,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             replica_time=astropy.time.Time.now(),
             status=status,
             directory=directory,
+            update_count=update_count,
         )
 
     def with_new_status(self, new_status: ChunkStatus) -> PpdbReplicaChunkExtended:

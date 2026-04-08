@@ -298,9 +298,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         else:
             status = ChunkStatus.EXPORTED
 
-        # Store the replica chunk info in the database, including status and
-        # directory.
-        replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(replica_chunk, status, chunk_dir)
+        # Store the replica chunk info in the database, including status,
+        # directory, and update count.
+        replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(
+            replica_chunk, status, chunk_dir, len(update_records)
+        )
         try:
             self.store_chunk(replica_chunk_ext, False)
         except Exception as e:
@@ -372,6 +374,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             table.columns["status"],  # Extended column
             table.columns["directory"],  # Extended column
             table.columns["gcs_uri"],  # Extended column
+            table.columns["update_count"],  # Extended column
         ).order_by(table.columns["last_update_time"])
         if start_chunk_id is not None:
             query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)
@@ -392,6 +395,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         status=row[4],
                         directory=Path(row[5]),
                         gcs_uri=row[6],
+                        update_count=row[7],
                     )
                 )
         return ids
@@ -422,6 +426,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 table.columns["status"],
                 table.columns["directory"],
                 table.columns["gcs_uri"],
+                table.columns["update_count"],
             )
             .where(table.columns["apdb_replica_chunk"].in_(chunk_ids))
             .order_by(table.columns["apdb_replica_chunk"])
@@ -442,6 +447,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         status=row[4],
                         directory=Path(row[5]),
                         gcs_uri=row[6],
+                        update_count=row[7],
                     )
                 )
         return chunks
@@ -470,6 +476,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 "status": replica_chunk.status,
                 "directory": str(replica_chunk.directory),
                 "gcs_uri": replica_chunk.gcs_uri,
+                "update_count": replica_chunk.update_count,
             }
             if update:
                 self.upsert(connection, table, row, "apdb_replica_chunk")
@@ -496,22 +503,36 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         replica_chunk_table = super().create_replica_chunk_table(table_name)
         replica_chunk_table.columns.extend(
             [
+                # Status of the chunk export process (e.g. pending, exported,
+                # skipped).
                 schema_model.Column(
                     name="status",
                     id=f"#{table_name}.status",
                     datatype=felis.datamodel.DataType.string,
                 ),
+                # Local directory where the chunk data is stored for export.
                 schema_model.Column(
                     name="directory",
                     id=f"#{table_name}.directory",
                     datatype=felis.datamodel.DataType.string,
                     nullable=True,  # We might want to allow NULL if an error occurs when exporting.
                 ),
+                # URI of the chunk data in GCS after it has been uploaded.
+                # This is not a full object path but a prefix ("directory")
+                # under which the manifest and parquet files for the chunk
+                # are located.
                 schema_model.Column(
                     name="gcs_uri",
                     id=f"#{table_name}.gcs_uri",
                     datatype=felis.datamodel.DataType.string,
                     nullable=True,
+                ),
+                # Count of update records included in the chunk.
+                schema_model.Column(
+                    name="update_count",
+                    id=f"#{table_name}.update_count",
+                    datatype=felis.datamodel.DataType.int,
+                    nullable=False,
                 ),
             ]
         )
