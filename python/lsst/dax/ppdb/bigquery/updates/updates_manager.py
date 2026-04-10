@@ -229,10 +229,44 @@ class UpdatesManager:
                 _LOG.debug(
                     "Merging updates into target table '%s' using %s", target_table_fqn, type(merger).__name__
                 )
-                merger.merge(
+                job = merger.merge(
                     client=self._bq_client,
                     updates_table_fqn=target_table_fqn,
                     target_dataset_fqn=self._target_dataset_fqn,
                 )
+
+                self._log_job_stats(job, target_table_fqn)
+
             except Exception as e:
                 raise UpdatesManagerError(f"Failed to merge updates using {type(merger).__name__}") from e
+
+    def _log_job_stats(self, job: bigquery.job.QueryJob, target_table_fqn: str) -> None:
+        """Log relevant statistics for the merge operation from a BigQuery job.
+
+        Parameters
+        ----------
+        job : `bigquery.job.QueryJob`
+            The BigQuery job with the statistics to log.
+        target_table_fqn : `str`
+            Fully qualified name of the target table for the merge operation.
+        """
+        total = job.num_dml_affected_rows
+        dml_stats = job.dml_stats
+        if dml_stats is None:
+            _LOG.warning(
+                "Merge job for target table '%s' does not have DML statistics available",
+                target_table_fqn,
+            )
+            return
+        inserted = dml_stats.inserted_row_count
+        updated = dml_stats.updated_row_count
+        deleted = dml_stats.deleted_row_count
+
+        _LOG.info(
+            "Finished merging updates into '%s': total=%d, inserted=%d, updated=%d, deleted=%d",
+            target_table_fqn,
+            total,
+            inserted,
+            updated,
+            deleted,
+        )

@@ -30,6 +30,8 @@ from lsst.dax.apdb.apdbUpdateRecord import ApdbUpdateRecord
 from .expanded_update_record import ExpandedUpdateRecord
 from .update_records import UpdateRecords
 
+_LOG = logging.getLogger(__name__)
+
 
 class UpdateRecordExpander:
     """Expand APDB update records into individual field-level updates for
@@ -116,7 +118,11 @@ class UpdateRecordExpander:
             expanded_records = cls.expand_single_record(update_record, replica_chunk_id)
             expanded_updates.extend(expanded_records)
 
-        # DEBUG: Print number of expanded update records that were generated
-        logging.info("Created %d expanded update records", len(expanded_updates))
+        _LOG.info(
+            "Created %d expanded records from %d update records in chunk %d",
+            len(expanded_updates),
+            len(update_records.records),
+            replica_chunk_id,
+        )
 
         return expanded_updates
