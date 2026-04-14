@@ -64,14 +64,6 @@ class UpdateRecordExpander:
         expanded_records = []
         record_id_values = tuple(value for _, value in update_record.record_id())
         for field_name, field_value in update_record.record_payload():
-            # This particular type of update should not be propagated if
-            # nDiaSources is set to None.
-            if (
-                update_record.update_type == "close_diaobject_validity"
-                and field_name == "nDiaSources"
-                and field_value is None
-            ):
-                continue
             expanded_record = ExpandedUpdateRecord(
                 table_name=table_name,
                 record_id=record_id_values,
