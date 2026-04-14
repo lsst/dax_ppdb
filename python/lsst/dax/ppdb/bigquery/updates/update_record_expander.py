@@ -38,15 +38,6 @@ class UpdateRecordExpander:
     BigQuery.
     """
 
-    _UPDATE_FIELD_MAPPING = {
-        "reassign_diasource_to_diaobject": ["diaObjectId"],
-        "reassign_diasource_to_ssobject": ["ssObjectId", "ssObjectReassocTimeMjdTai"],
-        "withdraw_diasource": ["timeWithdrawnMjdTai"],
-        "withdraw_diaforcedsource": ["timeWithdrawnMjdTai"],
-        "close_diaobject_validity": ["validityEndMjdTai", "nDiaSources"],
-        "update_n_dia_sources": ["nDiaSources"],
-    }
-
     @classmethod
     def expand_single_record(
         cls, update_record: ApdbUpdateRecord, replica_chunk_id: int
