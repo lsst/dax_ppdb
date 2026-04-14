@@ -54,6 +54,10 @@ Python API reference
    :no-main-docstr:
    :no-inheritance-diagram:
 
+.. automodapi:: lsst.dax.ppdb.bigquery.updates
+   :no-main-docstr:
+   :no-inheritance-diagram:
+
 .. automodapi:: lsst.dax.ppdb.cli
    :no-main-docstr:
    :no-inheritance-diagram:
