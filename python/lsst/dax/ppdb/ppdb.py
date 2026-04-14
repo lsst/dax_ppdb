@@ -33,7 +33,7 @@ from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ApdbUpdateRecord, Replica
 from lsst.resources import ResourcePathExpression
 
 from ._factory import ppdb_from_config
-from .config import PpdbConfig
+from .ppdb_config import PpdbConfig
 
 
 @dataclass(frozen=True)

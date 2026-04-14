@@ -20,7 +20,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import gc
-import os
 import shutil
 import tempfile
 import unittest
@@ -29,29 +28,19 @@ from typing import Any
 from lsst.dax.apdb import ApdbConfig
 from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.ppdb import PpdbConfig
-from lsst.dax.ppdb.bigquery import PpdbBigQuery
-from lsst.dax.ppdb.tests import PpdbTest
+from lsst.dax.ppdb.sql import PpdbSql
+from lsst.dax.ppdb.tests import TEST_SCHEMA_RESOURCE_PATH, PpdbTest
 
 try:
     import testing.postgresql
 except ImportError:
     testing = None
 
-TEST_SCHEMA = os.path.join(os.path.abspath(os.path.dirname(__file__)), "config/schema.yaml")
 
-TEST_CONFIG = {
-    "db_drop": True,
-    "validate_config": False,
-    "delete_existing_dirs": True,
-    "bucket_name": "test_bucket",
-    "object_prefix": "test_prefix",
-    "dataset_id": "test_dataset",
-    "project_id": "test_project",
-}
+class ApdbSQLiteTestCase(PpdbTest, unittest.TestCase):
+    """A test case for PpdbSql class using SQLite backend."""
 
-
-class SqliteTestCase(PpdbTest, unittest.TestCase):
-    """A test case for the PpdbBigQuery class using a SQLite backend."""
+    include_update_records = True
 
     def setUp(self) -> None:
         self.tempdir = tempfile.mkdtemp()
@@ -63,21 +52,11 @@ class SqliteTestCase(PpdbTest, unittest.TestCase):
 
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
-        kw = {
-            **TEST_CONFIG,
-            "db_url": self.ppdb_url,
-            "felis_path": TEST_SCHEMA,
-            "replication_dir": self.tempdir,
-        }
-        bq_config = PpdbBigQuery.init_bigquery(
-            **kw,
-        )  # type: ignore[arg-type]
-        return bq_config
+        return PpdbSql.init_database(db_url=self.ppdb_url, schema_file=TEST_SCHEMA_RESOURCE_PATH, **kwargs)
 
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
-        """Make APDB instance for tests."""
         kw = {
-            "schema_file": TEST_SCHEMA,
+            "schema_file": TEST_SCHEMA_RESOURCE_PATH,
             "ss_schema_file": "",
             "db_url": self.apdb_url,
             "enable_replica": True,
@@ -87,10 +66,12 @@ class SqliteTestCase(PpdbTest, unittest.TestCase):
 
 
 @unittest.skipUnless(testing is not None, "testing.postgresql module not found")
-class PostgresTestCase(PpdbTest, unittest.TestCase):
-    """A test case for the PpdbBigQuery class using a Postgres backend."""
+class ApdbPostgresTestCase(PpdbTest, unittest.TestCase):
+    """A test case for ApdbSql class using Postgres backend."""
 
     postgresql: Any
+
+    include_update_records = True
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -108,27 +89,19 @@ class PostgresTestCase(PpdbTest, unittest.TestCase):
 
     def setUp(self) -> None:
         self.server = self.postgresql()
-        self.tempdir = tempfile.mkdtemp()
 
     def tearDown(self) -> None:
         self.server = self.postgresql()
-        shutil.rmtree(self.tempdir, ignore_errors=True)
 
     def make_instance(self, **kwargs: Any) -> PpdbConfig:
         """Make config class instance used in all tests."""
-        kw = {
-            **TEST_CONFIG,
-            "db_url": self.server.url(),
-            "db_schema": None,
-            "felis_path": TEST_SCHEMA,
-            "replication_dir": self.tempdir,
-        }
-        bq_config = PpdbBigQuery.init_bigquery(**kw)  # type: ignore[arg-type]
-        return bq_config
+        return PpdbSql.init_database(
+            db_url=self.server.url(), schema_file=TEST_SCHEMA_RESOURCE_PATH, **kwargs
+        )
 
     def make_apdb_instance(self, **kwargs: Any) -> ApdbConfig:
         kw = {
-            "schema_file": TEST_SCHEMA,
+            "schema_file": TEST_SCHEMA_RESOURCE_PATH,
             "ss_schema_file": "",
             "db_url": self.server.url(),
             "namespace": "apdb",
@@ -136,3 +109,19 @@ class PostgresTestCase(PpdbTest, unittest.TestCase):
         }
         kw.update(kwargs)
         return ApdbSql.init_database(**kw)  # type: ignore[arg-type]
+
+
+@unittest.skipUnless(testing is not None, "testing.postgresql module not found")
+class ApdbPostgresNamespaceTestCase(ApdbPostgresTestCase):
+    """A test case for ApdbSql class using Postgres backend with schema name"""
+
+    # use mixed case to trigger quoting
+    schema_name = "test_schema001"
+
+    def make_instance(self, **kwargs: Any) -> PpdbConfig:
+        """Make config class instance used in all tests."""
+        return super().make_instance(schema_name=self.schema_name, **kwargs)
+
+
+if __name__ == "__main__":
+    unittest.main()

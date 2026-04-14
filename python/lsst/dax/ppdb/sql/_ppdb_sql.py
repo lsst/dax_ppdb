@@ -552,5 +552,6 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             isolation_level=isolation_level,
             connection_timeout=connection_timeout,
         )
-        cls.make_database(config, sa_metadata, schema_version, drop)
+        engine = cls.make_engine(config)
+        cls.make_database(engine, config, sa_metadata, schema_version, drop)
         return config

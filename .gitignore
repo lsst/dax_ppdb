@@ -15,8 +15,8 @@ bin/
 
 # pip
 build/
-python/lsst_dax_ppdb.egg-info/
-python/lsst_dax_ppdb.dist-info/
+*.dist-info/
+*.egg-info/
 
 # Pytest
 tests/.tests

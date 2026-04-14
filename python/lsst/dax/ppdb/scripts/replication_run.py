@@ -72,4 +72,6 @@ def replication_run(
     ppdb = Ppdb.from_uri(ppdb_config)
 
     replicator = Replicator(apdb, ppdb, update, min_wait_time, max_wait_time, check_interval)
+    _LOG.info("Starting replicator with APDB, PPDB configs: %s, %s", apdb_config, ppdb_config)
     replicator.run(single=single, exit_on_empty=exit_on_empty)
+    _LOG.info("Replicator is exiting.")

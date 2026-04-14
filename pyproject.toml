@@ -23,10 +23,12 @@ classifiers = [
 keywords = ["lsst"]
 dependencies = [
     "astropy",
+    "google-cloud-bigquery",
     "pyarrow",
     "pydantic >=2,<3",
     "pyyaml >= 5.1",
     "sqlalchemy",
+    "lsst-dax-ppdbx-gcp",
     "lsst-felis",
     "lsst-sdm-schemas",
     "lsst-utils",
@@ -44,9 +46,6 @@ test = [
     "pytest >= 3.2",
     "pytest-openfiles >= 0.5.0"
 ]
-gcp = [
-    "lsst-dax-ppdbx-gcp"
-]
 
 [tool.setuptools.packages.find]
 where = ["python"]
@@ -55,7 +54,11 @@ where = ["python"]
 zip-safe = true
 
 [tool.setuptools.package-data]
-"lsst.dax.ppdb" = ["py.typed"]
+"lsst.dax.ppdb" = [
+    "py.typed", 
+    "resources/config/schemas/*.yaml", 
+    "resources/config/sql/*.sql",
+]
 
 [tool.setuptools.dynamic]
 version = { attr = "lsst_versions.get_lsst_version" }

@@ -26,8 +26,8 @@ __all__ = ["config_type_for_name", "ppdb_from_config"]
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .config import PpdbConfig
     from .ppdb import Ppdb
+    from .ppdb_config import PpdbConfig
 
 
 def config_type_for_name(type_name: str) -> type[PpdbConfig]:
