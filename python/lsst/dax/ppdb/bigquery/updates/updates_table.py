@@ -202,12 +202,6 @@ class UpdatesTable:
         ``(table_name, record_id, field_name)`` combination and write them to a
         new table.
 
-        Parameters
-        ----------
-        target_table_fqn : `str`
-            Target fully-qualified BigQuery table name in the form
-            ``"project.dataset.table"``.
-
         Notes
         -----
         This keeps only the latest record with an update on an identical

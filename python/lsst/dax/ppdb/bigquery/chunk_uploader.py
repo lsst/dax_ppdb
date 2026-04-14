@@ -273,7 +273,7 @@ class ChunkUploader:
             if not is_empty:
                 # 3) Update the status and GCS URI in the database, marking
                 # chunks with no table data as "staged" since they don't need
-                # to go through the staging process in Dataflow
+                # to go through the staging process in Dataflow.
                 gcs_uri = posixpath.join(self.config.bucket_name, gcs_prefix)
                 status = ChunkStatus.UPLOADED if manifest.has_table_data() else ChunkStatus.STAGED
                 updated_replica_chunk = replica_chunk.with_new_status(status).with_new_gcs_uri(
@@ -291,7 +291,7 @@ class ChunkUploader:
                     raise ChunkUploadError(chunk_id, "Failed to update replica chunk in database") from e
 
                 # 4) Publish Pub/Sub event to trigger the Dataflow staging
-                # job for chunks with table data (skipped for updates-only)
+                # job for chunks with table data (skipped for updates-only).
                 if manifest.has_table_data():
                     try:
                         self._post_to_stage_chunk_topic(gcs_uri, chunk_id)

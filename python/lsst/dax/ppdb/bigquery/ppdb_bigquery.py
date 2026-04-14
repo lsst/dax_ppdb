@@ -315,9 +315,14 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         """Create the directory for the replica chunk based on its last update
         time and ID.
 
+        Parameters
+        ----------
+        chunk : `ReplicaChunk`
+            The replica chunk for which to create the directory.
+
         Returns
         -------
-        chunk_dir
+        chunk_dir : `pathlib.Path`
             Path to the created directory for the replica chunk.
         """
         last_update_time = chunk.last_update_time.to_datetime()
