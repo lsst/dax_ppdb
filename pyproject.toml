@@ -55,8 +55,8 @@ zip-safe = true
 
 [tool.setuptools.package-data]
 "lsst.dax.ppdb" = [
-    "py.typed", 
-    "resources/config/schemas/*.yaml", 
+    "py.typed",
+    "resources/config/schemas/*.yaml",
     "resources/config/sql/*.sql",
 ]
 
@@ -118,7 +118,8 @@ select = [
     "B",       # flake8-bugbear
 ]
 extend-select = [
-    "RUF100", # Warn about unused noqa
+    "RUF100",  # Warn about unused noqa
+    "D212",    # Multi-line docstring summary should start at the second line.
 ]
 
 [tool.ruff.lint.isort]
