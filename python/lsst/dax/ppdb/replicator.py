@@ -48,19 +48,19 @@ class Replicator:
 
     Parameters
     ----------
-    apdb : `~lsst.dax.apdb.ApdbReplica`
+    apdb
         Object providing access to APDB replica management.
-    ppdb : `Ppdb`
+    ppdb
         Object providing access to PPD operations.
-    update : `bool`
+    update
         If `True` then allow updates to previously replicated data.
-    min_wait_time : `int`
+    min_wait_time
         Minimum time in seconds to wait for replicating a chunk after a next
         chunk appears.
-    max_wait_time : `int`
+    max_wait_time
         Maximum time in seconds to wait for replicating a chunk if no chunk
         appears.
-    check_interval : `int`
+    check_interval
         Time in seconds to wait before checking for new chunks.
     """
 
@@ -90,17 +90,17 @@ class Replicator:
 
         Parameters
         ----------
-        apdb_chunks : `~collections.abc.Iterable` [`ReplicaChunk`]
+        apdb_chunks
             List of APDB chunks.
-        ppdb_chunks : `~collections.abc.Iterable` [`PpdbReplicaChunk`]
+        ppdb_chunks
             List of PPDB chunks.
-        count : `int`, optional
+        count
             Maximum number of chunks to copy, if not specified then copy all
             chunks that can be copied.
 
         Returns
         -------
-        count : `list` [`ReplicaChunk`]
+        `list` [`~lsst.dax.apdb.ReplicaChunk`]
             Chunks that were replicated to PPDB.
         """
         existing_ppdb_ids = {ppdb_chunk.id for ppdb_chunk in ppdb_chunks}
@@ -132,14 +132,14 @@ class Replicator:
 
         Parameters
         ----------
-        apdb_chunk : `ReplicaChunk`
+        apdb_chunk
             APDB chunk to copy.
-        more_chunks : `bool`
+        more_chunks
             If True then there are more chunks to copy after this one.
 
         Returns
         -------
-        can_copy : `bool`
+        `bool`
             If True then chunk is OK to copy.
         """
         now = astropy.time.Time.now()
@@ -195,9 +195,9 @@ class Replicator:
 
         Parameters
         ----------
-        single : `bool`, optional
+        single
             If `True` then copy only one chunk and stop. Default is `False`.
-        exit_on_empty : `bool`, optional
+        exit_on_empty
             If `True` then exit if no chunks are found. Default is `False`.
         """
         wait_time = 0

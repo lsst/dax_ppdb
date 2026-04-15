@@ -37,15 +37,15 @@ class UpdatesTable:
 
     Parameters
     ----------
-    client : `google.cloud.bigquery.Client`
+    client
         BigQuery client.
-    project_id : `str`
+    project_id
         Google Cloud project ID.
-    dataset_id : `str`
+    dataset_id
         BigQuery dataset ID.
-    table_name : `str`, optional
+    table_name
         Name of the updates table. Defaults to ``"updates"``.
-    latest_only_table_name : `str`, optional
+    latest_only_table_name
         Name of the latest-only updates table. Defaults to
         ``"updates_latest_only"``.
     """
@@ -80,12 +80,12 @@ class UpdatesTable:
 
         Parameters
         ----------
-        record_id : `Iterable`[`int`]
+        record_id
             The record ID as an iterable of integers.
 
         Returns
         -------
-        id_str : `str`
+        `str`
             The record ID values joined by ``"-"``.
         """
         return "-".join(str(x) for x in record_id)
@@ -102,7 +102,7 @@ class UpdatesTable:
 
         Returns
         -------
-        table : `google.cloud.bigquery.Table`
+        `~google.cloud.bigquery.table.Table`
             The created table.
 
         Raises
@@ -120,8 +120,8 @@ class UpdatesTable:
         - field_name: STRING (REQUIRED)
         - value_json: JSON (REQUIRED)
         - replica_chunk_id: INT64 (REQUIRED)
-        - update_order: INT64 (NULLABLE)
-        - update_time_ns: INT64 (NULLABLE)
+        - update_order: INT64 (REQUIRED)
+        - update_time_ns: INT64 (REQUIRED)
         """
         schema: list[bigquery.SchemaField] = [
             bigquery.SchemaField("table_name", "STRING", mode="REQUIRED"),
@@ -151,12 +151,12 @@ class UpdatesTable:
 
         Parameters
         ----------
-        records : `Iterable` [ `ExpandedUpdateRecord` ]
+        records
             Iterable of update records to insert.
 
         Returns
         -------
-        load_job : `google.cloud.bigquery.LoadJob`
+        `~google.cloud.bigquery.job.LoadJob`
             Completed BigQuery load job.
 
         Raises
@@ -166,8 +166,8 @@ class UpdatesTable:
 
         Notes
         -----
-        This uses a batch load via `Client.load_table_from_json` (not streaming
-        inserts). The table must already exist.
+        This uses a batch load via ``Client.load_table_from_json`` (not
+        streaming inserts). The table must already exist.
         """
         rows: list[dict[str, Any]] = [
             {

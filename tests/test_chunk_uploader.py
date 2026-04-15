@@ -62,14 +62,14 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         )
         replicator.run(exit_on_empty=True)
 
-        # Create a unique test bucket name and set up GCS resources
+        # Create a unique test bucket name and set up GCS resources.
         self.ppdb_config.bucket_name = generate_test_bucket_name("ppdb-test-gcs-upload")
         self._storage_client = storage.Client()
         self._bucket = self._storage_client.bucket(self.ppdb_config.bucket_name)
         self._bucket.create(location="US")
 
     def tearDown(self):
-        # Delete the test GCS bucket
+        # Delete the test GCS bucket.
         delete_test_bucket(self._bucket)
         super().tearDown()
 
@@ -77,7 +77,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         """Test that the update records are correctly uploaded to Google Cloud
         Storage after replication.
         """
-        # Configure and run the uploader
+        # Configure and run the uploader.
         uploader = ChunkUploaderWithoutPubSub(
             self.ppdb,
             wait_interval=0,
@@ -87,7 +87,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         print(f"Uploader will copy files to {uploader.config.bucket_name}/{uploader.config.object_prefix}/")
         uploader.run()
 
-        # Retrieve the update records file
+        # Retrieve the update records file.
         blobs = list(self._bucket.list_blobs(match_glob="**/update_records.parquet"))
         update_records_files = [b.name for b in blobs]
         self.assertEqual(
@@ -97,7 +97,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
             f"{len(update_records_files)}: {update_records_files}",
         )
 
-        # Download the parquet file and deserialize the update records
+        # Download the parquet file and deserialize the update records.
         update_records_bytes = blobs[0].download_as_bytes()
         update_records = UpdateRecords.from_parquet_bytes(update_records_bytes)
         self.assertEqual(

@@ -39,7 +39,7 @@ class UpdatesMerger:
 
     Parameters
     ----------
-    table_name_format : `str`, optional
+    table_name_format
         Optional format string for the target table name. The
         class-level ``TABLE_NAME`` will be substituted into ``{}``
         (e.g., ``"_{}_promoted_tmp"`` produces
@@ -55,7 +55,7 @@ class UpdatesMerger:
     SQL_RESOURCE_NAME: str
     """Base name of the SQL file (without .sql extension) containing the MERGE
     statement for this merger. The SQL file must be located in the
-    `lsst.dax.ppdb.config.sql` package."""
+    ``lsst.dax.ppdb.config.sql`` package."""
 
     def __init__(self, table_name_format: str | None = None) -> None:
         if table_name_format:
@@ -72,21 +72,21 @@ class UpdatesMerger:
         self, *, client: bigquery.Client, updates_table_fqn: str, target_dataset_fqn: str
     ) -> bigquery.QueryJob:
         """Apply updates from the updates table specified by
-        `updates_table_fqn` to the target table in the `target_dataset_fqn`
+        ``updates_table_fqn`` to the target table in the ``target_dataset_fqn``
         dataset.
 
         Parameters
         ----------
-        client : `google.cloud.bigquery.Client`
+        client
             BigQuery client.
-        updates_table_fqn : `str`
+        updates_table_fqn
             Fully-qualified BigQuery table name containing updates.
-        target_dataset_fqn : `str`
+        target_dataset_fqn
             Fully-qualified BigQuery dataset name containing the target table.
 
         Returns
         -------
-        job : `google.cloud.bigquery.job.QueryJob`
+        `~google.cloud.bigquery.job.QueryJob`
             The completed BigQuery job.
         """
         sql = SqlResource(

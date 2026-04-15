@@ -49,9 +49,9 @@ class ChunkUploadError(RuntimeError):
 
     Parameters
     ----------
-    chunk_id : `int`
+    chunk_id
         The ID of the chunk being processed when the error occurred.
-    message : `str`
+    message
         A message describing the error.
     """
 
@@ -68,18 +68,18 @@ class ChunkUploader:
 
     Parameters
     ----------
-    ppdb : `PpdbBigQuery`
+    ppdb
         The PPDB interface which must have the type `PpdbBigQuery`.
-    wait_interval : `int`
+    wait_interval
         The time in seconds to wait between scans for new chunks.
-    upload_interval : `int`
+    upload_interval
         The time in seconds to wait between uploads of files.
         Setting this to a value greater than 0 will cause the
         uploader to wait for this amount of time before processing the next
         chunk after a successful upload.
-    exit_on_empty : `bool`
+    exit_on_empty
         If `True`, the uploader will exit if no files are found during a scan.
-    exit_on_error : `bool`
+    exit_on_error
         If `True`, the uploader will exit if an error occurs during upload.
 
     Notes
@@ -88,12 +88,12 @@ class ChunkUploader:
     ``PpdbReplicaChunk`` table in the PPDB (Postgres) database. Chunks with a
     status of "exported", meaning their table data has been written locally
     to parquet files, will be uploaded to a Google Cloud Storage (GCS) bucket.
-    The `exit_on_empty` flag controls whether the process exits if no new
+    The ``exit_on_empty`` flag controls whether the process exits if no new
     chunks are found after a query. The process will also exit if there is an
-    exception and the `exit_on_error` flag is set to `True`. The
-    `wait_interval` controls how often the process will query the database for
-    new chunks, and the `upload_interval` controls the wait interval between
-    uploading the files for a single chunk.
+    exception and the ``exit_on_error`` flag is set to `True`. The
+    ``wait_interval`` controls how often the process will query the database
+    for new chunks, and the ``upload_interval`` controls the wait interval
+    between uploading the files for a single chunk.
     """
 
     def __init__(
@@ -104,19 +104,19 @@ class ChunkUploader:
         exit_on_empty: bool = False,
         exit_on_error: bool = False,
     ):
-        # Setup interface for accessing replica chunk data
+        # Setup interface for accessing replica chunk data.
         self._ppdb = ppdb
 
-        # Command line parameters
+        # Set parameters from the command line options or their defaults.
         self._wait_interval = wait_interval
         self._upload_interval = upload_interval
         self._exit_on_empty = exit_on_empty
         self._exit_on_error = exit_on_error
 
-        # Initialize the storage client for interacting with GCS
+        # Initialize the storage client for interacting with GCS.
         self._storage = StorageClient(bucket_name=self.config.bucket_name)
 
-        # Initialize the Pub/Sub publisher for staging chunks in BigQuery
+        # Initialize the Pub/Sub publisher for staging chunks in BigQuery.
         self._publisher = Publisher(self.config.project_id, self.config.stage_chunk_topic)
 
     @property
@@ -134,7 +134,7 @@ class ChunkUploader:
 
             try:
                 # Get replica chunks that have been exported and are ready for
-                # upload to cloud storage
+                # upload to cloud storage.
                 replica_chunks = self._ppdb.get_replica_chunks_ext(status=ChunkStatus.EXPORTED)
             except Exception:
                 # Some problem occurred while retrieving replica chunk data.
@@ -150,7 +150,7 @@ class ChunkUploader:
                 _LOG.info("Found %d replica chunks ready for upload", len(replica_chunks))
                 for replica_chunk in replica_chunks:
                     try:
-                        # Process each replica chunk
+                        # Process each replica chunk.
                         _LOG.info("Processing %d", replica_chunk.id)
                         self._process_chunk(replica_chunk)
                     except ChunkUploadError:
@@ -180,7 +180,7 @@ class ChunkUploader:
 
         Parameters
         ----------
-        replica_chunk : `PpdbReplicaChunk`
+        replica_chunk
             The replica chunk to process, which includes its ID and directory.
 
         Raises
@@ -195,7 +195,7 @@ class ChunkUploader:
             raise ChunkUploadError(chunk_id, "No directory specified on replica chunk")
         chunk_dir = replica_chunk.directory
 
-        # Read the manifest file to get metadata about the chunk
+        # Read the manifest file to get metadata about the chunk.
         manifest: Manifest | None = None
         try:
             if not replica_chunk.manifest_path.exists():
@@ -206,16 +206,16 @@ class ChunkUploader:
         except Exception as e:
             raise ChunkUploadError(chunk_id, f"Failed to read manifest file for: {replica_chunk.id}") from e
 
-        # Construct the GCS prefix for this chunk's files
+        # Construct the GCS prefix for this chunk's files.
         gcs_prefix = posixpath.join(
             self.config.object_prefix,
             f"{manifest.exported_at.strftime('%Y/%m/%d')}/{chunk_id}",
         )
 
-        # Make a list of local parquet files to upload
+        # Make a list of local parquet files to upload.
         upload_file_list = list(chunk_dir.glob("*.parquet"))
 
-        # Check if the chunk is expected to be empty
+        # Check if the chunk is expected to be empty.
         is_empty = manifest.is_empty_chunk()
 
         # Raise an error if no files are present for non-empty chunks since
@@ -246,7 +246,7 @@ class ChunkUploader:
                 )
 
         try:
-            # 1) Upload the files to GCS for non-empty chunks
+            # 1) Upload the files to GCS for non-empty chunks.
             if upload_file_list:
                 gcs_names = {path: posixpath.join(gcs_prefix, path.name) for path in upload_file_list}
                 try:
@@ -260,7 +260,7 @@ class ChunkUploader:
                 except* UploadError as eg:
                     raise ChunkUploadError(chunk_id, f"{len(eg.exceptions)} upload(s) failed") from eg
 
-            # 2) Upload manifest, even for empty chunks
+            # 2) Upload manifest, even for empty chunks.
             try:
                 self._storage.upload_from_string(
                     posixpath.join(gcs_prefix, Path(replica_chunk.manifest_path).name),
@@ -306,7 +306,7 @@ class ChunkUploader:
                 self._storage.delete_recursive(gcs_prefix)
             except DeleteError as cleanup_err:
                 # Note (Python 3.11+): annotate without masking the
-                # original error
+                # original error.
                 err.add_note(f"cleanup warning: failed to delete gs://{gcs_uri}: {cleanup_err}")
             raise
 

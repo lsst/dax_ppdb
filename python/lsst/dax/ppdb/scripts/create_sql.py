@@ -43,24 +43,24 @@ def create_sql(
 
     Parameters
     ----------
-    db_url : `str`
+    db_url
         SQLAlchemy connection string.
-    schema : `str` or `None`
+    schema
         Database schema name, `None` to use default schema.
-    output_config : `str`
+    output_config
         Name of the file to write PPDB configuration.
-    felis_path : `str`
+    felis_path
         Path to the Felis YAML file with table schema definition.
-    felis_schema : `str`
+    felis_schema
         Name of the schema defined in felis YAML file.
-    connection_pool : `bool`
+    connection_pool
         If True then enable connection pool.
-    isolation_level : `str` or `None`
+    isolation_level
         Transaction isolation level, if unset then backend-default value is
         used.
-    connection_timeout : `float` or `None`
+    connection_timeout
         Maximum connection timeout in seconds.
-    drop : `bool`
+    drop
         If `True` then drop existing tables.
     """
     config = PpdbSql.init_database(

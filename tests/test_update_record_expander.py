@@ -40,11 +40,11 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test fixtures."""
-        # Test time for consistent timestamps
+        # Define fixed update times.
         self.update_time = astropy.time.Time("2021-03-01T12:00:00", format="isot", scale="tai")
         self.update_time_ns = int(self.update_time.unix_tai * 1e9)
 
-        # Test replica chunk ID
+        # Define a dummy replica chunk ID to use in tests.
         self.replica_chunk_id = 12345
 
     def test_reassign_diasource_to_diaobject(self) -> None:
@@ -215,7 +215,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
         expanded_record = expanded[0]
         self.assertEqual(expanded_record.table_name, "DiaForcedSource")
         # The record ID should be a list of the composite key components
-        # [diaObjectId, visit, detector] for BigQuery compatibility
+        # [diaObjectId, visit, detector] for BigQuery compatibility.
         expected_record_id = (200001, 12345, 42)
         self.assertEqual(expanded_record.record_id, expected_record_id)
         self.assertEqual(expanded_record.field_name, "timeWithdrawnMjdTai")
@@ -228,7 +228,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
 
         self.assertEqual(len(expanded), 10)
 
-        # Verify that all expanded records have correct the replica_chunk_id
+        # Verify that all expanded records have correct the replica_chunk_id.
         for record in expanded:
             self.assertEqual(record.replica_chunk_id, self.replica_chunk_id)
 

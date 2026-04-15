@@ -55,49 +55,46 @@ def create_bigquery(
 
     Parameters
     ----------
-    output_config : `str`
+    output_config
         Name of the new configuration file for created BigQuery PPDB instance.
-    db_url : `str`
+    db_url
         Database URL in SQLAlchemy format for PPDB instance.
-    project_id : `str`
+    project_id
         GCP project ID.
-    dataset_id : `str`
+    dataset_id
         BigQuery dataset name, e.g., 'my_project:my_dataset'.
-    bucket_name : `str`
+    bucket_name
         GCS bucket name to use for Parquet output.
-    object_prefix : `str`
+    object_prefix
         Object prefix to use in GCS bucket for Parquet output.
-    replication_dir : `str`
+    replication_dir
         Directory used for replication staging area.
-    db_drop : `bool`
+    db_drop
         If True then drop existing db tables.
-    db_schema : `str`
+    db_schema
         Database schema name for PPDB instance.
-    felis_path : `str`, optional
+    felis_path
         Path to Felis database. If `None`, defaults to the default path in SDM
         Schemas.
-    felis_schema : `str`, optional
+    felis_schema
         Felis schema name within the YAML file.
-    stage_chunk_topic : `str`
+    stage_chunk_topic
         Pub/Sub topic to use for staging chunks.
-    parq_batch_size : `int`
+    parq_batch_size
         Number of rows to use when batching Parquet output.
-    parq_compression : `str`
+    parq_compression
         Compression codec to use for Parquet output.
-    delete_existing_dirs : `bool`
+    delete_existing_dirs
         If True then delete existing replication staging directories.
-    validate_config : `bool`
+    validate_config
         If `True`, validate the configuration against GCP resources.
     """
     bq_config = PpdbBigQuery.init_bigquery(
-        # SQL db
         db_url=db_url,
         db_schema=db_schema,
         db_drop=db_drop,
-        # Felis
         felis_path=felis_path,
         felis_schema=felis_schema,
-        # BigQuery
         replication_dir=replication_dir,
         delete_existing_dirs=delete_existing_dirs,
         stage_chunk_topic=stage_chunk_topic,
@@ -107,7 +104,6 @@ def create_bigquery(
         object_prefix=object_prefix,
         project_id=project_id,
         dataset_id=dataset_id,
-        # Whether to validate against GCP resources
         validate_config=validate_config,
     )
     _LOG.info("Created BigQuery configuration: %s", bq_config)

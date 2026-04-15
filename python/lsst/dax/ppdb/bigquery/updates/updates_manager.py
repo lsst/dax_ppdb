@@ -63,9 +63,9 @@ class UpdatesManager:
 
     Parameters
     ----------
-    config : `PpdbBigQueryConfig`
+    config
         Configuration for the PPDB BigQuery interface.
-    table_name_format : `str`, optional
+    table_name_format
         Optional format string for the target table names used by the mergers.
     """
 
@@ -103,7 +103,7 @@ class UpdatesManager:
 
         Parameters
         ----------
-        replica_chunks: `Sequence` [ `PpdbReplicaChunkExtended` ]
+        replica_chunks
             The replica chunks with the update records.
 
         Raises
@@ -136,13 +136,13 @@ class UpdatesManager:
         except Exception as e:
             raise UpdatesManagerError("Failed to build updates table") from e
 
-        # Select only the latest update records into a new table
+        # Select only the latest update records into a new table.
         try:
             self._updates_table.create_latest_only()
         except Exception as e:
             raise UpdatesManagerError("Failed to create latest-only updates table") from e
 
-        # Merge the latest-only updates into the target tables
+        # Merge the latest-only updates into the target tables.
         try:
             self._merge_updates(self._updates_table.latest_only_table_fqn)
         except Exception as e:
@@ -154,7 +154,7 @@ class UpdatesManager:
 
         Parameters
         ----------
-        chunks : `Sequence` [ `PpdbReplicaChunkExtended` ]
+        chunks
             Replica chunks with update_count > 0.
         """
         for chunk in chunks:
@@ -220,7 +220,7 @@ class UpdatesManager:
 
         Parameters
         ----------
-        target_table_fqn : `str`
+        target_table_fqn
             Fully qualified name of the latest-only updates table for the
             merge operation.
         """
@@ -245,9 +245,9 @@ class UpdatesManager:
 
         Parameters
         ----------
-        job : `bigquery.job.QueryJob`
+        job
             The BigQuery job with the statistics to log.
-        target_table_fqn : `str`
+        target_table_fqn
             Fully qualified name of the target table for the merge operation.
         """
         total = job.num_dml_affected_rows

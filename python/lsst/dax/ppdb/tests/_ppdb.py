@@ -175,7 +175,7 @@ class PpdbTest(unittest.TestCase, ABC):
 
         Parameters
         ----------
-        **kwargs : `Any`
+        **kwargs
             Instance-specific parameters for the PPDB database.
         """
         raise NotImplementedError()
@@ -187,7 +187,7 @@ class PpdbTest(unittest.TestCase, ABC):
 
         Parameters
         ----------
-        **kwargs : `Any`
+        **kwargs
             Instance-specific parameters for the APDB.
         """
         raise NotImplementedError()

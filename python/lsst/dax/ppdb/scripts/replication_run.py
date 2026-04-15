@@ -47,24 +47,24 @@ def replication_run(
 
     Parameters
     ----------
-    apdb_config : `str`
+    apdb_config
         URL for APDB configuration file.
-    ppdb_config : `str`
+    ppdb_config
         URL for PPDB configuration file.
-    single : `bool`
+    single
         Copy single bucket and stop.
-    update : `bool`
+    update
         If `True` then allow updates to previously replicated data.
-    min_wait_time : `int`
+    min_wait_time
         Minimum time in seconds to wait for replicating a chunk after a next
         chunk appears.
-    max_wait_time : `int`
+    max_wait_time
         Maximum time in seconds to wait for replicating a chunk if no chunk
         appears.
-    check_interval : `int`
+    check_interval
         Time in seconds to wait before next check if there was no replicated
         chunks.
-    exit_on_empty : `bool`
+    exit_on_empty
         If `True` then exit if there are no chunks to replicate, otherwise
         keep waiting for new chunks.
     """

@@ -53,7 +53,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
 
-        # Set up BigQuery client and test dataset
+        # Set up BigQuery client and test dataset.
         self.bq_client = bigquery.Client()
 
         bucket_name = generate_test_bucket_name("ppdb-updates-manager-test")
@@ -69,14 +69,14 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             "project_id": project_id,
         }
 
-        # Setup the Postgres database and create the config instance
+        # Setup the Postgres database and create the config instance.
         self.ppdb_config = self.make_instance(config)
 
-        # Create the test dataset and tables in BigQuery
+        # Create the test dataset and tables in BigQuery.
         self.target_dataset_fqn = f"{project_id}.{dataset_id}"
         self._create_test_dataset(self.bq_client, dataset_id)
 
-        # Create the test GCS bucket
+        # Create the test GCS bucket.
         storage_client = storage.Client()
         try:
             bucket = storage_client.bucket(self.ppdb_config.bucket_name)
@@ -84,12 +84,12 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         except Exception as e:
             self.fail(f"Failed to create test GCS bucket: {e}")
 
-        # Create the PPDB instance
+        # Create the PPDB instance.
         self.ppdb = Ppdb.from_config(self.ppdb_config)
         assert isinstance(self.ppdb, PpdbBigQuery)
 
     def tearDown(self):
-        # Delete the test dataset
+        # Delete the test dataset.
         try:
             self.bq_client.delete_dataset(
                 self.ppdb_config.dataset_id, delete_contents=True, not_found_ok=True
@@ -97,7 +97,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         except Exception as e:
             print(f"Failed to delete test dataset: {e}")
 
-        # Delete the test GCS bucket
+        # Delete the test GCS bucket.
         storage_client = storage.Client()
         try:
             bucket = storage_client.bucket(self.ppdb_config.bucket_name)
@@ -114,7 +114,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         dataset = bigquery.Dataset(f"{client.project}.{dataset_id}")
         client.create_dataset(dataset, exists_ok=False)
 
-        # Create DiaObject table
+        # Create DiaObject table.
         schema = [
             bigquery.SchemaField("diaObjectId", "INTEGER", mode="REQUIRED"),
             bigquery.SchemaField("validityEndMjdTai", "FLOAT", mode="NULLABLE"),
@@ -136,7 +136,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         )
         job.result()
 
-        # Create test DiaSource table
+        # Create test DiaSource table.
         schema = [
             bigquery.SchemaField("diaSourceId", "INTEGER", mode="REQUIRED"),
             bigquery.SchemaField("diaObjectId", "INTEGER", mode="NULLABLE"),
@@ -184,7 +184,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         )
         job.result()
 
-        # Create test DiaForcedSource table
+        # Create test DiaForcedSource table.
         schema = [
             bigquery.SchemaField("diaObjectId", "INTEGER", mode="REQUIRED"),
             bigquery.SchemaField("visit", "INTEGER", mode="REQUIRED"),
@@ -220,7 +220,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             def rows(self) -> Collection[tuple]:
                 return []
 
-        # Create and store the test update records
+        # Create and store the test update records.
         update_records = _create_test_update_records()
         test_replica_chunk_id = 12345
         self.ppdb.store(
@@ -236,7 +236,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             update=True,
         )
 
-        # Configure and run the uploader without publishing to Pub/Sub
+        # Configure and run the uploader without publishing to Pub/Sub.
         uploader = ChunkUploaderWithoutPubSub(
             self.ppdb,
             wait_interval=0,
@@ -245,7 +245,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         )
         uploader.run()
 
-        # Apply the updates to the target tables using the UpdatesManager
+        # Apply the updates to the target tables using the UpdatesManager.
         updates_manager = UpdatesManager(self.ppdb.config)
         replica_chunks = self.ppdb.get_replica_chunks_ext_by_ids([test_replica_chunk_id])
         updates_manager.apply_updates(replica_chunks)

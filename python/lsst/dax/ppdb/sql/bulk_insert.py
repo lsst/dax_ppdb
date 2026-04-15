@@ -51,16 +51,16 @@ class BulkInserter(ABC):
 
         Parameters
         ----------
-        table : `sqlalchemy.schema.Table`
+        table
             Table to insert data into.
-        data : `ApdbTableData`
+        data
             Data to insert into the table.
-        chunk_size : `int`, optional
+        chunk_size
             Number of rows for a single chunk for insertion.
 
         Returns
         -------
-        count : `int`
+        `int`
             Total number of rows inserted.
         """
         raise NotImplementedError()
@@ -144,7 +144,7 @@ def make_inserter(connection: sqlalchemy.engine.Connection) -> BulkInserter:
 
     Parameters
     ----------
-    connection : `~sqlalchemy.engine.Connection`
+    connection
         Active database connection.
     """
     if connection.dialect.driver == "psycopg2":

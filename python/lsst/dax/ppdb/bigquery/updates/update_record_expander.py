@@ -47,20 +47,20 @@ class UpdateRecordExpander:
 
         Parameters
         ----------
-        update_record : `ApdbUpdateRecord`
+        update_record
             A single APDB update record to expand.
-        replica_chunk_id : `int`
+        replica_chunk_id
             The replica chunk ID associated with this update record.
 
         Returns
         -------
-        expanded_records : `list` [ `ExpandedUpdateRecord` ]
+        `list` [ `ExpandedUpdateRecord` ]
             List of ExpandedUpdateRecord objects, one per field being updated.
         """
-        # Get the target table from the update record
+        # Get the target table from the update record.
         table_name = update_record.apdb_table.name
 
-        # Create an ExpandedUpdateRecord for each field being updated
+        # Create an ExpandedUpdateRecord for each field being updated.
         expanded_records = []
         record_id_values = tuple(value for _, value in update_record.record_id())
         for field_name, field_value in update_record.record_payload():
@@ -85,14 +85,14 @@ class UpdateRecordExpander:
 
         Parameters
         ----------
-        update_records : `UpdateRecords`
+        update_records
             The APDB update records to expand.
-        replica_chunk_id : `int`
+        replica_chunk_id
             The replica chunk ID associated with these update records.
 
         Returns
         -------
-        expanded_updates : `list` [ `ExpandedUpdateRecord` ]
+        `list` [ `ExpandedUpdateRecord` ]
             A list of individual updates derived from the input update records.
         """
         expanded_updates = []

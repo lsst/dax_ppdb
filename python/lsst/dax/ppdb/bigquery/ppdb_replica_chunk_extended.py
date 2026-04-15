@@ -28,8 +28,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import astropy.time
+
+if TYPE_CHECKING:
+    import uuid  # noqa: F401 (needed for autodoc to resolve inherited annotations)
 
 from lsst.dax.apdb import ReplicaChunk
 
@@ -99,20 +103,21 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         directory: Path,
         update_count: int = 0,
     ) -> PpdbReplicaChunkExtended:
-        """Create a `PpdbReplicaChunkExtended` from a `ReplicaChunk`.
+        """Create a `PpdbReplicaChunkExtended` from a
+        `~lsst.dax.apdb.ReplicaChunk`.
 
         Parameters
         ----------
-        replica_chunk : `ReplicaChunk`
-            The `ReplicaChunk` to convert.
-        status : `ChunkStatus`
+        replica_chunk
+            The `~lsst.dax.apdb.ReplicaChunk` to convert.
+        status
             Status of the replica chunk.
-        directory : `pathlib.Path`
+        directory
             Directory where the replica chunk data is stored.
 
         Returns
         -------
-        extended_chunk : `PpdbReplicaChunkExtended`
+        `PpdbReplicaChunkExtended`
             The converted `PpdbReplicaChunkExtended`.
         """
         return PpdbReplicaChunkExtended(
@@ -131,12 +136,12 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
         Parameters
         ----------
-        new_status : `ChunkStatus`
+        new_status
             The new status to set.
 
         Returns
         -------
-        new_chunk : `PpdbReplicaChunkExtended`
+        `PpdbReplicaChunkExtended`
             The new chunk with the updated status.
         """
         return dataclasses.replace(self, status=new_status)
@@ -147,12 +152,12 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
         Parameters
         ----------
-        new_gcs_uri : `str`
+        new_gcs_uri
             The new GCS URI to set.
 
         Returns
         -------
-        new_chunk : `PpdbReplicaChunkExtended`
+        `PpdbReplicaChunkExtended`
             The new chunk with the updated GCS URI.
         """
         return dataclasses.replace(self, gcs_uri=new_gcs_uri)

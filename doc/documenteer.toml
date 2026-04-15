@@ -7,22 +7,11 @@ package = "lsst-dax-ppdb"
 [build]
 clean = true
 
-[sphinx]
-nitpick_ignore = [
-    ["py:class", "dataset type expression"],
-    ["py:class", "collection expression"],
-    ["py:data", "typing.Union"],
-    ["py:class", "uuid.UUID"],
-]
-nitpick_ignore_regex = [
-    ['py:.*', 'pyarrow\..*'],
-    ['py:.*', 'sqlalchemy\..*'],  # not every sqlalchemy class resolves
-    ['py:.*', 'yaml\..*'],  # YAML has no sphinx docs
-]
-
 [sphinx.intersphinx.projects]
 astropy = "https://docs.astropy.org/en/stable"
 python = "https://docs.python.org/3"
 lsst = "https://pipelines.lsst.io/v/daily/"
 sqlalchemy = "https://docs.sqlalchemy.org/en/20/"
 pandas = "https://pandas.pydata.org/docs/"
+google_cloud_bigquery = "https://googleapis.dev/python/bigquery/latest/"
+google_api_core = "https://googleapis.dev/python/google-api-core/latest/"

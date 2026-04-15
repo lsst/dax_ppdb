@@ -44,7 +44,7 @@ class ManifestTestCase(unittest.TestCase):
         )
         self.assertTrue(manifest.is_empty_chunk())
 
-        # A manifest with update_count > 0 should not be empty
+        # A manifest with update_count > 0 should not be empty.
         manifest_with_updates = Manifest(
             replica_chunk_id="12345",
             unique_id="550e8400-e29b-41d4-a716-446655440000",

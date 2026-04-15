@@ -31,7 +31,7 @@ def felis_schema_options(parser: argparse.ArgumentParser) -> None:
 
     Parameters
     ----------
-    parser : `~argparse.ArgumentParser`
+    parser
         The argument parser to which the options are added.
     """
     group = parser.add_argument_group("felis schema options")
@@ -54,7 +54,7 @@ def sql_db_options(parser: argparse.ArgumentParser) -> None:
 
     Parameters
     ----------
-    parser : `~argparse.ArgumentParser`
+    parser
         The argument parser to which the options are added.
     """
     group = parser.add_argument_group("database options")
@@ -92,7 +92,7 @@ def replication_options(parser: argparse.ArgumentParser) -> None:
 
     Parameters
     ----------
-    parser : `~argparse.ArgumentParser`
+    parser
         The argument parser to which the options are added.
     """
     group = parser.add_argument_group("replication options")
@@ -136,7 +136,7 @@ def upload_options(parser: argparse.ArgumentParser) -> None:
 
     Parameters
     ----------
-    parser : `~argparse.ArgumentParser`
+    parser
         The argument parser to which the options are added.
     """
     group = parser.add_argument_group("upload chunk options")
@@ -171,7 +171,7 @@ def bigquery_options(parser: argparse.ArgumentParser) -> None:
 
     Parameters
     ----------
-    parser : `~argparse.ArgumentParser`
+    parser
         The argument parser to which the options are added.
     """
     group = parser.add_argument_group("BigQuery options")

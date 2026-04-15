@@ -91,7 +91,7 @@ class Manifest(BaseModel):
 
         Parameters
         ----------
-        dir_path : `Path`
+        dir_path
             Path to the directory where the manifest file should be written.
         """
         file_path = os.path.join(dir_path, self.FILE_NAME)
@@ -104,12 +104,12 @@ class Manifest(BaseModel):
 
         Parameters
         ----------
-        file_path : `pathlib.Path`
+        file_path
             Path to the JSON file containing the manifest.
 
         Returns
         -------
-        manifest : `Manifest`
+        `Manifest`
             The loaded manifest object.
         """
         with open(file_path, encoding="utf-8") as f:
@@ -122,7 +122,7 @@ class Manifest(BaseModel):
 
         Parameters
         ----------
-        content : `str`
+        content
             The string with the JSON data.
         """
         data = json.loads(content)
@@ -134,7 +134,7 @@ class Manifest(BaseModel):
 
         Returns
         -------
-        empty : `bool`
+        `bool`
             `True` if all tables have zero rows and no update records are
             included, indicating an empty chunk, `False` otherwise.
         """

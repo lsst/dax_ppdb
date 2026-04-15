@@ -114,7 +114,7 @@ class PpdbBigQueryConfig(PpdbConfig):
 
         Returns
         -------
-        fq_dataset_id : `str`
+        `str`
             Fully qualified BigQuery dataset ID, including project.
         """
         return f"{self.project_id}:{self.dataset_id}"
@@ -125,9 +125,9 @@ class _SecretManagerPasswordProvider(PasswordProvider):
 
     Parameters
     ----------
-    project_id : `str`
+    project_id
         GCP project that owns the secret.
-    secret_name : `str`, optional
+    secret_name
         Name of the secret. Defaults to ``"ppdb-db-password"``.
     """
 
@@ -153,30 +153,32 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
     Parameters
     ----------
-    config : `PpdbBigQueryConfig`
+    config
         Configuration object with BigQuery and SQL database parameters.
     """
 
     def __init__(self, config: PpdbBigQueryConfig):
-        # Read parameters from config
+        # Read parameters from config.
         if config.replication_dir is None:
             raise ValueError("Directory for chunk export is not set in configuration.")
 
-        # Build an optional password provider for GCP Secret Manager
+        # Build an optional password provider for GCP Secret Manager.
         password_provider: PasswordProvider | None = None
         if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
             _LOG.debug("Using Secret Manager to retrieve database password")
             password_provider = _SecretManagerPasswordProvider(config.project_id)
 
         # Delegate SQL initialisation (schema load, engine, metadata, version
-        # checks) to the base class, passing the optional password provider
+        # checks) to the base class, passing the optional password provider.
         PpdbSqlBase.__init__(self, config.sql, password_provider=password_provider)
 
         self._config = config
 
     @property
     def metadata(self) -> ApdbMetadata:
-        """APDB metadata object from `Ppdb` interface (`ApdbMetadata`)."""
+        """APDB metadata object from `~lsst.dax.ppdb.Ppdb` interface
+        (`~lsst.dax.apdb.ApdbMetadata`).
+        """
         return self._metadata
 
     @property
@@ -191,7 +193,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        ppdb: `PpdbBigQuery`
+        `PpdbBigQuery`
             An instance of the PPDB BigQuery interface.
         """
         ppdb_config_uri = os.environ.get("PPDB_CONFIG_URI", None)
@@ -317,12 +319,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        chunk : `ReplicaChunk`
+        chunk
             The replica chunk for which to create the directory.
 
         Returns
         -------
-        chunk_dir : `pathlib.Path`
+        `pathlib.Path`
             Path to the created directory for the replica chunk.
         """
         last_update_time = chunk.last_update_time.to_datetime()
@@ -357,15 +359,15 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        status : `ChunkStatus`
+        status
             Status of the replica chunks to return.
-        start_chunk_id : `int`, optional
+        start_chunk_id
             If provided, only return chunks with ID greater than or equal to
             this value.
 
         Returns
         -------
-        chunks : `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
+        `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
             List of chunks with the specified status. Chunks are ordered by
             their ``last_update_time`` and include the ``directory`` and
             ``status`` fields.
@@ -410,12 +412,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        chunk_ids : `~collections.abc.Sequence` [ `int` ]
+        chunk_ids
             Replica chunk IDs to retrieve.
 
         Returns
         -------
-        chunks : `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
+        `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
             List of matching chunks ordered by ``apdb_replica_chunk``.
         """
         if not chunk_ids:
@@ -463,9 +465,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        replica_chunk : `PpdbReplicaChunkExtended`
+        replica_chunk
             The replica chunk to store.
-        update : `bool`
+        update
             If `True` then perform an UPSERT operation to update existing
             records. If `False` then only INSERT is performed and an error is
             raised if the record already exists.
@@ -496,7 +498,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        table_name : `str`, optional
+        table_name
             Name of the table to create. If not provided, defaults to
             "PpdbReplicaChunk".
 
@@ -573,36 +575,36 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        db_url : `str`
+        db_url
             Database URL in SQLAlchemy format for PPDB instance.
-        project_id : `str`
+        project_id
             GCP project ID.
-        dataset_id : `str`
+        dataset_id
             BigQuery dataset name without the project ID.
-        bucket_name : `str`
+        bucket_name
             GCS bucket name to use for Parquet output.
-        object_prefix : `str`
+        object_prefix
             Object prefix to use in GCS bucket for Parquet output.
-        replication_dir : `str`
+        replication_dir
             Directory used for replication staging area.
-        db_drop : `bool`
+        db_drop
             If True then drop existing db tables.
-        db_schema : `str`, optional
+        db_schema
             Database schema name for PPDB instance.
-        felis_path : `str`, optional
+        felis_path
             Path to Felis database. If `None`, defaults to the default path in
             SDM Schemas.
-        felis_schema : `str`, optional
+        felis_schema
             Felis schema name within the YAML file.
-        stage_chunk_topic : `str`, optional
+        stage_chunk_topic
             Pub/Sub topic to use for staging chunks.
-        parq_batch_size : `int`, optional
+        parq_batch_size
             Number of rows to use when batching Parquet output.
-        parq_compression : `str`, optional
+        parq_compression
             Compression codec to use for Parquet output.
-        delete_existing_dirs : `bool`, optional
+        delete_existing_dirs
             If True then delete existing replication staging directories.
-        validate_config : `bool`, optional
+        validate_config
             If `True`, validate the configuration against GCP resources.
 
         Raises
@@ -669,7 +671,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        config : `PpdbBigQueryConfig`
+        config
             Configuration to validate.
 
         Raises
@@ -732,9 +734,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        replica_chunk : `ReplicaChunk`
+        replica_chunk
             The replica chunk associated with the updates.
-        update_records : `~collections.abc.Collection` [ `ApdbUpdateRecord` ]
+        update_records
             Collection of update records to process.
 
         Notes
@@ -756,13 +758,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         )
 
     def get_promotable_chunks(self) -> list[int]:
-        """
-        Return the first uninterrupted sequence of staged chunks such that all
-        prior chunks are promoted.
+        """Return the first uninterrupted sequence of staged chunks such that
+        all prior chunks are promoted.
 
         Returns
         -------
-        chunk_ids : `list`[`int`]
+        `list` [`int`]
             A list of tuples containing the ``apdb_replica_chunk`` values of
             the promotable chunks.
 
@@ -797,13 +798,13 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        promotable_chunks : `list`[`int`]
+        promotable_chunks
             List of integers containing the ``apdb_replica_chunk`` values of
             the promotable chunks.
 
         Returns
         -------
-        count: `int`
+        `int`
             The number of rows updated in the database, which should be equal
             to the number of promotable chunks provided, if they were all found
             and updated successfully.
@@ -824,14 +825,14 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        chunk_id : `int`
+        chunk_id
             The ID of the replica chunk to update.
-        values : `dict`[`str`, `Any`]
+        values
             A dictionary of column names and their new values to update.
 
         Returns
         -------
-        count : `int`
+        `int`
             The number of rows updated. This should be 1 if the update is
             successful, or 0 if no rows were updated (e.g., if the chunk ID
             does not exist or the status is already set to the new value).

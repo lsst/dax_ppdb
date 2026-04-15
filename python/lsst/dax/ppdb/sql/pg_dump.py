@@ -55,9 +55,9 @@ class PgBinaryDumper:
 
     Parameters
     ----------
-    stream : `BinaryIO`
+    stream
         Target binary data stream.
-    table : `sqlalchemy.schema.Table`
+    table
         Table object defining the table structure.
     """
 
@@ -72,7 +72,7 @@ class PgBinaryDumper:
 
         Parameters
         ----------
-        data : `ApdbTableData`
+        data
             Table data to dump.
         """
         # Only care about columns that exists in both table and data.
@@ -96,7 +96,7 @@ class PgBinaryDumper:
             for idx, handler in zip(column_indices, handlers, strict=True):
                 struct_data = handler.to_struct(row[idx])
                 if struct_data.value is None:
-                    # Null is encoded as size=-1, without data
+                    # Null is encoded as size=-1, without data.
                     fmt.append("i")
                     args.append(-1)
                 else:
@@ -136,7 +136,7 @@ class _StringColumnDataHandler(_ColumnDataHandler):
     def to_struct(self, column_value: Any) -> StructData:
         if column_value is None:
             return StructData(size=-1, format=self._format, value=None)
-        # Assume that utf8 is OK for all string data
+        # Assume that utf8 is OK for all string data.
         assert isinstance(column_value, str), "Expect string instance"
         value = column_value.encode()
         format = f"{len(value)}{self._format}"

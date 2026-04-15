@@ -21,13 +21,17 @@
 
 from __future__ import annotations
 
-__all__ = ["Ppdb"]
+__all__ = ["Ppdb", "PpdbReplicaChunk"]
 
 from abc import ABC, abstractmethod
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import astropy.time
+
+if TYPE_CHECKING:
+    import uuid  # noqa: F401 (needed for autodoc to resolve inherited annotations)
 
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ApdbUpdateRecord, ReplicaChunk
 from lsst.resources import ResourcePathExpression
@@ -53,13 +57,13 @@ class Ppdb(ABC):
 
         Parameters
         ----------
-        config : `PpdbConfig`
+        config
             Configuration object, type of this object determines type of the
             Ppdb implementation.
 
         Returns
         -------
-        ppdb : `Ppdb`
+        `Ppdb`
             Instance of `Ppdb` class.
         """
         return ppdb_from_config(config)
@@ -70,13 +74,13 @@ class Ppdb(ABC):
 
         Parameters
         ----------
-        uri : `~lsst.resources.ResourcePathExpression`
+        uri
             Location of the file containing serialized configuration in YAML
             format.
 
         Returns
         -------
-        ppdb : `Ppdb`
+        `Ppdb`
             Instance of `Ppdb` class.
         """
         config = PpdbConfig.from_uri(uri)
@@ -96,13 +100,14 @@ class Ppdb(ABC):
 
         Parameters
         ----------
-        start_chunk_id : `int`, optional
+        start_chunk_id
             If specified this will be the starting chunk ID to return. If not
             specified then all chunks are returned.
 
         Returns
         -------
-        chunks : `~collections.abc.Sequence` [`PpdbReplicaChunk`] or `None`
+        `~collections.abc.Sequence` [`~lsst.dax.ppdb.PpdbReplicaChunk`] or
+        `None`
             List of chunks, they may be time-ordered if database supports
             ordering. `None` is returned if database is not configured to store
             chunk information.
@@ -124,19 +129,18 @@ class Ppdb(ABC):
 
         Parameters
         ----------
-        replica_chunk : `~lsst.dax.apdb.ReplicaChunk`
+        replica_chunk
             Insertion ID for APDB data.
-        objects : `~lsst.dax.apdb.ApdbTableData`
+        objects
             Matching APDB data for DiaObjects.
-        sources : `~lsst.dax.apdb.ApdbTableData`
+        sources
             Matching APDB data for DiaSources.
-        forced_sources : `~lsst.dax.apdb.ApdbTableData`
+        forced_sources
             Matching APDB data for DiaForcedSources.
-        update_records : `~collections.abc.Collection` \
-                [`~lsst.dax.apdb.ApdbUpdateRecord`]
+        update_records
             Records of updates to be applied to pre-existing data. The records
             must be in the same order as they were originally applied to APDB.
-        update : `bool`, optional
+        update
             If `True` then allow updates for existing  data from the same
             ``replica_chunk``.
 

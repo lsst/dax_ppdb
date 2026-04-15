@@ -35,9 +35,9 @@ class QueryRunner:
 
     Parameters
     ----------
-    project_id : `str`
+    project_id
         Google Cloud project ID.
-    dataset_id : `str`
+    dataset_id
         BigQuery dataset ID.
     """
 
@@ -48,7 +48,9 @@ class QueryRunner:
 
     @property
     def dataset(self) -> bigquery.Dataset:
-        """Dataset reference (`bigquery.Dataset`, read-only)."""
+        """Dataset reference (`google.cloud.bigquery.dataset.Dataset`,
+        read-only).
+        """
         return self._dataset
 
     @property
@@ -73,12 +75,12 @@ class QueryRunner:
 
         Parameters
         ----------
-        job : `bigquery.job.QueryJob`
+        job
             The BigQuery job to log.
-        label : `str`
+        label
             A label for the job, typically indicating the type of operation
             (e.g., "insert", "delete", "copy").
-        level : `int`, optional
+        level
             The logging level to use for the log message. Defaults to
             `logging.DEBUG`.
         """
@@ -104,24 +106,29 @@ class QueryRunner:
 
         Parameters
         ----------
-        label : `str`
+        label
             A label for the job, typically indicating the type of operation
             (e.g., "insert", "delete", "copy").
-        sql : `str`
+        sql
             The SQL query to execute.
-        job_config : `bigquery.QueryJobConfig`, optional
+        job_config
             Configuration for the job, such as query parameters or write
             dispositions. If not provided, a default configuration will be
             used.
 
         Returns
         -------
-        job: `bigquery.job.QueryJob`
+        `google.cloud.bigquery.job.QueryJob`
             The BigQuery job object representing the executed query. This can
             be used to check the status of the job, retrieve results, or log
             additional details.
         """
         job = self._bq_client.query(sql, job_config=job_config, location=self.dataset.location)
-        job.result()  # Wait for the job to complete
+
+        # Wait for the job to complete.
+        job.result()
+
+        # Log the job details.
         self.log_job(job, label)
+
         return job

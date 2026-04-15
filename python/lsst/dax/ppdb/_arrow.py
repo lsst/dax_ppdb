@@ -46,12 +46,12 @@ def _felis_to_arrow_type(felis_type: DataType) -> pyarrow.DataType:
 
     Parameters
     ----------
-    felis_type : `felis.datamodel.DataType`
+    felis_type
         Felis data type to convert.
 
     Returns
     -------
-    arrow_type : `pyarrow.DataType`
+    `pyarrow.DataType`
         Corresponding Arrow data type.
     """
     if arrow_type := _FELIS_TYPE_MAP.get(felis_type):
@@ -67,14 +67,14 @@ def create_arrow_schema(
 
     Parameters
     ----------
-    column_defs : `Sequence` [ `tuple` [ `str`, `felis.datamodel.DataType` ] ]
+    column_defs
         Column name and type pairs.
-    exclude_columns : `set` [`str`], optional
+    exclude_columns
         Column names to exclude from the schema.
 
     Returns
     -------
-    schema : `pyarrow.Schema`
+    `pyarrow.Schema`
         The resulting schema.
     """
     if exclude_columns is None:
@@ -97,25 +97,25 @@ def write_parquet(
 
     Parameters
     ----------
-    table_name : `str`
+    table_name
         Logical table name (for logging and error messages).
-    table_data : `lsst.dax.apdb.ApdbTableData`
+    table_data
         The APDB table data to write.
-    file_path : `pathlib.Path`
+    file_path
         Destination Parquet file path.
-    batch_size : `int`, optional
+    batch_size
         Number of rows to write in each batch. If `None`, defaults to 1000.
-    compression_format : `str`, optional
+    compression_format
         Compression format to use for the Parquet file. If `None`, defaults
         to "snappy".
-    exclude_columns : `set` [ `str` ], optional
+    exclude_columns
         Set of column names to exclude from the Parquet file. These
         exclusions apply to all of the tables. Default is an empty set,
         meaning no columns are excluded.
 
     Returns
     -------
-    total : `int`
+    `int`
         Total number of rows written to the Parquet file.
     """
     rows = list(table_data.rows())

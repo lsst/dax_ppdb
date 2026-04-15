@@ -64,7 +64,7 @@ class PasswordProvider(ABC):
 
         Returns
         -------
-        password : `str`
+        `str`
             Plain-text password to embed in the database connection URL.
         """
         raise NotImplementedError()
@@ -75,7 +75,7 @@ class MissingSchemaVersionError(RuntimeError):
 
     Parameters
     ----------
-    schema_name : `str`
+    schema_name
         Name of the schema with missing version.
     """
 
@@ -117,7 +117,7 @@ class PpdbSqlBaseConfig(BaseModel):
 def _onSqlite3Connect(
     dbapiConnection: sqlite3.Connection, connectionRecord: sqlalchemy.pool._ConnectionRecord
 ) -> None:
-    # Enable foreign keys
+    # Enable foreign keys.
     with closing(dbapiConnection.cursor()) as cursor:
         cursor.execute("PRAGMA foreign_keys=ON;")
 
@@ -127,7 +127,7 @@ class PpdbSqlBase:
 
     Parameters
     ----------
-    config : `PpdbSqlBaseConfig`
+    config
         Configuration object.
 
     Notes
@@ -186,9 +186,9 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        config : `PpdbSqlBaseConfig`
+        config
             Configuration object with SQL parameters.
-        password_provider : `PasswordProvider`, optional
+        password_provider
             If provided, the password returned by
             ``password_provider.get_password()`` is injected into the
             database URL.  The URL must not already contain a password when
@@ -226,13 +226,13 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        config : `PpdbSqlBaseConfig`
+        config
             Configuration object with SQL parameters.
-        sa_metadata : `sqlalchemy.schema.MetaData`
+        sa_metadata
             Schema definition.
-        schema_version : `lsst.dax.apdb.VersionTuple`
+        schema_version
             Schema version defined in schema or `None` if not defined.
-        drop : `bool`
+        drop
             If `True` then drop existing tables before creating new ones.
         """
         if config.schema_name is not None:
@@ -270,11 +270,11 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        metadata : `ApdbMetadataSql`
+        metadata
             Metadata table object.
-        key : `str` or `None`
+        key
             Metadata key.
-        value : `str` or `None`
+        value
             Metadata value.
         """
         _LOG.info("store metadata %s = %s", key, value)
@@ -286,7 +286,7 @@ class PpdbSqlBase:
 
         Returns
         -------
-        key : `str`
+        `str`
             Name of the metadata key for storing the code version.
 
         Raises
@@ -302,7 +302,7 @@ class PpdbSqlBase:
 
         Returns
         -------
-        version : `~lsst.dax.apdb.VersionTuple`
+        `~lsst.dax.apdb.VersionTuple`
             Current version of the code.
 
         Raises
@@ -317,12 +317,12 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        key : `str`
+        key
             Metadata key.
 
         Returns
         -------
-        value : `str` or `None`
+        `str` or `None`
             Metadata value or `None` if key does not exist.
         """
         version_str = self._metadata.get(version_key)
@@ -336,7 +336,7 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        expected_version : `lsst.dax.apdb.VersionTuple`
+        expected_version
             Expected schema version.
 
         Raises
@@ -379,15 +379,15 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        schema_file : `str` or `None`
+        schema_file
             Name of YAML file with ``felis`` schema, if `None` then default
             schema file is used.
-        schema_name : `str` or `None`
+        schema_name
             Database schema name, if `None` then default schema is used.
-        felis_schema : `str`, optional
+        felis_schema
             Name of the schema in YAML file, if `None` then file has to contain
             single schema.
-        db_url : `str`
+        db_url
             Database URL.
 
         Returns
@@ -453,7 +453,7 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        table_name : `str` or `None`
+        table_name
             Name of the table to create. If not provided, defaults to
             "PpdbReplicaChunk".
         """
@@ -512,7 +512,7 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        name : `str`
+        name
             Name of the table to get.
         """
         for table in self._sa_metadata.tables.values():
@@ -522,7 +522,9 @@ class PpdbSqlBase:
 
     @property
     def schema_version(self) -> VersionTuple:
-        """Version of the APDB database schema (`VersionTuple`)."""
+        """Version of the APDB database schema
+        (`~lsst.dax.apdb.VersionTuple`).
+        """
         return self._schema_version
 
     @classmethod
@@ -532,12 +534,12 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        original_table_names : `~collections.abc.Iterable` [ `str` ]
+        original_table_names
             List of table names from the schema on which is filter.
 
         Returns
         -------
-        tables : `~collections.abc.Iterable` [ `str` ]
+        `~collections.abc.Iterable` [ `str` ]
             List of tables from ``schema_dict`` on which to filter.
 
         Notes
@@ -553,7 +555,7 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        obj : `Any`
+        obj
             The object to convert, expected to be a `datetime` in UTC.
             The type signature is generic to match astropy's typing.
         """
@@ -571,13 +573,13 @@ class PpdbSqlBase:
 
         Parameters
         ----------
-        connection : `sqlalchemy.engine.Connection`
+        connection
             Active database connection.
-        table : `sqlalchemy.schema.Table`
+        table
             Table object for the replica chunk table.
-        row : `dict` [ `str`, `Any` ]
+        row
             Dictionary of column values to insert or update.
-        key_column_name : `str`
+        key_column_name
             Name of the column to use as the key for the UPSERT operation.
 
         Raises
