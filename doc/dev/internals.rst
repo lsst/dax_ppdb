@@ -5,25 +5,25 @@ Python API reference
 ####################
 
 .. automodapi:: lsst.dax.ppdb
-   :no-main-docstr:
+   :include-all-objects:
    :no-inheritance-diagram:
 
 .. automodapi:: lsst.dax.ppdb.bigquery
-   :no-main-docstr:
+   :include-all-objects:
    :no-inheritance-diagram:
 
 .. automodapi:: lsst.dax.ppdb.bigquery.updates
-   :no-main-docstr:
+   :include-all-objects:
    :no-inheritance-diagram:
 
 .. automodapi:: lsst.dax.ppdb.cli
-   :no-main-docstr:
+   :include-all-objects:
    :no-inheritance-diagram:
 
 .. automodapi:: lsst.dax.ppdb.scripts
-   :no-main-docstr:
+   :include-all-objects:
    :no-inheritance-diagram:
 
 .. automodapi:: lsst.dax.ppdb.sql
-   :no-main-docstr:
+   :include-all-objects:
    :no-inheritance-diagram:

@@ -9,10 +9,8 @@ the PPDB. Implementations are provided for PostgreSQL and BigQuery databases.
 DAX PPDB is developed on GitHub at https://github.com/lsst/dax_ppdb and is
 available on `PyPI <https://pypi.org/>`__ as ``lsst-dax-ppdb``.
 
-Python API
-==========
-
-.. toctree:
+.. toctree::
    :maxdepth: 2
+   :hidden:
 
    dev/internals
