@@ -101,7 +101,7 @@ class PpdbBigQueryConfig(PpdbConfig):
     """
 
     sql: PpdbSqlBaseConfig
-    """SQL database configuration (`PpdbSqlBaseConfig`)."""
+    """SQL database configuration (`~lsst.dax.ppdb.sql.PpdbSqlBaseConfig`)."""
 
     @property
     def replication_path(self) -> Path:

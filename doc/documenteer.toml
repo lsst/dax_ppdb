@@ -7,6 +7,17 @@ package = "lsst-dax-ppdb"
 [build]
 clean = true
 
+[sphinx]
+disable_primary_sidebars = [
+    "index",
+    "dev/internals",
+]
+extensions = [
+    "sphinxcontrib.autodoc_pydantic",
+]
+nitpicky = true
+python_api_dir = "dev/internals"
+
 [sphinx.intersphinx.projects]
 astropy = "https://docs.astropy.org/en/stable"
 python = "https://docs.python.org/3"
