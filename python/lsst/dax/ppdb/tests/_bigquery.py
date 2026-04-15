@@ -206,7 +206,7 @@ def have_valid_google_credentials() -> bool:
 
     Returns
     -------
-    credentials_valid: `bool`
+    `bool`
         True if valid Google credentials are available, False if not.
 
     Raises

@@ -60,7 +60,7 @@ class BulkInserter(ABC):
 
         Returns
         -------
-        count : `int`
+        `int`
             Total number of rows inserted.
         """
         raise NotImplementedError()

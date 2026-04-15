@@ -100,7 +100,7 @@ class Replicator:
 
         Returns
         -------
-        count : `list` [`ReplicaChunk`]
+        `list` [`ReplicaChunk`]
             Chunks that were replicated to PPDB.
         """
         existing_ppdb_ids = {ppdb_chunk.id for ppdb_chunk in ppdb_chunks}
@@ -139,7 +139,7 @@ class Replicator:
 
         Returns
         -------
-        can_copy : `bool`
+        `bool`
             If True then chunk is OK to copy.
         """
         now = astropy.time.Time.now()

@@ -49,7 +49,7 @@ class PpdbConfig(BaseModel):
 
         Returns
         -------
-        config : `PpdbConfig`
+        `PpdbConfig`
             PPD configuration object.
         """
         path = ResourcePath(uri)

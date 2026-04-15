@@ -97,7 +97,7 @@ class UpdateRecords:
 
         Returns
         -------
-        update_records : `UpdateRecords`
+        `UpdateRecords`
             The deserialized update records.
         """
         with open(path, "rb") as f:
@@ -114,7 +114,7 @@ class UpdateRecords:
 
         Returns
         -------
-        update_records : `UpdateRecords`
+        `UpdateRecords`
             The deserialized update records.
         """
         table = parquet.read_table(BytesIO(data), schema=cls._PARQUET_SCHEMA)

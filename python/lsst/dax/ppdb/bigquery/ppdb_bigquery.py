@@ -114,7 +114,7 @@ class PpdbBigQueryConfig(PpdbConfig):
 
         Returns
         -------
-        fq_dataset_id : `str`
+        `str`
             Fully qualified BigQuery dataset ID, including project.
         """
         return f"{self.project_id}:{self.dataset_id}"
@@ -191,7 +191,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        ppdb: `PpdbBigQuery`
+        `PpdbBigQuery`
             An instance of the PPDB BigQuery interface.
         """
         ppdb_config_uri = os.environ.get("PPDB_CONFIG_URI", None)
@@ -322,7 +322,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        chunk_dir : `pathlib.Path`
+        `pathlib.Path`
             Path to the created directory for the replica chunk.
         """
         last_update_time = chunk.last_update_time.to_datetime()
@@ -365,7 +365,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        chunks : `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
+        `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
             List of chunks with the specified status. Chunks are ordered by
             their ``last_update_time`` and include the ``directory`` and
             ``status`` fields.
@@ -415,7 +415,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        chunks : `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
+        `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
             List of matching chunks ordered by ``apdb_replica_chunk``.
         """
         if not chunk_ids:
@@ -761,7 +761,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        chunk_ids : `list`[`int`]
+        `list`[`int`]
             A list of tuples containing the ``apdb_replica_chunk`` values of
             the promotable chunks.
 
@@ -802,7 +802,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        count: `int`
+        `int`
             The number of rows updated in the database, which should be equal
             to the number of promotable chunks provided, if they were all found
             and updated successfully.
@@ -830,7 +830,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        count : `int`
+        `int`
             The number of rows updated. This should be 1 if the update is
             successful, or 0 if no rows were updated (e.g., if the chunk ID
             does not exist or the status is already set to the new value).

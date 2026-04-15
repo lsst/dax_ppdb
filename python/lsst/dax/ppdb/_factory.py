@@ -40,7 +40,7 @@ def config_type_for_name(type_name: str) -> type[PpdbConfig]:
 
     Returns
     -------
-    type : `type` [ `PpdbConfig` ]
+    `type` [ `PpdbConfig` ]
         Subclass of `PpdbConfig` class.
 
     Raises
@@ -71,7 +71,7 @@ def ppdb_from_config(config: PpdbConfig) -> Ppdb:
 
     Returns
     -------
-    ppdb : `Ppdb`
+    `Ppdb`
         Instance of `Ppdb` class.
 
     Raises

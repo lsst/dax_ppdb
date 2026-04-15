@@ -85,7 +85,7 @@ class UpdatesTable:
 
         Returns
         -------
-        id_str : `str`
+        `str`
             The record ID values joined by ``"-"``.
         """
         return "-".join(str(x) for x in record_id)
@@ -102,7 +102,7 @@ class UpdatesTable:
 
         Returns
         -------
-        table : `google.cloud.bigquery.Table`
+        `google.cloud.bigquery.Table`
             The created table.
 
         Raises
@@ -156,7 +156,7 @@ class UpdatesTable:
 
         Returns
         -------
-        load_job : `google.cloud.bigquery.LoadJob`
+        `google.cloud.bigquery.LoadJob`
             Completed BigQuery load job.
 
         Raises

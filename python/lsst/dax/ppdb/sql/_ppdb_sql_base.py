@@ -64,7 +64,7 @@ class PasswordProvider(ABC):
 
         Returns
         -------
-        password : `str`
+        `str`
             Plain-text password to embed in the database connection URL.
         """
         raise NotImplementedError()
@@ -286,7 +286,7 @@ class PpdbSqlBase:
 
         Returns
         -------
-        key : `str`
+        `str`
             Name of the metadata key for storing the code version.
 
         Raises
@@ -302,7 +302,7 @@ class PpdbSqlBase:
 
         Returns
         -------
-        version : `~lsst.dax.apdb.VersionTuple`
+        `~lsst.dax.apdb.VersionTuple`
             Current version of the code.
 
         Raises
@@ -322,7 +322,7 @@ class PpdbSqlBase:
 
         Returns
         -------
-        value : `str` or `None`
+        `str` or `None`
             Metadata value or `None` if key does not exist.
         """
         version_str = self._metadata.get(version_key)
@@ -537,7 +537,7 @@ class PpdbSqlBase:
 
         Returns
         -------
-        tables : `~collections.abc.Iterable` [ `str` ]
+        `~collections.abc.Iterable` [ `str` ]
             List of tables from ``schema_dict`` on which to filter.
 
         Notes

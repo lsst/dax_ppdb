@@ -112,7 +112,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
         Returns
         -------
-        extended_chunk : `PpdbReplicaChunkExtended`
+        `PpdbReplicaChunkExtended`
             The converted `PpdbReplicaChunkExtended`.
         """
         return PpdbReplicaChunkExtended(
@@ -136,7 +136,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
         Returns
         -------
-        new_chunk : `PpdbReplicaChunkExtended`
+        `PpdbReplicaChunkExtended`
             The new chunk with the updated status.
         """
         return dataclasses.replace(self, status=new_status)
@@ -152,7 +152,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
         Returns
         -------
-        new_chunk : `PpdbReplicaChunkExtended`
+        `PpdbReplicaChunkExtended`
             The new chunk with the updated GCS URI.
         """
         return dataclasses.replace(self, gcs_uri=new_gcs_uri)

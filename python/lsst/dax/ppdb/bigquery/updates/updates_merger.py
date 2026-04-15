@@ -86,7 +86,7 @@ class UpdatesMerger:
 
         Returns
         -------
-        job : `google.cloud.bigquery.job.QueryJob`
+        `google.cloud.bigquery.job.QueryJob`
             The completed BigQuery job.
         """
         sql = SqlResource(

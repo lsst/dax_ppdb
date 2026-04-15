@@ -59,7 +59,7 @@ class Ppdb(ABC):
 
         Returns
         -------
-        ppdb : `Ppdb`
+        `Ppdb`
             Instance of `Ppdb` class.
         """
         return ppdb_from_config(config)
@@ -76,7 +76,7 @@ class Ppdb(ABC):
 
         Returns
         -------
-        ppdb : `Ppdb`
+        `Ppdb`
             Instance of `Ppdb` class.
         """
         config = PpdbConfig.from_uri(uri)
@@ -102,7 +102,7 @@ class Ppdb(ABC):
 
         Returns
         -------
-        chunks : `~collections.abc.Sequence` [`PpdbReplicaChunk`] or `None`
+        `~collections.abc.Sequence` [`PpdbReplicaChunk`] or `None`
             List of chunks, they may be time-ordered if database supports
             ordering. `None` is returned if database is not configured to store
             chunk information.

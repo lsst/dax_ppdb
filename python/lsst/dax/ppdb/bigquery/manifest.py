@@ -109,7 +109,7 @@ class Manifest(BaseModel):
 
         Returns
         -------
-        manifest : `Manifest`
+        `Manifest`
             The loaded manifest object.
         """
         with open(file_path, encoding="utf-8") as f:
@@ -134,7 +134,7 @@ class Manifest(BaseModel):
 
         Returns
         -------
-        empty : `bool`
+        `bool`
             `True` if all tables have zero rows and no update records are
             included, indicating an empty chunk, `False` otherwise.
         """

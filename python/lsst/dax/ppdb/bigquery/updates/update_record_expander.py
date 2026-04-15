@@ -54,7 +54,7 @@ class UpdateRecordExpander:
 
         Returns
         -------
-        expanded_records : `list` [ `ExpandedUpdateRecord` ]
+        `list` [ `ExpandedUpdateRecord` ]
             List of ExpandedUpdateRecord objects, one per field being updated.
         """
         # Get the target table from the update record.
@@ -92,7 +92,7 @@ class UpdateRecordExpander:
 
         Returns
         -------
-        expanded_updates : `list` [ `ExpandedUpdateRecord` ]
+        `list` [ `ExpandedUpdateRecord` ]
             A list of individual updates derived from the input update records.
         """
         expanded_updates = []

@@ -51,7 +51,7 @@ def _felis_to_arrow_type(felis_type: DataType) -> pyarrow.DataType:
 
     Returns
     -------
-    arrow_type : `pyarrow.DataType`
+    `pyarrow.DataType`
         Corresponding Arrow data type.
     """
     if arrow_type := _FELIS_TYPE_MAP.get(felis_type):
@@ -74,7 +74,7 @@ def create_arrow_schema(
 
     Returns
     -------
-    schema : `pyarrow.Schema`
+    `pyarrow.Schema`
         The resulting schema.
     """
     if exclude_columns is None:
@@ -115,7 +115,7 @@ def write_parquet(
 
     Returns
     -------
-    total : `int`
+    `int`
         Total number of rows written to the Parquet file.
     """
     rows = list(table_data.rows())

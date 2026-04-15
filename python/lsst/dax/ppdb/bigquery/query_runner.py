@@ -116,7 +116,7 @@ class QueryRunner:
 
         Returns
         -------
-        job: `bigquery.job.QueryJob`
+        `bigquery.job.QueryJob`
             The BigQuery job object representing the executed query. This can
             be used to check the status of the job, retrieve results, or log
             additional details.
