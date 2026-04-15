@@ -61,7 +61,7 @@ class Manifest(BaseModel):
 
     unique_id: UUID
     """Globally unique opaque identifier for the export operation or replica
-    (`UUID`).
+    (`uuid.UUID`).
     """
 
     schema_version: str
@@ -77,7 +77,7 @@ class Manifest(BaseModel):
 
     table_data: dict[str, TableStats]
     """Mapping of table name to per-table statistics
-    (`dict`[`str`,`TableStats`])."""
+    (`dict` [`str`, `TableStats`])."""
 
     compression_format: str
     """Name of the compression format used for artifacts (e.g., "gzip",

@@ -49,7 +49,7 @@ class PpdbConfig(BaseModel):
 
         Returns
         -------
-        `PpdbConfig`
+        `~lsst.dax.ppdb.PpdbConfig`
             PPD configuration object.
         """
         path = ResourcePath(uri)
