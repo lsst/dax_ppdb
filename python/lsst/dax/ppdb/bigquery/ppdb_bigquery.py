@@ -756,9 +756,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         )
 
     def get_promotable_chunks(self) -> list[int]:
-        """
-        Return the first uninterrupted sequence of staged chunks such that all
-        prior chunks are promoted.
+        """Return the first uninterrupted sequence of staged chunks such that
+        all prior chunks are promoted.
 
         Returns
         -------
