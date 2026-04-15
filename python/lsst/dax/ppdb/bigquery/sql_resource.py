@@ -31,11 +31,11 @@ class SqlResource:
 
     Parameters
     ----------
-    sql_resource_name : `str`
+    sql_resource_name
         Base name of the SQL file (without .sql extension) containing the
         query in the `resources/config/sql` directory within the
         `lsst.dax.ppdb` package.
-    format_args : `dict` [ `str`, `str` ], optional
+    format_args
         Optional dictionary of arguments for formatting the SQL text.
     """
 

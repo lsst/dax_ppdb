@@ -38,7 +38,7 @@ class UpdateRecords:
 
     Parameters
     ----------
-    records : `list` [ `ApdbUpdateRecord` ]
+    records
         List of APDB update records.
     """
 
@@ -65,7 +65,7 @@ class UpdateRecords:
 
         Parameters
         ----------
-        path : `pathlib.Path`
+        path
             Destination Parquet file path.
         """
         update_times: list[int] = []
@@ -92,7 +92,7 @@ class UpdateRecords:
 
         Parameters
         ----------
-        path : `pathlib.Path`
+        path
             Path to the Parquet file.
 
         Returns
@@ -109,7 +109,7 @@ class UpdateRecords:
 
         Parameters
         ----------
-        data : `bytes`
+        data
             Parquet file content as bytes.
 
         Returns

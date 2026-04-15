@@ -53,7 +53,7 @@ class Ppdb(ABC):
 
         Parameters
         ----------
-        config : `PpdbConfig`
+        config
             Configuration object, type of this object determines type of the
             Ppdb implementation.
 
@@ -70,7 +70,7 @@ class Ppdb(ABC):
 
         Parameters
         ----------
-        uri : `~lsst.resources.ResourcePathExpression`
+        uri
             Location of the file containing serialized configuration in YAML
             format.
 
@@ -96,7 +96,7 @@ class Ppdb(ABC):
 
         Parameters
         ----------
-        start_chunk_id : `int`, optional
+        start_chunk_id
             If specified this will be the starting chunk ID to return. If not
             specified then all chunks are returned.
 
@@ -124,19 +124,18 @@ class Ppdb(ABC):
 
         Parameters
         ----------
-        replica_chunk : `~lsst.dax.apdb.ReplicaChunk`
+        replica_chunk
             Insertion ID for APDB data.
-        objects : `~lsst.dax.apdb.ApdbTableData`
+        objects
             Matching APDB data for DiaObjects.
-        sources : `~lsst.dax.apdb.ApdbTableData`
+        sources
             Matching APDB data for DiaSources.
-        forced_sources : `~lsst.dax.apdb.ApdbTableData`
+        forced_sources
             Matching APDB data for DiaForcedSources.
-        update_records : `~collections.abc.Collection` \
-                [`~lsst.dax.apdb.ApdbUpdateRecord`]
+        update_records
             Records of updates to be applied to pre-existing data. The records
             must be in the same order as they were originally applied to APDB.
-        update : `bool`, optional
+        update
             If `True` then allow updates for existing  data from the same
             ``replica_chunk``.
 

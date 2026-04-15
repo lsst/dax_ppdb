@@ -47,9 +47,9 @@ class UpdateRecordExpander:
 
         Parameters
         ----------
-        update_record : `ApdbUpdateRecord`
+        update_record
             A single APDB update record to expand.
-        replica_chunk_id : `int`
+        replica_chunk_id
             The replica chunk ID associated with this update record.
 
         Returns
@@ -85,9 +85,9 @@ class UpdateRecordExpander:
 
         Parameters
         ----------
-        update_records : `UpdateRecords`
+        update_records
             The APDB update records to expand.
-        replica_chunk_id : `int`
+        replica_chunk_id
             The replica chunk ID associated with these update records.
 
         Returns

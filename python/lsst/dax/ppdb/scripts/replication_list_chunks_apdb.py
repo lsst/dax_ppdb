@@ -31,7 +31,7 @@ def replication_list_chunks_apdb(apdb_config: str) -> None:
 
     Parameters
     ----------
-    apdb_config : `str`
+    apdb_config
         URL for APDB configuration file.
     """
     apdb = ApdbReplica.from_uri(apdb_config)

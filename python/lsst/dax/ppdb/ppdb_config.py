@@ -43,7 +43,7 @@ class PpdbConfig(BaseModel):
 
         Parameters
         ----------
-        uri : `~lsst.resources.ResourcePathExpression`
+        uri
             Location of the file containing serialized configuration in YAML
             format.
 

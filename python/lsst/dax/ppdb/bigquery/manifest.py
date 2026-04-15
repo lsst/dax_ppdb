@@ -91,7 +91,7 @@ class Manifest(BaseModel):
 
         Parameters
         ----------
-        dir_path : `Path`
+        dir_path
             Path to the directory where the manifest file should be written.
         """
         file_path = os.path.join(dir_path, self.FILE_NAME)
@@ -104,7 +104,7 @@ class Manifest(BaseModel):
 
         Parameters
         ----------
-        file_path : `pathlib.Path`
+        file_path
             Path to the JSON file containing the manifest.
 
         Returns
@@ -122,7 +122,7 @@ class Manifest(BaseModel):
 
         Parameters
         ----------
-        content : `str`
+        content
             The string with the JSON data.
         """
         data = json.loads(content)

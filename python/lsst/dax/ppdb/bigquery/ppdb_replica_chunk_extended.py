@@ -103,11 +103,11 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
         Parameters
         ----------
-        replica_chunk : `ReplicaChunk`
+        replica_chunk
             The `ReplicaChunk` to convert.
-        status : `ChunkStatus`
+        status
             Status of the replica chunk.
-        directory : `pathlib.Path`
+        directory
             Directory where the replica chunk data is stored.
 
         Returns
@@ -131,7 +131,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
         Parameters
         ----------
-        new_status : `ChunkStatus`
+        new_status
             The new status to set.
 
         Returns
@@ -147,7 +147,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
 
         Parameters
         ----------
-        new_gcs_uri : `str`
+        new_gcs_uri
             The new GCS URI to set.
 
         Returns

@@ -83,7 +83,7 @@ def delete_test_bucket(bucket_or_bucket_name: str | storage.Bucket) -> None:
 
     Parameters
     ----------
-    bucket_or_bucket_name: `str` or `storage.Bucket`
+    bucket_or_bucket_name
         The name of the bucket or the actual bucket to delete.
     """
     storage_client = storage.Client()

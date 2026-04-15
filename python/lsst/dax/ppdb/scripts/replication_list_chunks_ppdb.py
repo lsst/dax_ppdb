@@ -31,7 +31,7 @@ def replication_list_chunks_ppdb(ppdb_config: str) -> None:
 
     Parameters
     ----------
-    ppdb_config : `str`
+    ppdb_config
         URL for PPDB configuration file.
     """
     ppdb = Ppdb.from_uri(ppdb_config)

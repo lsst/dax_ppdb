@@ -56,9 +56,9 @@ class ChunkPromoter:
 
     Parameters
     ----------
-    ppdb : `PpdbBigQuery`
+    ppdb
         Interface to the PPDB in BigQuery.
-    table_names : `list`[`str`], optional
+    table_names
         List of table names to promote or if None a default list will be used.
     """
 

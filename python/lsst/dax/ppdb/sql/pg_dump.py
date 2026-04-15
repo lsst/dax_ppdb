@@ -55,9 +55,9 @@ class PgBinaryDumper:
 
     Parameters
     ----------
-    stream : `BinaryIO`
+    stream
         Target binary data stream.
-    table : `sqlalchemy.schema.Table`
+    table
         Table object defining the table structure.
     """
 
@@ -72,7 +72,7 @@ class PgBinaryDumper:
 
         Parameters
         ----------
-        data : `ApdbTableData`
+        data
             Table data to dump.
         """
         # Only care about columns that exists in both table and data.

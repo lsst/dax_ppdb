@@ -49,9 +49,9 @@ class ChunkUploadError(RuntimeError):
 
     Parameters
     ----------
-    chunk_id : `int`
+    chunk_id
         The ID of the chunk being processed when the error occurred.
-    message : `str`
+    message
         A message describing the error.
     """
 
@@ -68,18 +68,18 @@ class ChunkUploader:
 
     Parameters
     ----------
-    ppdb : `PpdbBigQuery`
+    ppdb
         The PPDB interface which must have the type `PpdbBigQuery`.
-    wait_interval : `int`
+    wait_interval
         The time in seconds to wait between scans for new chunks.
-    upload_interval : `int`
+    upload_interval
         The time in seconds to wait between uploads of files.
         Setting this to a value greater than 0 will cause the
         uploader to wait for this amount of time before processing the next
         chunk after a successful upload.
-    exit_on_empty : `bool`
+    exit_on_empty
         If `True`, the uploader will exit if no files are found during a scan.
-    exit_on_error : `bool`
+    exit_on_error
         If `True`, the uploader will exit if an error occurs during upload.
 
     Notes
@@ -180,7 +180,7 @@ class ChunkUploader:
 
         Parameters
         ----------
-        replica_chunk : `PpdbReplicaChunk`
+        replica_chunk
             The replica chunk to process, which includes its ID and directory.
 
         Raises

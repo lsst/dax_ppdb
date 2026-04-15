@@ -35,15 +35,15 @@ class TableRefs(BaseModel, frozen=True):
 
     Parameters
     ----------
-    project_id : `str`
+    project_id
         GCP project ID.
-    dataset_id : `str`
+    dataset_id
         BigQuery dataset ID.
-    table_names : `tuple` [`str`, ...]
+    table_names
         Base table names.
-    staging_format : `str`, optional
+    staging_format
         Format string for staging table names.
-    promoted_tmp_format : `str`, optional
+    promoted_tmp_format
         Format string for promoted temporary table names.
     """
 

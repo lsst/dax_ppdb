@@ -125,9 +125,9 @@ class _SecretManagerPasswordProvider(PasswordProvider):
 
     Parameters
     ----------
-    project_id : `str`
+    project_id
         GCP project that owns the secret.
-    secret_name : `str`, optional
+    secret_name
         Name of the secret. Defaults to ``"ppdb-db-password"``.
     """
 
@@ -153,7 +153,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
     Parameters
     ----------
-    config : `PpdbBigQueryConfig`
+    config
         Configuration object with BigQuery and SQL database parameters.
     """
 
@@ -317,7 +317,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        chunk : `ReplicaChunk`
+        chunk
             The replica chunk for which to create the directory.
 
         Returns
@@ -357,9 +357,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        status : `ChunkStatus`
+        status
             Status of the replica chunks to return.
-        start_chunk_id : `int`, optional
+        start_chunk_id
             If provided, only return chunks with ID greater than or equal to
             this value.
 
@@ -410,7 +410,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        chunk_ids : `~collections.abc.Sequence` [ `int` ]
+        chunk_ids
             Replica chunk IDs to retrieve.
 
         Returns
@@ -463,9 +463,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        replica_chunk : `PpdbReplicaChunkExtended`
+        replica_chunk
             The replica chunk to store.
-        update : `bool`
+        update
             If `True` then perform an UPSERT operation to update existing
             records. If `False` then only INSERT is performed and an error is
             raised if the record already exists.
@@ -496,7 +496,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        table_name : `str`, optional
+        table_name
             Name of the table to create. If not provided, defaults to
             "PpdbReplicaChunk".
 
@@ -573,36 +573,36 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        db_url : `str`
+        db_url
             Database URL in SQLAlchemy format for PPDB instance.
-        project_id : `str`
+        project_id
             GCP project ID.
-        dataset_id : `str`
+        dataset_id
             BigQuery dataset name without the project ID.
-        bucket_name : `str`
+        bucket_name
             GCS bucket name to use for Parquet output.
-        object_prefix : `str`
+        object_prefix
             Object prefix to use in GCS bucket for Parquet output.
-        replication_dir : `str`
+        replication_dir
             Directory used for replication staging area.
-        db_drop : `bool`
+        db_drop
             If True then drop existing db tables.
-        db_schema : `str`, optional
+        db_schema
             Database schema name for PPDB instance.
-        felis_path : `str`, optional
+        felis_path
             Path to Felis database. If `None`, defaults to the default path in
             SDM Schemas.
-        felis_schema : `str`, optional
+        felis_schema
             Felis schema name within the YAML file.
-        stage_chunk_topic : `str`, optional
+        stage_chunk_topic
             Pub/Sub topic to use for staging chunks.
-        parq_batch_size : `int`, optional
+        parq_batch_size
             Number of rows to use when batching Parquet output.
-        parq_compression : `str`, optional
+        parq_compression
             Compression codec to use for Parquet output.
-        delete_existing_dirs : `bool`, optional
+        delete_existing_dirs
             If True then delete existing replication staging directories.
-        validate_config : `bool`, optional
+        validate_config
             If `True`, validate the configuration against GCP resources.
 
         Raises
@@ -669,7 +669,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        config : `PpdbBigQueryConfig`
+        config
             Configuration to validate.
 
         Raises
@@ -732,9 +732,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        replica_chunk : `ReplicaChunk`
+        replica_chunk
             The replica chunk associated with the updates.
-        update_records : `~collections.abc.Collection` [ `ApdbUpdateRecord` ]
+        update_records
             Collection of update records to process.
 
         Notes
@@ -796,7 +796,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        promotable_chunks : `list`[`int`]
+        promotable_chunks
             List of integers containing the ``apdb_replica_chunk`` values of
             the promotable chunks.
 
@@ -823,9 +823,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Parameters
         ----------
-        chunk_id : `int`
+        chunk_id
             The ID of the replica chunk to update.
-        values : `dict`[`str`, `Any`]
+        values
             A dictionary of column names and their new values to update.
 
         Returns

@@ -38,15 +38,15 @@ def upload_chunks_run(
 
     Parameters
     ----------
-    ppdb_config : `str`
+    ppdb_config
         PPDB configuration URI.
-    wait_interval : `int`
+    wait_interval
         Time in seconds to wait before checking for new chunks to upload.
-    upload_interval : `int`
+    upload_interval
         Time in seconds to wait between uploads of chunks.
-    exit_on_empty : `bool`
+    exit_on_empty
         If `True`, exit the process if there are no chunks to upload.
-    exit_on_error : `bool`
+    exit_on_error
         If `True`, exit the process if there is an error during upload.
     """
     ppdb = PpdbBigQuery.from_uri(ppdb_config)

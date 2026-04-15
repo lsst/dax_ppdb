@@ -39,7 +39,7 @@ class UpdatesMerger:
 
     Parameters
     ----------
-    table_name_format : `str`, optional
+    table_name_format
         Optional format string for the target table name. The
         class-level ``TABLE_NAME`` will be substituted into ``{}``
         (e.g., ``"_{}_promoted_tmp"`` produces
@@ -77,11 +77,11 @@ class UpdatesMerger:
 
         Parameters
         ----------
-        client : `google.cloud.bigquery.Client`
+        client
             BigQuery client.
-        updates_table_fqn : `str`
+        updates_table_fqn
             Fully-qualified BigQuery table name containing updates.
-        target_dataset_fqn : `str`
+        target_dataset_fqn
             Fully-qualified BigQuery dataset name containing the target table.
 
         Returns

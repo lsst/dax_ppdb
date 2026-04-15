@@ -37,15 +37,15 @@ class UpdatesTable:
 
     Parameters
     ----------
-    client : `google.cloud.bigquery.Client`
+    client
         BigQuery client.
-    project_id : `str`
+    project_id
         Google Cloud project ID.
-    dataset_id : `str`
+    dataset_id
         BigQuery dataset ID.
-    table_name : `str`, optional
+    table_name
         Name of the updates table. Defaults to ``"updates"``.
-    latest_only_table_name : `str`, optional
+    latest_only_table_name
         Name of the latest-only updates table. Defaults to
         ``"updates_latest_only"``.
     """
@@ -80,7 +80,7 @@ class UpdatesTable:
 
         Parameters
         ----------
-        record_id : `Iterable`[`int`]
+        record_id
             The record ID as an iterable of integers.
 
         Returns
@@ -151,7 +151,7 @@ class UpdatesTable:
 
         Parameters
         ----------
-        records : `Iterable` [ `ExpandedUpdateRecord` ]
+        records
             Iterable of update records to insert.
 
         Returns

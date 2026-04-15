@@ -35,7 +35,7 @@ def config_type_for_name(type_name: str) -> type[PpdbConfig]:
 
     Parameters
     ----------
-    type_name : `str`
+    type_name
         Short type name of Ppdb implement, for now only "sql" is supported.
 
     Returns
@@ -65,7 +65,7 @@ def ppdb_from_config(config: PpdbConfig) -> Ppdb:
 
     Parameters
     ----------
-    config : `PpdbConfig`
+    config
         Configuration object, type of this object determines type of the
         Ppdb implementation.
 
