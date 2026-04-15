@@ -120,8 +120,8 @@ class UpdatesTable:
         - field_name: STRING (REQUIRED)
         - value_json: JSON (REQUIRED)
         - replica_chunk_id: INT64 (REQUIRED)
-        - update_order: INT64 (NULLABLE)
-        - update_time_ns: INT64 (NULLABLE)
+        - update_order: INT64 (REQUIRED)
+        - update_time_ns: INT64 (REQUIRED)
         """
         schema: list[bigquery.SchemaField] = [
             bigquery.SchemaField("table_name", "STRING", mode="REQUIRED"),
