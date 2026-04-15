@@ -522,7 +522,9 @@ class PpdbSqlBase:
 
     @property
     def schema_version(self) -> VersionTuple:
-        """Version of the APDB database schema (`VersionTuple`)."""
+        """Version of the APDB database schema
+        (`~lsst.dax.apdb.VersionTuple`).
+        """
         return self._schema_version
 
     @classmethod

@@ -28,8 +28,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import astropy.time
+
+if TYPE_CHECKING:
+    import uuid  # noqa: F401 (needed for autodoc to resolve inherited annotations)
 
 from lsst.dax.apdb import ReplicaChunk
 
@@ -99,12 +103,13 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         directory: Path,
         update_count: int = 0,
     ) -> PpdbReplicaChunkExtended:
-        """Create a `PpdbReplicaChunkExtended` from a `ReplicaChunk`.
+        """Create a `PpdbReplicaChunkExtended` from a
+        `~lsst.dax.apdb.ReplicaChunk`.
 
         Parameters
         ----------
         replica_chunk
-            The `ReplicaChunk` to convert.
+            The `~lsst.dax.apdb.ReplicaChunk` to convert.
         status
             Status of the replica chunk.
         directory

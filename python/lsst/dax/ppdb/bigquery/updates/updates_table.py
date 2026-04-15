@@ -102,7 +102,7 @@ class UpdatesTable:
 
         Returns
         -------
-        `google.cloud.bigquery.Table`
+        `~google.cloud.bigquery.table.Table`
             The created table.
 
         Raises
@@ -156,7 +156,7 @@ class UpdatesTable:
 
         Returns
         -------
-        `google.cloud.bigquery.LoadJob`
+        `~google.cloud.bigquery.job.LoadJob`
             Completed BigQuery load job.
 
         Raises
@@ -166,8 +166,8 @@ class UpdatesTable:
 
         Notes
         -----
-        This uses a batch load via `Client.load_table_from_json` (not streaming
-        inserts). The table must already exist.
+        This uses a batch load via ``Client.load_table_from_json`` (not
+        streaming inserts). The table must already exist.
         """
         rows: list[dict[str, Any]] = [
             {

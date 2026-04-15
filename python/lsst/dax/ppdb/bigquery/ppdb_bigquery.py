@@ -176,7 +176,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
     @property
     def metadata(self) -> ApdbMetadata:
-        """APDB metadata object from `Ppdb` interface (`ApdbMetadata`)."""
+        """APDB metadata object from `~lsst.dax.ppdb.Ppdb` interface
+        (`~lsst.dax.apdb.ApdbMetadata`).
+        """
         return self._metadata
 
     @property
@@ -761,7 +763,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Returns
         -------
-        `list`[`int`]
+        `list` [`int`]
             A list of tuples containing the ``apdb_replica_chunk`` values of
             the promotable chunks.
 

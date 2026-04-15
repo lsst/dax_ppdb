@@ -88,12 +88,12 @@ class ChunkUploader:
     ``PpdbReplicaChunk`` table in the PPDB (Postgres) database. Chunks with a
     status of "exported", meaning their table data has been written locally
     to parquet files, will be uploaded to a Google Cloud Storage (GCS) bucket.
-    The `exit_on_empty` flag controls whether the process exits if no new
+    The ``exit_on_empty`` flag controls whether the process exits if no new
     chunks are found after a query. The process will also exit if there is an
-    exception and the `exit_on_error` flag is set to `True`. The
-    `wait_interval` controls how often the process will query the database for
-    new chunks, and the `upload_interval` controls the wait interval between
-    uploading the files for a single chunk.
+    exception and the ``exit_on_error`` flag is set to `True`. The
+    ``wait_interval`` controls how often the process will query the database
+    for new chunks, and the ``upload_interval`` controls the wait interval
+    between uploading the files for a single chunk.
     """
 
     def __init__(

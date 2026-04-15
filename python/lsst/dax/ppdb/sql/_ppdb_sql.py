@@ -72,7 +72,7 @@ class PpdbSqlConfig(PpdbConfig, PpdbSqlBaseConfig):
 
 
 class PpdbSql(Ppdb, PpdbSqlBase):
-    """Implementation of `Ppdb` using a SQL database.
+    """Implementation of `~lsst.dax.ppdb.Ppdb` using a SQL database.
 
     Parameters
     ----------

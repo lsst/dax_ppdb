@@ -100,7 +100,7 @@ class Replicator:
 
         Returns
         -------
-        `list` [`ReplicaChunk`]
+        `list` [`~lsst.dax.apdb.ReplicaChunk`]
             Chunks that were replicated to PPDB.
         """
         existing_ppdb_ids = {ppdb_chunk.id for ppdb_chunk in ppdb_chunks}

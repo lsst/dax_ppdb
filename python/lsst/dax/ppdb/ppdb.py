@@ -21,13 +21,17 @@
 
 from __future__ import annotations
 
-__all__ = ["Ppdb"]
+__all__ = ["Ppdb", "PpdbReplicaChunk"]
 
 from abc import ABC, abstractmethod
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import astropy.time
+
+if TYPE_CHECKING:
+    import uuid  # noqa: F401 (needed for autodoc to resolve inherited annotations)
 
 from lsst.dax.apdb import ApdbMetadata, ApdbTableData, ApdbUpdateRecord, ReplicaChunk
 from lsst.resources import ResourcePathExpression
@@ -102,7 +106,8 @@ class Ppdb(ABC):
 
         Returns
         -------
-        `~collections.abc.Sequence` [`PpdbReplicaChunk`] or `None`
+        `~collections.abc.Sequence` [`~lsst.dax.ppdb.PpdbReplicaChunk`] or
+        `None`
             List of chunks, they may be time-ordered if database supports
             ordering. `None` is returned if database is not configured to store
             chunk information.

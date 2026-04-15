@@ -48,7 +48,9 @@ class QueryRunner:
 
     @property
     def dataset(self) -> bigquery.Dataset:
-        """Dataset reference (`bigquery.Dataset`, read-only)."""
+        """Dataset reference (`google.cloud.bigquery.dataset.Dataset`,
+        read-only).
+        """
         return self._dataset
 
     @property
@@ -116,7 +118,7 @@ class QueryRunner:
 
         Returns
         -------
-        `bigquery.job.QueryJob`
+        `google.cloud.bigquery.job.QueryJob`
             The BigQuery job object representing the executed query. This can
             be used to check the status of the job, retrieve results, or log
             additional details.
