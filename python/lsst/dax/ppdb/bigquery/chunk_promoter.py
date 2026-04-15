@@ -85,7 +85,7 @@ class ChunkPromoter:
         )
 
         # Build a mapping of phases to run during the promotion process, not
-        # including cleanup, which is executed separately
+        # including cleanup, which is executed separately.
         _phase_methods = [
             self._copy_to_promoted_tmp,
             self._apply_record_updates,
@@ -130,17 +130,17 @@ class ChunkPromoter:
             # Clone prod table structure and data (zero-copy)
             self._runner.run_job("clone_prod", f"CREATE TABLE `{tmp_ref}` CLONE `{prod_ref}`")
 
-            # Build ordered target list from the cloned tmp schema
+            # Build ordered target list from the cloned tmp schema.
             tmp_schema = self._bq_client.get_table(tmp_ref).schema
             target_names = [f.name for f in tmp_schema if f.name != "apdb_replica_chunk"]
             target_list_sql = ", ".join(f"`{n}`" for n in target_names)
 
-            # Build source list, handling geo_point conversion
+            # Build source list, handling geo_point conversion.
             source_list_sql = ", ".join(
                 "ST_GEOGPOINT(s.`ra`, s.`dec`)" if n == "geo_point" else f"s.`{n}`" for n in target_names
             )
 
-            # Insert staged rows into tmp, excluding apdb_replica_chunk column
+            # Insert staged rows into tmp, excluding apdb_replica_chunk column.
             sql = f"""
             INSERT INTO `{tmp_ref}` ({target_list_sql})
             SELECT {source_list_sql}
@@ -157,13 +157,13 @@ class ChunkPromoter:
         dataset.
         """
         for prod_ref, tmp_ref in zip(self._table_refs.prod, self._table_refs.promoted_tmp, strict=True):
-            # Ensure tmp exists
+            # Ensure tmp exists.
             try:
                 self._bq_client.get_table(tmp_ref)
             except NotFound as e:
                 raise RuntimeError(f"Missing tmp table for promotion: {tmp_ref}") from e
 
-            # Atomic zero-copy replacement of prod with tmp
+            # Perform an atomic, zero-copy replacement of prod with tmp.
             copy_cfg = bigquery.CopyJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
             job = self._bq_client.copy_table(
                 tmp_ref, prod_ref, job_config=copy_cfg, location=self._runner.location

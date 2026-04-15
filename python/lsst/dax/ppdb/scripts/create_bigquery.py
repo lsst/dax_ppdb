@@ -90,14 +90,11 @@ def create_bigquery(
         If `True`, validate the configuration against GCP resources.
     """
     bq_config = PpdbBigQuery.init_bigquery(
-        # SQL db
         db_url=db_url,
         db_schema=db_schema,
         db_drop=db_drop,
-        # Felis
         felis_path=felis_path,
         felis_schema=felis_schema,
-        # BigQuery
         replication_dir=replication_dir,
         delete_existing_dirs=delete_existing_dirs,
         stage_chunk_topic=stage_chunk_topic,
@@ -107,7 +104,6 @@ def create_bigquery(
         object_prefix=object_prefix,
         project_id=project_id,
         dataset_id=dataset_id,
-        # Whether to validate against GCP resources
         validate_config=validate_config,
     )
     _LOG.info("Created BigQuery configuration: %s", bq_config)

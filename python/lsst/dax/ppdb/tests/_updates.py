@@ -37,11 +37,11 @@ def _create_test_update_records() -> UpdateRecords:
     """Create test UpdateRecords with sample ApdbUpdateRecord instances."""
     records: list[ApdbUpdateRecord] = []
 
-    # Hardcoded test values
+    # Hardcode time values.
     test_update_time_ns = 1640995200000000000  # 2022-01-01 00:00:00 UTC in nanoseconds
     test_mjd_tai = 59580.0  # Corresponding MJD TAI for 2022-01-01
 
-    # Reassign DIASource to different DIAObject
+    # Reassign DIASource to different DIAObject.
     records.append(
         ApdbReassignDiaSourceToDiaObjectRecord(
             update_time_ns=test_update_time_ns,
@@ -54,7 +54,7 @@ def _create_test_update_records() -> UpdateRecords:
         )
     )
 
-    # Reassign DIASource to SSObject
+    # Reassign DIASource to SSObject.
     records.append(
         ApdbReassignDiaSourceToSSObjectRecord(
             update_time_ns=test_update_time_ns,
@@ -68,7 +68,7 @@ def _create_test_update_records() -> UpdateRecords:
         )
     )
 
-    # Withdraw DIASource
+    # Withdraw DIASource.
     records.append(
         ApdbWithdrawDiaSourceRecord(
             update_time_ns=test_update_time_ns,
@@ -81,7 +81,7 @@ def _create_test_update_records() -> UpdateRecords:
         )
     )
 
-    # Withdraw DIAForcedSource
+    # Withdraw DIAForcedSource.
     records.append(
         ApdbWithdrawDiaForcedSourceRecord(
             update_time_ns=test_update_time_ns,
@@ -96,7 +96,7 @@ def _create_test_update_records() -> UpdateRecords:
         )
     )
 
-    # Close DIAObject validity interval
+    # Close DIAObject validity interval.
     records.append(
         ApdbCloseDiaObjectValidityRecord(
             update_time_ns=test_update_time_ns,
@@ -109,7 +109,7 @@ def _create_test_update_records() -> UpdateRecords:
         )
     )
 
-    # Update DIAObject nDiaSources count
+    # Update DIAObject nDiaSources count.
     records.append(
         ApdbUpdateNDiaSourcesRecord(
             update_time_ns=test_update_time_ns,

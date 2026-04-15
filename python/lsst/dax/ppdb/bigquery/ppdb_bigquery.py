@@ -158,18 +158,18 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     """
 
     def __init__(self, config: PpdbBigQueryConfig):
-        # Read parameters from config
+        # Read parameters from config.
         if config.replication_dir is None:
             raise ValueError("Directory for chunk export is not set in configuration.")
 
-        # Build an optional password provider for GCP Secret Manager
+        # Build an optional password provider for GCP Secret Manager.
         password_provider: PasswordProvider | None = None
         if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
             _LOG.debug("Using Secret Manager to retrieve database password")
             password_provider = _SecretManagerPasswordProvider(config.project_id)
 
         # Delegate SQL initialisation (schema load, engine, metadata, version
-        # checks) to the base class, passing the optional password provider
+        # checks) to the base class, passing the optional password provider.
         PpdbSqlBase.__init__(self, config.sql, password_provider=password_provider)
 
         self._config = config

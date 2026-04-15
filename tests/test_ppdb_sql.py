@@ -115,7 +115,7 @@ class ApdbPostgresTestCase(PpdbTest, unittest.TestCase):
 class ApdbPostgresNamespaceTestCase(ApdbPostgresTestCase):
     """A test case for ApdbSql class using Postgres backend with schema name"""
 
-    # use mixed case to trigger quoting
+    # Use mixed case to trigger quoting.
     schema_name = "test_schema001"
 
     def make_instance(self, **kwargs: Any) -> PpdbConfig:

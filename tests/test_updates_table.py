@@ -35,31 +35,33 @@ class TestUpdatesTable(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test fixtures."""
-        # Create BigQuery client
+        # Create BigQuery client.
         self.client = bigquery.Client()
 
-        # Create unique dataset name for this test run
+        # Create unique dataset name for this test run.
         self.dataset_id = f"test_updates_{uuid.uuid4().hex[:8]}"
         self.project_id = self.client.project
         self.table_name = "updates"
         self.table_fqn = f"{self.project_id}.{self.dataset_id}.{self.table_name}"
 
-        # Create the test dataset
+        # Create the test dataset.
         dataset = bigquery.Dataset(f"{self.project_id}.{self.dataset_id}")
-        # Set a short expiration for cleanup safety (1 hour)
-        dataset.default_table_expiration_ms = 3600000  # 1 hour
+
+        # Set a short expiration on the dataset for cleanup safety (1 hour).
+        dataset.default_table_expiration_ms = 3600000
+
         self.dataset = self.client.create_dataset(dataset)
 
-        # Create UpdatesTable instance
+        # Create UpdatesTable instance.
         self.updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
 
     def tearDown(self) -> None:
         """Clean up test fixtures."""
-        # Always clean up the test dataset, whether test passed or failed
+        # Always clean up the test dataset, whether test passed or failed.
         try:
             self.client.delete_dataset(self.dataset_id, delete_contents=True, not_found_ok=True)
         except Exception:
-            # If deletion fails, at least the expiration will clean it up
+            # If deletion fails, at least the expiration will clean it up.
             pass
 
     def test_table_fqn_property(self) -> None:
@@ -70,11 +72,11 @@ class TestUpdatesTable(unittest.TestCase):
         """Test creation of the updates table."""
         table = self.updates_table.create()
 
-        # Verify table was created successfully
+        # Verify table was created successfully.
         self.assertEqual(table.table_id, self.table_name)
         self.assertEqual(table.dataset_id, self.dataset_id)
 
-        # Verify schema is correct
+        # Verify schema is correct.
         expected_fields = {
             "table_name": ("STRING", "REQUIRED"),
             "record_id": ("INTEGER", "REPEATED"),
@@ -91,14 +93,14 @@ class TestUpdatesTable(unittest.TestCase):
 
     def test_create_table_already_exists(self) -> None:
         """Test creating a table that already exists raises an error."""
-        # Create table first time - should succeed
+        # Create table first time - should succeed.
         self.updates_table.create()
 
-        # Try to create again - should raise Conflict
+        # Try to create again - should raise Conflict.
         with self.assertRaises(Exception) as cm:
             self.updates_table.create()
 
-        # Check that it's a conflict-type error
+        # Check that it's a conflict-type error.
         self.assertIn("already exists", str(cm.exception).lower())
 
     def test_insert_records(self) -> None:
@@ -106,17 +108,17 @@ class TestUpdatesTable(unittest.TestCase):
         # Create the table first
         self.updates_table.create()
 
-        # Get test update records and expand them
+        # Get test update records and expand them.
         update_records = _create_test_update_records()
         expanded_records = UpdateRecordExpander.expand_updates(update_records, 12345)
 
-        # Insert the records
+        # Insert the records.
         job = self.updates_table.insert(expanded_records)
 
-        # Verify the job completed successfully
+        # Verify the job completed successfully.
         self.assertIsNone(job.errors)
 
-        # Verify records were inserted by querying the table
+        # Verify records were inserted by querying the table.
         query = f"SELECT COUNT(*) as count FROM `{self.table_fqn}`"
         result = list(self.client.query(query).result())
         record_count = result[0].count
@@ -159,13 +161,13 @@ class TestUpdatesTable(unittest.TestCase):
         # Create the table first
         self.updates_table.create()
 
-        # Insert empty list
+        # Insert empty list.
         job = self.updates_table.insert([])
 
-        # Verify the job completed successfully
+        # Verify the job completed successfully.
         self.assertIsNone(job.errors)
 
-        # Verify no records were inserted
+        # Verify no records were inserted.
         query = f"SELECT COUNT(*) as count FROM `{self.table_fqn}`"
         result = list(self.client.query(query).result())
         record_count = result[0].count
@@ -173,31 +175,31 @@ class TestUpdatesTable(unittest.TestCase):
 
     def test_latest_updates_only(self) -> None:
         """Test functionality for getting only the latest updates."""
-        # Create the source table
+        # Create the source table.
         self.updates_table.create()
 
-        # Get test records and expand them
+        # Get test records and expand them.
         update_records = _create_test_update_records()
         expanded_records = UpdateRecordExpander.expand_updates(update_records, 0)
 
-        # Insert all of the records into the updates table
+        # Insert all of the records into the updates table.
         self.updates_table.insert(expanded_records)
 
-        # Count the original records
+        # Count the original records.
         query = f"SELECT COUNT(*) as count FROM `{self.table_fqn}`"
         original_count = list(self.client.query(query).result())[0].count
 
-        # Create table with only the latest updates
+        # Create table with only the latest updates.
         self.updates_table.create_latest_only()
 
-        # Count the new number of records
+        # Count the new number of records.
         query = f"SELECT COUNT(*) as count FROM `{self.updates_table.latest_only_table_fqn}`"
         latest_only_count = list(self.client.query(query).result())[0].count
 
         # There should be fewer records now.
         self.assertLess(latest_only_count, original_count)
 
-        # Verify specific record has the later update value
+        # Verify specific record has the later update value.
         record_key = UpdatesTable._make_record_key([100001])
         query = f"""
         SELECT value_json

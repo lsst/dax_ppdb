@@ -136,13 +136,13 @@ class UpdatesManager:
         except Exception as e:
             raise UpdatesManagerError("Failed to build updates table") from e
 
-        # Select only the latest update records into a new table
+        # Select only the latest update records into a new table.
         try:
             self._updates_table.create_latest_only()
         except Exception as e:
             raise UpdatesManagerError("Failed to create latest-only updates table") from e
 
-        # Merge the latest-only updates into the target tables
+        # Merge the latest-only updates into the target tables.
         try:
             self._merge_updates(self._updates_table.latest_only_table_fqn)
         except Exception as e:

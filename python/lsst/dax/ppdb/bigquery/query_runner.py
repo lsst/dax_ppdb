@@ -122,6 +122,11 @@ class QueryRunner:
             additional details.
         """
         job = self._bq_client.query(sql, job_config=job_config, location=self.dataset.location)
-        job.result()  # Wait for the job to complete
+
+        # Wait for the job to complete.
+        job.result()
+
+        # Log the job details.
         self.log_job(job, label)
+
         return job

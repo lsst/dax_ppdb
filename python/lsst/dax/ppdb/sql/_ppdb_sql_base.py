@@ -117,7 +117,7 @@ class PpdbSqlBaseConfig(BaseModel):
 def _onSqlite3Connect(
     dbapiConnection: sqlite3.Connection, connectionRecord: sqlalchemy.pool._ConnectionRecord
 ) -> None:
-    # Enable foreign keys
+    # Enable foreign keys.
     with closing(dbapiConnection.cursor()) as cursor:
         cursor.execute("PRAGMA foreign_keys=ON;")
 

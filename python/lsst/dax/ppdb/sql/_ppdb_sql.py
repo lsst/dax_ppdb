@@ -91,11 +91,11 @@ class PpdbSql(Ppdb, PpdbSqlBase):
 
     @property
     def metadata(self) -> ApdbMetadata:
-        # docstring is inherited from a base class
+        # docstring is inherited from a base class.
         return self._metadata
 
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> list[PpdbReplicaChunk] | None:
-        # docstring is inherited from a base class
+        # docstring is inherited from a base class.
         table = self.get_table("PpdbReplicaChunk")
         query = select(
             table.columns["apdb_replica_chunk"],
@@ -111,7 +111,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
             for row in result:
                 # When we store these timestamps we convert astropy Time to
                 # unix_tai and then to `datetime` in UTC. This conversion
-                # reverses that process,
+                # reverses that process.
                 last_update_time = self.to_astropy_tai(row[1])
                 replica_time = self.to_astropy_tai(row[3])
                 ids.append(
@@ -134,7 +134,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
         *,
         update: bool = False,
     ) -> None:
-        # docstring is inherited from a base class
+        # docstring is inherited from a base class.
 
         # We want to run all inserts in one transaction.
         with self._engine.begin() as connection:
@@ -291,7 +291,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
     def _update_objects(
         self, records: list[ApdbUpdateRecord], connection: sqlalchemy.engine.Connection
     ) -> None:
-        # Collect all primary keys
+        # Collect all primary keys.
         ids = set()
         for record in records:
             match record:
@@ -352,7 +352,7 @@ class PpdbSql(Ppdb, PpdbSqlBase):
     def _update_sources(
         self, records: list[ApdbUpdateRecord], connection: sqlalchemy.engine.Connection
     ) -> None:
-        # Collect all primary keys
+        # Collect all primary keys.
         ids = set()
         for record in records:
             match record:
