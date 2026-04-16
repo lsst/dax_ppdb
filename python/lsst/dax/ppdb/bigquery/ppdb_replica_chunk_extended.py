@@ -161,3 +161,23 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             The new chunk with the updated GCS URI.
         """
         return dataclasses.replace(self, gcs_uri=new_gcs_uri)
+
+    def to_row(self) -> dict:
+        """Convert to a dictionary of column values for the
+        ``PpdbReplicaChunk`` table.
+
+        Returns
+        -------
+        `dict`
+            Dictionary of column names to values.
+        """
+        return {
+            "apdb_replica_chunk": self.id,
+            "last_update_time": self.last_update_time_dt_utc,
+            "unique_id": self.unique_id,
+            "replica_time": self.replica_time_dt_utc,
+            "status": self.status,
+            "directory": str(self.directory),
+            "gcs_uri": self.gcs_uri,
+            "update_count": self.update_count,
+        }

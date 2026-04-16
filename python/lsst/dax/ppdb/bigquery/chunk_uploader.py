@@ -135,7 +135,9 @@ class ChunkUploader:
             try:
                 # Get replica chunks that have been exported and are ready for
                 # upload to cloud storage.
-                replica_chunks = self._ppdb.get_replica_chunks_ext(status=ChunkStatus.EXPORTED)
+                replica_chunks = self._ppdb.query_chunks(
+                    self._ppdb.get_table("PpdbReplicaChunk").columns["status"] == ChunkStatus.EXPORTED.value
+                )
             except Exception:
                 # Some problem occurred while retrieving replica chunk data.
                 # Log the error and continue to the next iteration or exit if
@@ -280,7 +282,7 @@ class ChunkUploader:
                     f"gs://{gcs_uri}"
                 )
                 try:
-                    self._ppdb.store_chunk(updated_replica_chunk, True)
+                    self._ppdb.update_chunks([updated_replica_chunk])
                     _LOG.info(
                         "Updated replica chunk %d in database with status '%s' and GCS URI: %s",
                         chunk_id,
