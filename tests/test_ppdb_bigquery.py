@@ -145,8 +145,7 @@ class ReplicaChunkTestCase(SqliteMixin, unittest.TestCase):
             ]
         )
 
-        table = ppdb.get_table("PpdbReplicaChunk")
-        result = ppdb.query_chunks(table.columns["status"] == ChunkStatus.STAGED.value)
+        result = ppdb.query_chunks(ppdb.chunk_table.columns["status"] == ChunkStatus.STAGED.value)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].id, 2)
 
@@ -161,8 +160,7 @@ class ReplicaChunkTestCase(SqliteMixin, unittest.TestCase):
             ]
         )
 
-        table = ppdb.get_table("PpdbReplicaChunk")
-        result = ppdb.query_chunks(order_by=table.columns["apdb_replica_chunk"])
+        result = ppdb.query_chunks(order_by=ppdb.chunk_table.columns["apdb_replica_chunk"])
         self.assertEqual([c.id for c in result], [5, 10, 20])
 
     def test_get_replica_chunks(self) -> None:

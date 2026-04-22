@@ -232,9 +232,10 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
         # Promote the staged data chunk and the updates chunk.
         # Re-query to get the chunks with their current DB state.
-        table = self.ppdb.get_table("PpdbReplicaChunk")
         promote_ids = [staged_chunk.id, updates_chunks[0].id]
-        chunks_to_promote = self.ppdb.query_chunks(table.columns["apdb_replica_chunk"].in_(promote_ids))
+        chunks_to_promote = self.ppdb.query_chunks(
+            self.ppdb.chunk_table.columns["apdb_replica_chunk"].in_(promote_ids)
+        )
 
         promoter = ChunkPromoter(self.ppdb)
         promoter.promote_chunks(chunks_to_promote)

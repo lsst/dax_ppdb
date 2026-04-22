@@ -180,6 +180,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         """PPDB config associated with this instance."""
         return self._config
 
+    @property
+    def chunk_table(self) -> sqlalchemy.schema.Table:
+        """The SQL table object for the replica chunk table."""
+        return self.get_table("PpdbReplicaChunk")
+
     @classmethod
     def from_env(cls) -> PpdbBigQuery:
         """Create an instance of this class from a config pointed to by an
@@ -349,11 +354,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         # Docstring is inherited.
-        table = self.get_table("PpdbReplicaChunk")
         where_clauses: list[sqlalchemy.ColumnElement] = []
         if start_chunk_id is not None:
-            where_clauses.append(table.columns["apdb_replica_chunk"] >= start_chunk_id)
-        return self.query_chunks(*where_clauses, order_by=table.columns["last_update_time"])
+            where_clauses.append(self.chunk_table.columns["apdb_replica_chunk"] >= start_chunk_id)
+        return self.query_chunks(*where_clauses, order_by=self.chunk_table.columns["last_update_time"])
 
     def query_chunks(
         self,
@@ -376,10 +380,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         `list` [ `PpdbReplicaChunkExtended` ]
             List of matching chunks.
         """
-        table = self.get_table("PpdbReplicaChunk")
         if order_by is None:
-            order_by = table.columns["apdb_replica_chunk"]
-        query = sqlalchemy.sql.select(table).order_by(order_by)
+            order_by = self.chunk_table.columns["apdb_replica_chunk"]
+        query = sqlalchemy.sql.select(self.chunk_table).order_by(order_by)
         for clause in where_clauses:
             query = query.where(clause)
         chunks: list[PpdbReplicaChunkExtended] = []
@@ -418,7 +421,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         """
         if not chunks:
             return
-        table = self.get_table("PpdbReplicaChunk")
+        table = self.chunk_table
         with self._engine.begin() as connection:
             for chunk in chunks:
                 connection.execute(table.insert(), chunk.to_row())
@@ -440,7 +443,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         """
         if not chunks:
             return
-        table = self.get_table("PpdbReplicaChunk")
+        table = self.chunk_table
         with self._engine.begin() as connection:
             for chunk in chunks:
                 row = chunk.to_row()
@@ -733,10 +736,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         no chunks are ``staged`` after the first non-``promoted`` chunk, an
         empty list is returned.
         """
-        table = self.get_table("PpdbReplicaChunk")
         chunks = self.query_chunks(
-            table.columns["status"].notin_([ChunkStatus.PROMOTED.value, ChunkStatus.SKIPPED.value]),
-            order_by=table.columns["apdb_replica_chunk"],
+            self.chunk_table.columns["status"].notin_(
+                [ChunkStatus.PROMOTED.value, ChunkStatus.SKIPPED.value]
+            ),
+            order_by=self.chunk_table.columns["apdb_replica_chunk"],
         )
         promotable: list[PpdbReplicaChunkExtended] = []
         for chunk in chunks:

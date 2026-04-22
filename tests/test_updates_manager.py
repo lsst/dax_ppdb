@@ -247,8 +247,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
 
         # Apply the updates to the target tables using the UpdatesManager.
         updates_manager = UpdatesManager(self.ppdb.config)
-        table = self.ppdb.get_table("PpdbReplicaChunk")
         replica_chunks = self.ppdb.query_chunks(
-            table.columns["apdb_replica_chunk"].in_([test_replica_chunk_id])
+            self.ppdb.chunk_table.columns["apdb_replica_chunk"].in_([test_replica_chunk_id])
         )
         updates_manager.apply_updates(replica_chunks)

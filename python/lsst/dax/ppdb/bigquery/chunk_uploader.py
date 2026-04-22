@@ -136,7 +136,7 @@ class ChunkUploader:
                 # Get replica chunks that have been exported and are ready for
                 # upload to cloud storage.
                 replica_chunks = self._ppdb.query_chunks(
-                    self._ppdb.get_table("PpdbReplicaChunk").columns["status"] == ChunkStatus.EXPORTED.value
+                    self._ppdb.chunk_table.columns["status"] == ChunkStatus.EXPORTED.value
                 )
             except Exception:
                 # Some problem occurred while retrieving replica chunk data.
