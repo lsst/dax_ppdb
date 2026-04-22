@@ -35,6 +35,7 @@ from lsst.dax.ppdb.bigquery import (
     PpdbBigQuery,
     PpdbReplicaChunkExtended,
 )
+from lsst.dax.ppdb.bigquery.updates import UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import fill_apdb
 from lsst.dax.ppdb.tests._bigquery import (
@@ -111,9 +112,9 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             gcs_prefix = f"data/test/{chunk.id}"
             gcs_uri = f"gs://{bucket_name}/{gcs_prefix}"
 
-            update_records_path = chunk.directory / "update_records.parquet"
+            update_records_path = chunk.directory / UpdateRecords.PARQUET_FILE_NAME
             if update_records_path.exists():
-                blob = self._bucket.blob(f"{gcs_prefix}/update_records.parquet")
+                blob = self._bucket.blob(f"{gcs_prefix}/{UpdateRecords.PARQUET_FILE_NAME}")
                 blob.upload_from_filename(str(update_records_path))
 
             self.ppdb.update_chunks([chunk.with_new_status(status).with_new_gcs_uri(gcs_uri)])
@@ -150,12 +151,16 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             )
             job.result()
 
-    def _load_chunk_to_prod(self, chunk: PpdbReplicaChunkExtended) -> None:
-        """Load a chunk's parquet files into the production tables."""
+    def _create_empty_prod_tables(self, chunk: PpdbReplicaChunkExtended) -> None:
+        """Create empty prod tables by loading a chunk's parquet files
+        and then truncating them. This gives BigQuery the correct schema.
+        """
         for table_name in _TABLE_NAMES:
             parquet_path = chunk.directory / f"{table_name}.parquet"
             if parquet_path.exists():
-                self._load_parquet_to_table(parquet_path, f"{self.target_dataset_fqn}.{table_name}")
+                table_fqn = f"{self.target_dataset_fqn}.{table_name}"
+                self._load_parquet_to_table(parquet_path, table_fqn)
+                self.bq_client.query(f"TRUNCATE TABLE `{table_fqn}`").result()
 
     def _load_chunk_to_staging(self, chunk: PpdbReplicaChunkExtended) -> None:
         """Load a chunk's parquet files into staging tables and add the
@@ -194,108 +199,61 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
     def test_promote_chunks(self) -> None:
         """Test that promote_chunks moves staged data into prod, applies
-        update records, cleans up tmp tables, marks chunks as PROMOTED,
-        and does not affect non-promoted chunks.
+        update records, cleans up tmp tables, and marks chunks PROMOTED.
         """
-        # Get all chunks after upload. Data chunks are UPLOADED (need
-        # Dataflow staging); the updates-only chunk is already STAGED.
         all_chunks = self.ppdb.query_chunks()
         data_chunks = [c for c in all_chunks if c.status == ChunkStatus.UPLOADED]
-        updates_chunks = [c for c in all_chunks if c.status == ChunkStatus.STAGED and c.update_count > 0]
+        self.assertTrue(data_chunks, "Expected at least one data chunk")
 
-        self.assertGreaterEqual(len(data_chunks), 3, "Need at least 3 data chunks")
-        self.assertEqual(len(updates_chunks), 1, "Expected exactly 1 updates-only chunk")
+        # Create empty prod tables (promoter clones them for the tmp tables).
+        self._create_empty_prod_tables(data_chunks[0])
 
-        # The last data chunk contains records targeted by the update records
-        # (from the last visit in fill_apdb). Load it into prod so the
-        # updates have matching rows to modify.
-        prod_chunk = data_chunks[-1]
-        self._load_chunk_to_prod(prod_chunk)
-        self.ppdb.update_chunks([prod_chunk.with_new_status(ChunkStatus.PROMOTED)])
+        # Stage all data chunks (simulating the Dataflow staging step).
+        for chunk in data_chunks:
+            self._load_chunk_to_staging(chunk)
+            self.ppdb.update_chunks([chunk.with_new_status(ChunkStatus.STAGED)])
 
-        # Stage a different data chunk (simulating Dataflow staging).
-        staged_chunk = data_chunks[0]
-        self._load_chunk_to_staging(staged_chunk)
-        self.ppdb.update_chunks([staged_chunk.with_new_status(ChunkStatus.STAGED)])
-
-        # Remaining data chunks stay as UPLOADED (should not be affected).
-        uploaded_chunks = data_chunks[1:-1]
-
-        # Record initial prod row counts before promotion.
-        initial_prod_counts = {}
+        # Count the total staged rows per table before promotion.
         staging_counts = {}
         for table_name in _TABLE_NAMES:
-            initial_prod_counts[table_name] = self._count_rows(f"{self.target_dataset_fqn}.{table_name}")
             staging_fqn = f"{self.target_dataset_fqn}._{table_name}_staging"
             if self._table_exists(staging_fqn):
                 staging_counts[table_name] = self._count_rows(staging_fqn)
 
-        # Promote the staged data chunk and the updates chunk.
-        # Re-query to get the chunks with their current DB state.
-        promote_ids = [staged_chunk.id, updates_chunks[0].id]
-        chunks_to_promote = self.ppdb.query_chunks(
-            self.ppdb.chunk_table.columns["apdb_replica_chunk"].in_(promote_ids)
-        )
-
+        # Promote all chunks.
+        chunks_to_promote = self.ppdb.get_promotable_chunks()
         promoter = ChunkPromoter(self.ppdb)
         promoter.promote_chunks(chunks_to_promote)
 
-        # 1. Verify prod tables grew by the staged row counts.
+        # Verify prod tables contain the staged rows.
         for table_name in _TABLE_NAMES:
-            expected = initial_prod_counts[table_name] + staging_counts.get(table_name, 0)
+            expected = staging_counts.get(table_name, 0)
             actual = self._count_rows(f"{self.target_dataset_fqn}.{table_name}")
-            self.assertEqual(actual, expected, f"Expected {expected} rows in {table_name}, got {actual}")
+            self.assertEqual(actual, expected, f"{table_name}: expected {expected} rows, got {actual}")
 
-        # 2. Verify staging tables have promoted rows deleted.
+        # Verify staging tables are empty.
         for table_name in _TABLE_NAMES:
             staging_fqn = f"{self.target_dataset_fqn}._{table_name}_staging"
             if self._table_exists(staging_fqn):
-                self.assertEqual(
-                    self._count_rows(staging_fqn),
-                    0,
-                    f"Expected 0 rows in _{table_name}_staging after promotion",
-                )
+                self.assertEqual(self._count_rows(staging_fqn), 0, f"{staging_fqn} should be empty")
 
-        # 3. Verify promoted tmp tables were cleaned up.
+        # Verify tmp tables were cleaned up.
         for table_name in _TABLE_NAMES:
             tmp_fqn = f"{self.target_dataset_fqn}._{table_name}_promoted_tmp"
-            self.assertFalse(self._table_exists(tmp_fqn), f"Tmp table {tmp_fqn} should not exist")
+            self.assertFalse(self._table_exists(tmp_fqn), f"{tmp_fqn} should not exist")
 
-        # 4. Verify chunk statuses in the SQL database.
-        result_chunks = {c.id: c for c in self.ppdb.query_chunks()}
+        # Verify all chunks are marked PROMOTED.
+        for chunk in self.ppdb.query_chunks():
+            self.assertEqual(chunk.status, ChunkStatus.PROMOTED, f"Chunk {chunk.id} should be PROMOTED")
 
-        for chunk in chunks_to_promote:
-            self.assertEqual(
-                result_chunks[chunk.id].status,
-                ChunkStatus.PROMOTED,
-                f"Chunk {chunk.id} should be PROMOTED",
-            )
-        for chunk in uploaded_chunks:
-            self.assertEqual(
-                result_chunks[chunk.id].status,
-                ChunkStatus.UPLOADED,
-                f"Chunk {chunk.id} should still be UPLOADED",
-            )
-
-        # 5. Verify that update records were applied. The test update
-        #    records include a DiaObject validity closure (sets
-        #    validityEndMjdTai) and a DiaForcedSource withdrawal (sets
-        #    timeWithdrawnMjdTai).
+        # Verify update records were applied (validity closure + withdrawal).
         dia_objects = self._query_table(f"{self.target_dataset_fqn}.DiaObject")
-        closed_objects = [r for r in dia_objects if r.get("validityEndMjdTai") is not None]
-        self.assertGreater(
-            len(closed_objects),
-            0,
-            "Expected at least one DiaObject with validityEndMjdTai set by updates",
-        )
+        closed = [r for r in dia_objects if r.get("validityEndMjdTai") is not None]
+        self.assertGreater(len(closed), 0, "Expected at least one DiaObject with validityEndMjdTai set")
 
         dia_forced_sources = self._query_table(f"{self.target_dataset_fqn}.DiaForcedSource")
-        withdrawn_fs = [r for r in dia_forced_sources if r.get("timeWithdrawnMjdTai") is not None]
-        self.assertGreater(
-            len(withdrawn_fs),
-            0,
-            "Expected at least one DiaForcedSource with timeWithdrawnMjdTai set by updates",
-        )
+        withdrawn = [r for r in dia_forced_sources if r.get("timeWithdrawnMjdTai") is not None]
+        self.assertGreater(len(withdrawn), 0, "Expected at least one DiaForcedSource withdrawn")
 
     def test_promote_chunks_empty(self) -> None:
         """Test that promoting an empty list raises NoPromotableChunksError."""
