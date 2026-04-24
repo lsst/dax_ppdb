@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING
 import astropy.time
 
 if TYPE_CHECKING:
-    import uuid  # noqa: F401 (needed for autodoc to resolve inherited annotations)
+    import uuid
 
 from lsst.dax.apdb import ReplicaChunk
 
@@ -162,7 +162,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         """
         return dataclasses.replace(self, gcs_uri=new_gcs_uri)
 
-    def to_row(self) -> dict:
+    def to_row(self) -> dict[str, int | str | datetime | uuid.UUID | None]:
         """Convert to a dictionary of column values for the
         ``PpdbReplicaChunk`` table.
 
@@ -176,8 +176,8 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             "last_update_time": self.last_update_time_dt_utc,
             "unique_id": self.unique_id,
             "replica_time": self.replica_time_dt_utc,
-            "status": self.status,
+            "status": self.status.value,
             "directory": str(self.directory),
-            "gcs_uri": self.gcs_uri,
+            "gcs_uri": self.gcs_uri,  # This field can be null.
             "update_count": self.update_count,
         }

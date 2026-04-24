@@ -282,7 +282,7 @@ class ChunkUploader:
                     f"gs://{gcs_uri}"
                 )
                 try:
-                    self._ppdb.update_chunks([updated_replica_chunk])
+                    self._ppdb.update_chunks([updated_replica_chunk], fields={"status", "gcs_uri"})
                     _LOG.info(
                         "Updated replica chunk %d in database with status '%s' and GCS URI: %s",
                         chunk_id,

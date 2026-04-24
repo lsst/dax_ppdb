@@ -23,6 +23,7 @@ import unittest
 import uuid
 from pathlib import Path
 
+import pandas as pd
 from google.cloud import bigquery, storage
 
 from lsst.dax.apdb import Apdb, ApdbReplica
@@ -132,7 +133,9 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
                 blob = self._bucket.blob(f"{gcs_prefix}/{UpdateRecords.PARQUET_FILE_NAME}")
                 blob.upload_from_filename(str(update_records_path))
 
-            self.ppdb.update_chunks([chunk.with_new_status(status).with_new_gcs_uri(gcs_uri)])
+            self.ppdb.update_chunks(
+                [chunk.with_new_status(status).with_new_gcs_uri(gcs_uri)], fields={"status", "gcs_uri"}
+            )
 
         # Create the BQ dataset.
         dataset = bigquery.Dataset(self.target_dataset_fqn)
@@ -227,8 +230,6 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         with update records applied, then compares it against the actual prod
         DataFrame.
         """
-        import pandas as pd
-
         # Keys used by MERGE SQL to match update records to rows.
         merge_match_keys: dict[str, tuple[str, ...]] = {
             "DiaObject": ("diaObjectId",),
@@ -242,7 +243,9 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         unique_row_keys = dict(merge_match_keys)
         unique_row_keys["DiaObject"] = ("diaObjectId", "validityStartMjdTai")
 
-        for table_name, prod_table_ref in zip(_TABLE_NAMES, self._table_refs.prod, strict=True):
+        for table_name, prod_table_ref in zip(
+            self._table_refs.table_names, self._table_refs.prod, strict=True
+        ):
             sort_columns = list(unique_row_keys[table_name])
             match_columns = list(merge_match_keys[table_name])
 
@@ -283,7 +286,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         # Stage all data chunks (simulating the Dataflow staging step).
         for chunk in data_chunks:
             self._load_chunk_to_staging(chunk)
-            self.ppdb.update_chunks([chunk.with_new_status(ChunkStatus.STAGED)])
+            self.ppdb.update_chunks([chunk.with_new_status(ChunkStatus.STAGED)], fields={"status"})
 
         # Snapshot the staged rows per table before promotion.
         staging_rows: dict[str, list[dict]] = {}
@@ -315,6 +318,9 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
         # Verify promoted data matches staging data with updates applied.
         self._verify_promoted_data(staging_rows, expanded_updates)
+
+        # Verify no promotable chunks remain after promotion.
+        self.assertEqual(self.ppdb.get_promotable_chunks(), [])
 
     def test_promote_chunks_empty(self) -> None:
         """Test that promoting an empty list raises NoPromotableChunksError."""

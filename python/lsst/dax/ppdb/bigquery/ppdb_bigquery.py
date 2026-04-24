@@ -156,6 +156,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         Configuration object with BigQuery and SQL database parameters.
     """
 
+    _UPDATABLE_FIELDS = {"status", "gcs_uri"}
+    """Fields that are allowed to be updated on existing chunks."""
+
     def __init__(self, config: PpdbBigQueryConfig):
         # Read parameters from config.
         if config.replication_dir is None:
@@ -397,7 +400,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         ),
                         unique_id=row["unique_id"],
                         replica_time=astropy.time.Time(row["replica_time"], format="datetime", scale="tai"),
-                        status=row["status"],
+                        status=ChunkStatus(row["status"]),
                         directory=Path(row["directory"]),
                         gcs_uri=row["gcs_uri"],
                         update_count=row["update_count"],
@@ -416,17 +419,18 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Raises
         ------
+        ValueError
+            Raised if ``chunks`` is empty.
         `sqlalchemy.exc.IntegrityError`
             Raised if any chunk already exists in the table.
         """
         if not chunks:
-            return
+            raise ValueError("chunks must not be empty")
         table = self.chunk_table
         with self._engine.begin() as connection:
-            for chunk in chunks:
-                connection.execute(table.insert(), chunk.to_row())
+            connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
 
-    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
+    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> None:
         """Update one or more existing replica chunks in the
         ``PpdbReplicaChunk`` table.
 
@@ -435,14 +439,25 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         chunks
             Replica chunks with updated values. Each chunk must already
             exist in the table.
+        fields
+            Set of field names to update. Only ``"status"`` and
+            ``"gcs_uri"`` are allowed.
 
         Raises
         ------
+        ValueError
+            Raised if ``fields`` is empty or contains invalid field names,
+            or if ``chunks`` is empty.
         LookupError
             Raised if any chunk does not exist in the table.
         """
         if not chunks:
-            return
+            raise ValueError("chunks must not be empty")
+        if not fields:
+            raise ValueError("fields must not be empty")
+        invalid = fields - self._UPDATABLE_FIELDS
+        if invalid:
+            raise ValueError(f"Invalid fields for update: {invalid}. Allowed: {self._UPDATABLE_FIELDS}")
         table = self.chunk_table
         with self._engine.begin() as connection:
             for chunk in chunks:
@@ -450,7 +465,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 result = connection.execute(
                     table.update()
                     .where(table.c.apdb_replica_chunk == chunk.id)
-                    .values(**{k: v for k, v in row.items() if k != "apdb_replica_chunk"})
+                    .values(**{k: v for k, v in row.items() if k in fields})
                 )
                 if result.rowcount == 0:
                     raise LookupError(f"Cannot update chunk {chunk.id}: row does not exist")
@@ -744,7 +759,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         )
         promotable: list[PpdbReplicaChunkExtended] = []
         for chunk in chunks:
-            if chunk.status == ChunkStatus.STAGED.value:
+            if chunk.status == ChunkStatus.STAGED:
                 promotable.append(chunk)
             else:
                 break

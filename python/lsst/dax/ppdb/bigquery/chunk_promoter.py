@@ -167,10 +167,14 @@ class ChunkPromoter:
             QueryRunner.log_job(job, "promote_tmp_to_prod")
 
     def _cleanup(self) -> None:
-        """Drop the promotion temporary tables."""
+        """Cleanup state after executing the promotion."""
+        # Delete the temp tables.
         for tmp_ref in self._table_refs.promoted_tmp:
             self._bq_client.delete_table(tmp_ref, not_found_ok=True)
             logging.debug("Dropped %s (if it existed)", tmp_ref)
+
+        # Reset the chunk list.
+        self._promotable_chunks = []
 
     def _delete_staged_chunks(self) -> None:
         """Delete only rows for the promoted replica chunk IDs from each
@@ -207,7 +211,7 @@ class ChunkPromoter:
     def _mark_chunks_promoted(self) -> None:
         """Mark the replica chunks as promoted in the database."""
         promoted = [c.with_new_status(ChunkStatus.PROMOTED) for c in self.promotable_chunks]
-        self._ppdb.update_chunks(promoted)
+        self._ppdb.update_chunks(promoted, fields={"status"})
 
     def promote_chunks(self, chunks: list[PpdbReplicaChunkExtended]) -> None:
         """Promote APDB replica chunks into production by executing a series of
