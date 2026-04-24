@@ -86,17 +86,6 @@ class ChunkPromoter:
             table_names=tuple(self._table_names),
         )
 
-        # Build a mapping of phases to run during the promotion process, not
-        # including cleanup, which is executed separately.
-        _phase_methods = [
-            self._copy_to_promoted_tmp,
-            self._apply_record_updates,
-            self._promote_tmp_to_prod,
-            self._delete_staged_chunks,
-            self._mark_chunks_promoted,
-        ]
-        self._phases = {m.__name__.lstrip("_"): m for m in _phase_methods}
-
         self._promotable_chunks: list[PpdbReplicaChunkExtended] = []
 
     @property
@@ -207,7 +196,7 @@ class ChunkPromoter:
         """Apply record updates to the promoted temporary tables."""
         updates_manager = UpdatesManager(
             self._ppdb.config,
-            table_name_format="_{}_promoted_tmp",  # FIXME: Should use the table refs formatting instead.
+            table_name_format=self._table_refs.promoted_tmp_format,
         )
 
         # Apply the updates for the chunks. The manager will skip the process
@@ -247,12 +236,23 @@ class ChunkPromoter:
         # Set the list of promotable chunks for use in the promotion phases.
         self._promotable_chunks = chunks
 
-        # Execute the promotion phases in order.
+        # Execute the promotion steps in order.
         try:
-            for name, phase in self._phases.items():
-                logging.debug("Starting phase: %s", name)
-                phase()
-                logging.debug("Completed phase: %s", name)
+            # Copy prod tables to temp tables and insert staged data.
+            self._copy_to_promoted_tmp()
+
+            # Apply record updates to the temp tables.
+            self._apply_record_updates()
+
+            # Promote the temp tables to prod using atomic table swaps.
+            self._promote_tmp_to_prod()
+
+            # Delete the staged chunks from the staging tables.
+            self._delete_staged_chunks()
+
+            # Mark the chunks promoted in the database.
+            self._mark_chunks_promoted()
+
         except Exception as e:
             raise ChunkPromotionError("Chunk promotion failed") from e
         finally:
