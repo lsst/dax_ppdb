@@ -29,8 +29,8 @@ import os
 import shutil
 from collections.abc import Collection, Iterable, Sequence
 from pathlib import Path
-from typing import Any
 
+import astropy.time
 import felis
 import sqlalchemy
 from google.cloud import secretmanager
@@ -53,7 +53,6 @@ from ..ppdb_config import PpdbConfig
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, TableStats
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
-from .sql_resource import SqlResource
 from .updates.update_records import UpdateRecords
 
 _LOG = logging.getLogger(__name__)
@@ -157,19 +156,17 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         Configuration object with BigQuery and SQL database parameters.
     """
 
+    _UPDATABLE_FIELDS = {"status", "gcs_uri"}
+    """Fields that are allowed to be updated on existing chunks."""
+
     def __init__(self, config: PpdbBigQueryConfig):
         # Read parameters from config.
         if config.replication_dir is None:
             raise ValueError("Directory for chunk export is not set in configuration.")
 
-        # Build an optional password provider for GCP Secret Manager.
-        password_provider: PasswordProvider | None = None
-        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
-            _LOG.debug("Using Secret Manager to retrieve database password")
-            password_provider = _SecretManagerPasswordProvider(config.project_id)
-
         # Delegate SQL initialisation (schema load, engine, metadata, version
         # checks) to the base class, passing the optional password provider.
+        password_provider = self._make_password_provider(config.project_id)
         PpdbSqlBase.__init__(self, config.sql, password_provider=password_provider)
 
         self._config = config
@@ -185,6 +182,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     def config(self) -> PpdbBigQueryConfig:
         """PPDB config associated with this instance."""
         return self._config
+
+    @property
+    def chunk_table(self) -> sqlalchemy.schema.Table:
+        """The SQL table object for the replica chunk table."""
+        return self.get_table("PpdbReplicaChunk")
 
     @classmethod
     def from_env(cls) -> PpdbBigQuery:
@@ -205,6 +207,14 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         if not isinstance(ppdb, PpdbBigQuery):
             raise ValueError(f"Ppdb from environment has wrong type: {type(ppdb)}")
         return ppdb
+
+    @classmethod
+    def _make_password_provider(cls, project_id: str) -> PasswordProvider | None:
+        """Build a password provider from the environment, if configured."""
+        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
+            _LOG.info("Using Secret Manager to retrieve database password")
+            return _SecretManagerPasswordProvider(project_id)
+        return None
 
     def _generate_manifest(
         self,
@@ -306,7 +316,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             replica_chunk, status, chunk_dir, len(update_records)
         )
         try:
-            self.store_chunk(replica_chunk_ext, False)
+            self.insert_chunks([replica_chunk_ext])
         except Exception as e:
             _LOG.exception("Failed to store replica chunk info in database for %s", replica_chunk.id)
             raise e
@@ -347,149 +357,118 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
     def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
         # Docstring is inherited.
-        return self.get_replica_chunks_ext(start_chunk_id=start_chunk_id)
-
-    def get_replica_chunks_ext(
-        self, status: ChunkStatus | None = None, start_chunk_id: int | None = None
-    ) -> Sequence[PpdbReplicaChunkExtended]:
-        """Find replica chunks having the specified status with the option to
-        start from a specific chunk ID.
-
-        If neither argument is provided, all chunks are returned.
-
-        Parameters
-        ----------
-        status
-            Status of the replica chunks to return.
-        start_chunk_id
-            If provided, only return chunks with ID greater than or equal to
-            this value.
-
-        Returns
-        -------
-        `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
-            List of chunks with the specified status. Chunks are ordered by
-            their ``last_update_time`` and include the ``directory`` and
-            ``status`` fields.
-        """
-        table = self.get_table("PpdbReplicaChunk")
-        query = sqlalchemy.sql.select(
-            table.columns["apdb_replica_chunk"],
-            table.columns["last_update_time"],
-            table.columns["unique_id"],
-            table.columns["replica_time"],
-            table.columns["status"],  # Extended column
-            table.columns["directory"],  # Extended column
-            table.columns["gcs_uri"],  # Extended column
-            table.columns["update_count"],  # Extended column
-        ).order_by(table.columns["last_update_time"])
+        where_clauses: list[sqlalchemy.ColumnElement] = []
         if start_chunk_id is not None:
-            query = query.where(table.columns["apdb_replica_chunk"] >= start_chunk_id)
-        if status is not None:
-            query = query.where(table.columns["status"] == status.value)
-        ids: list[PpdbReplicaChunkExtended] = []
-        with self._engine.connect() as conn:
-            result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
-            for row in result:
-                last_update_time = self.to_astropy_tai(row[1])
-                replica_time = self.to_astropy_tai(row[3])
-                ids.append(
-                    PpdbReplicaChunkExtended(
-                        id=row[0],
-                        last_update_time=last_update_time,
-                        unique_id=row[2],
-                        replica_time=replica_time,
-                        status=row[4],
-                        directory=Path(row[5]),
-                        gcs_uri=row[6],
-                        update_count=row[7],
-                    )
-                )
-        return ids
+            where_clauses.append(self.chunk_table.columns["apdb_replica_chunk"] >= start_chunk_id)
+        return self.query_chunks(*where_clauses, order_by=self.chunk_table.columns["last_update_time"])
 
-    def get_replica_chunks_ext_by_ids(self, chunk_ids: Sequence[int]) -> Sequence[PpdbReplicaChunkExtended]:
-        """Find replica chunks for a list of chunk IDs.
+    def query_chunks(
+        self,
+        *where_clauses: sqlalchemy.ColumnElement,
+        order_by: sqlalchemy.ColumnElement | None = None,
+    ) -> list[PpdbReplicaChunkExtended]:
+        """Query the ``PpdbReplicaChunk`` table with arbitrary filters.
 
         Parameters
         ----------
-        chunk_ids
-            Replica chunk IDs to retrieve.
+        *where_clauses
+            SQLAlchemy column expressions to use as WHERE filters. Each
+            expression is applied with AND semantics.
+        order_by
+            Column expression to order results by. Defaults to
+            ``apdb_replica_chunk`` if not provided.
 
         Returns
         -------
-        `~collections.abc.Sequence` [ `PpdbReplicaChunkExtended` ]
-            List of matching chunks ordered by ``apdb_replica_chunk``.
+        `list` [ `PpdbReplicaChunkExtended` ]
+            List of matching chunks.
         """
-        if not chunk_ids:
-            return []
-
-        table = self.get_table("PpdbReplicaChunk")
-        query = (
-            sqlalchemy.sql.select(
-                table.columns["apdb_replica_chunk"],
-                table.columns["last_update_time"],
-                table.columns["unique_id"],
-                table.columns["replica_time"],
-                table.columns["status"],
-                table.columns["directory"],
-                table.columns["gcs_uri"],
-                table.columns["update_count"],
-            )
-            .where(table.columns["apdb_replica_chunk"].in_(chunk_ids))
-            .order_by(table.columns["apdb_replica_chunk"])
-        )
-
+        if order_by is None:
+            order_by = self.chunk_table.columns["apdb_replica_chunk"]
+        query = sqlalchemy.sql.select(self.chunk_table).order_by(order_by)
+        for clause in where_clauses:
+            query = query.where(clause)
         chunks: list[PpdbReplicaChunkExtended] = []
         with self._engine.connect() as conn:
             result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
-            for row in result:
-                last_update_time = self.to_astropy_tai(row[1])
-                replica_time = self.to_astropy_tai(row[3])
+            for row in result.mappings():
                 chunks.append(
                     PpdbReplicaChunkExtended(
-                        id=row[0],
-                        last_update_time=last_update_time,
-                        unique_id=row[2],
-                        replica_time=replica_time,
-                        status=row[4],
-                        directory=Path(row[5]),
-                        gcs_uri=row[6],
-                        update_count=row[7],
+                        id=row["apdb_replica_chunk"],
+                        last_update_time=astropy.time.Time(
+                            row["last_update_time"], format="datetime", scale="tai"
+                        ),
+                        unique_id=row["unique_id"],
+                        replica_time=astropy.time.Time(row["replica_time"], format="datetime", scale="tai"),
+                        status=ChunkStatus(row["status"]),
+                        directory=Path(row["directory"]),
+                        gcs_uri=row["gcs_uri"],
+                        update_count=row["update_count"],
                     )
                 )
         return chunks
 
-    def store_chunk(self, replica_chunk: PpdbReplicaChunkExtended, update: bool) -> None:
-        """Insert or replace single record in PpdbReplicaChunk table, including
-        the status and directory of the replica chunk.
+    def insert_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
+        """Insert one or more new replica chunks into the
+        ``PpdbReplicaChunk`` table.
 
         Parameters
         ----------
-        replica_chunk
-            The replica chunk to store.
-        update
-            If `True` then perform an UPSERT operation to update existing
-            records. If `False` then only INSERT is performed and an error is
-            raised if the record already exists.
+        chunks
+            Replica chunks to insert.
+
+        Raises
+        ------
+        ValueError
+            Raised if ``chunks`` is empty.
+        `sqlalchemy.exc.IntegrityError`
+            Raised if any chunk already exists in the table.
         """
-        _LOG.info("Storing replica chunk: %s", replica_chunk)
+        if not chunks:
+            raise ValueError("chunks must not be empty")
+        table = self.chunk_table
         with self._engine.begin() as connection:
-            table = self.get_table("PpdbReplicaChunk")
-            row = {
-                "apdb_replica_chunk": replica_chunk.id,
-                "last_update_time": replica_chunk.last_update_time_dt_utc,
-                "unique_id": replica_chunk.unique_id,
-                "replica_time": replica_chunk.replica_time_dt_utc,
-                "status": replica_chunk.status,
-                "directory": str(replica_chunk.directory),
-                "gcs_uri": replica_chunk.gcs_uri,
-                "update_count": replica_chunk.update_count,
-            }
-            if update:
-                self.upsert(connection, table, row, "apdb_replica_chunk")
-            else:
-                insert = table.insert()
-                connection.execute(insert, row)
+            connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
+
+    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> None:
+        """Update one or more existing replica chunks in the
+        ``PpdbReplicaChunk`` table.
+
+        Parameters
+        ----------
+        chunks
+            Replica chunks with updated values. Each chunk must already
+            exist in the table.
+        fields
+            Set of field names to update. Only ``"status"`` and
+            ``"gcs_uri"`` are allowed.
+
+        Raises
+        ------
+        ValueError
+            Raised if ``fields`` is empty or contains invalid field names,
+            or if ``chunks`` is empty.
+        LookupError
+            Raised if any chunk does not exist in the table.
+        """
+        if not chunks:
+            raise ValueError("chunks must not be empty")
+        if not fields:
+            raise ValueError("fields must not be empty")
+        invalid = fields - self._UPDATABLE_FIELDS
+        if invalid:
+            raise ValueError(f"Invalid fields for update: {invalid}. Allowed: {self._UPDATABLE_FIELDS}")
+        table = self.chunk_table
+        with self._engine.begin() as connection:
+            for chunk in chunks:
+                row = chunk.to_row()
+                result = connection.execute(
+                    table.update()
+                    .where(table.c.apdb_replica_chunk == chunk.id)
+                    .values(**{k: v for k, v in row.items() if k in fields})
+                )
+                if result.rowcount == 0:
+                    raise LookupError(f"Cannot update chunk {chunk.id}: row does not exist")
 
     @classmethod
     def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
@@ -636,10 +615,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         if stage_chunk_topic is not None:
             bq_config.stage_chunk_topic = stage_chunk_topic
 
-        password_provider: PasswordProvider | None = None
-        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
-            _LOG.info("Using Secret Manager to retrieve database password")
-            password_provider = _SecretManagerPasswordProvider(bq_config.project_id)
+        password_provider = cls._make_password_provider(bq_config.project_id)
         engine = cls.make_engine(bq_config.sql, password_provider=password_provider)
         cls.make_database(engine, bq_config.sql, sa_metadata, schema_version, db_drop)
 
@@ -757,105 +733,34 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             parquet_path,
         )
 
-    def get_promotable_chunks(self) -> list[int]:
+    def get_promotable_chunks(self) -> list[PpdbReplicaChunkExtended]:
         """Return the first uninterrupted sequence of staged chunks such that
         all prior chunks are promoted.
 
         Returns
         -------
-        `list` [`int`]
-            A list of tuples containing the ``apdb_replica_chunk`` values of
-            the promotable chunks.
+        `list` [`PpdbReplicaChunkExtended`]
+            Promotable chunks in order.
 
         Notes
         -----
-        This query finds the contiguous sequence of ``staged`` chunks beginning
-        with the earliest chunk that is not yet ``promoted``, and ending just
-        before the first chunk that is not ``staged``. If no such ending
+        Finds the contiguous sequence of ``staged`` chunks beginning with the
+        earliest chunk that is not yet ``promoted`` or ``skipped``, and ending
+        just before the first chunk that is not ``staged``. If no such ending
         exists, all ``staged`` chunks from that point onward are returned. If
         no chunks are ``staged`` after the first non-``promoted`` chunk, an
         empty list is returned.
         """
-        table = self.get_table("PpdbReplicaChunk")
-        if not table.schema:
-            raise ValueError("Table schema is not set, cannot construct query")
-        quoted_table_name = (
-            self._engine.dialect.identifier_preparer.quote(table.schema)
-            + "."
-            + self._engine.dialect.identifier_preparer.quote(table.name)
+        chunks = self.query_chunks(
+            self.chunk_table.columns["status"].notin_(
+                [ChunkStatus.PROMOTED.value, ChunkStatus.SKIPPED.value]
+            ),
+            order_by=self.chunk_table.columns["apdb_replica_chunk"],
         )
-
-        sql = SqlResource("select_promotable_chunks", {"table_name": quoted_table_name}).sql
-
-        with self._engine.connect() as conn:
-            result = conn.execute(sqlalchemy.text(sql))
-            chunk_ids = [row[0] for row in result]
-        return chunk_ids
-
-    def mark_chunks_promoted(self, promotable_chunks: list[int]) -> int:
-        """Set status='promoted' for the given chunk IDs. Returns number
-        updated.
-
-        Parameters
-        ----------
-        promotable_chunks
-            List of integers containing the ``apdb_replica_chunk`` values of
-            the promotable chunks.
-
-        Returns
-        -------
-        `int`
-            The number of rows updated in the database, which should be equal
-            to the number of promotable chunks provided, if they were all found
-            and updated successfully.
-        """
-        table = self.get_table("PpdbReplicaChunk")
-        stmt = (
-            sqlalchemy.update(table)
-            .where(table.c.apdb_replica_chunk.in_(promotable_chunks), table.c.status != "promoted")
-            .values(status="promoted")
-        )
-
-        with self._engine.begin() as conn:
-            result: sqlalchemy.engine.CursorResult = conn.execute(stmt)
-            return result.rowcount or 0
-
-    def update(self, chunk_id: int, values: dict[str, Any]) -> int:
-        """Update an existing replica chunk in the database.
-
-        Parameters
-        ----------
-        chunk_id
-            The ID of the replica chunk to update.
-        values
-            A dictionary of column names and their new values to update.
-
-        Returns
-        -------
-        `int`
-            The number of rows updated. This should be 1 if the update is
-            successful, or 0 if no rows were updated (e.g., if the chunk ID
-            does not exist or the status is already set to the new value).
-        """
-        logging.info("Preparing to update replica chunk %d with values: %s", chunk_id, values)
-        table = self.get_table("PpdbReplicaChunk")
-        stmt = sqlalchemy.update(table).where(table.c.apdb_replica_chunk == chunk_id).values(values)
-        with self._engine.begin() as conn:
-            result = conn.execute(stmt)
-            affected_rows = result.rowcount
-
-        new_status = values.get("status")
-        if affected_rows == 0:
-            logging.warning(
-                "No rows updated for replica chunk %s with status '%s'",
-                chunk_id,
-                new_status,
-            )
-        else:
-            logging.info(
-                "Successfully updated %d row(s) for replica chunk %s to status '%s'",
-                affected_rows,
-                chunk_id,
-                new_status,
-            )
-        return affected_rows
+        promotable: list[PpdbReplicaChunkExtended] = []
+        for chunk in chunks:
+            if chunk.status == ChunkStatus.STAGED:
+                promotable.append(chunk)
+            else:
+                break
+        return promotable

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 __all__ = [
     "ChunkPromoter",
+    "ChunkPromotionError",
     "NoPromotableChunksError",
 ]
 
@@ -34,20 +35,21 @@ from google.cloud import bigquery
 from lsst.dax.apdb import ApdbTables
 
 from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
+from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .query_runner import QueryRunner
 from .table_refs import TableRefs
 from .updates.updates_manager import UpdatesManager
 
 
 class NoPromotableChunksError(Exception):
-    """Exception raised when there are no promotable chunks available.
+    """Raised when an empty chunk list is passed to ``promote_chunks``.
 
-    This is not really an error condition, but it is useful for managing the
-    control flow of the promotion process when there are no chunks to promote.
+    Callers should check for an empty list before calling if they want to
+    handle this condition gracefully rather than catching this exception.
     """
 
 
-class ChunkPromoterError(Exception):
+class ChunkPromotionError(Exception):
     """Base exception for errors related to the chunk promotion process."""
 
 
@@ -84,18 +86,7 @@ class ChunkPromoter:
             table_names=tuple(self._table_names),
         )
 
-        # Build a mapping of phases to run during the promotion process, not
-        # including cleanup, which is executed separately.
-        _phase_methods = [
-            self._copy_to_promoted_tmp,
-            self._apply_record_updates,
-            self._promote_tmp_to_prod,
-            self._delete_staged_chunks,
-            self._mark_chunks_promoted,
-        ]
-        self._phases = {m.__name__.lstrip("_"): m for m in _phase_methods}
-
-        self._promotable_chunks: list[int] = []
+        self._promotable_chunks: list[PpdbReplicaChunkExtended] = []
 
     @property
     def config(self) -> PpdbBigQueryConfig:
@@ -103,8 +94,10 @@ class ChunkPromoter:
         return self._ppdb.config
 
     @property
-    def promotable_chunks(self) -> list[int]:
-        """List of promotable chunks (`list` [ `int` ], read-only)."""
+    def promotable_chunks(self) -> list[PpdbReplicaChunkExtended]:
+        """List of promotable chunks (`list` [ `PpdbReplicaChunkExtended` ],
+        read-only).
+        """
         return self._promotable_chunks
 
     @property
@@ -117,17 +110,19 @@ class ChunkPromoter:
         inserting only staged rows for the given replica chunk IDs.
         """
         job_cfg = bigquery.QueryJobConfig(
-            query_parameters=[bigquery.ArrayQueryParameter("ids", "INT64", self.promotable_chunks)]
+            query_parameters=[
+                bigquery.ArrayQueryParameter("ids", "INT64", [c.id for c in self._promotable_chunks])
+            ]
         )
 
         for prod_ref, tmp_ref, stage_ref in zip(
             self._table_refs.prod, self._table_refs.promoted_tmp, self._table_refs.staging, strict=True
         ):
             # Drop any existing tmp table (should not exist but just to be
-            # safe)
+            # safe).
             self._runner.run_job("drop_tmp", f"DROP TABLE IF EXISTS `{tmp_ref}`")
 
-            # Clone prod table structure and data (zero-copy)
+            # Clone prod table structure and data (zero-copy).
             self._runner.run_job("clone_prod", f"CREATE TABLE `{tmp_ref}` CLONE `{prod_ref}`")
 
             # Build ordered target list from the cloned tmp schema.
@@ -172,17 +167,23 @@ class ChunkPromoter:
             QueryRunner.log_job(job, "promote_tmp_to_prod")
 
     def _cleanup(self) -> None:
-        """Drop the promotion temporary tables."""
+        """Cleanup state after executing the promotion."""
+        # Delete the temp tables.
         for tmp_ref in self._table_refs.promoted_tmp:
             self._bq_client.delete_table(tmp_ref, not_found_ok=True)
             logging.debug("Dropped %s (if it existed)", tmp_ref)
+
+        # Reset the chunk list.
+        self._promotable_chunks = []
 
     def _delete_staged_chunks(self) -> None:
         """Delete only rows for the promoted replica chunk IDs from each
         staging table.
         """
         job_config = bigquery.QueryJobConfig(
-            query_parameters=[bigquery.ArrayQueryParameter("ids", "INT64", self.promotable_chunks)]
+            query_parameters=[
+                bigquery.ArrayQueryParameter("ids", "INT64", [c.id for c in self._promotable_chunks])
+            ]
         )
 
         for staging_ref in self._table_refs.staging:
@@ -199,44 +200,65 @@ class ChunkPromoter:
         """Apply record updates to the promoted temporary tables."""
         updates_manager = UpdatesManager(
             self._ppdb.config,
-            table_name_format="_{}_promoted_tmp",  # FIXME: Should use the table refs formatting instead.
+            table_name_format=self._table_refs.promoted_tmp_format,
         )
-
-        # Get the replica chunks and the total update count.
-        replica_chunks = self._ppdb.get_replica_chunks_ext_by_ids(self.promotable_chunks)
 
         # Apply the updates for the chunks. The manager will skip the process
         # entirely if there are no updates, so we don't need to check that
         # here.
-        updates_manager.apply_updates(replica_chunks)
+        updates_manager.apply_updates(self.promotable_chunks)
 
     def _mark_chunks_promoted(self) -> None:
         """Mark the replica chunks as promoted in the database."""
-        self._ppdb.mark_chunks_promoted(self.promotable_chunks)
+        promoted = [c.with_new_status(ChunkStatus.PROMOTED) for c in self.promotable_chunks]
+        self._ppdb.update_chunks(promoted, fields={"status"})
 
-    # TODO: It would be preferable if this method received a list of
-    # `PpdbReplicaChunkExtended` objects rather than integer IDs. This could
-    # be easily provided with the `PpdbBigquery` interface.
-    def promote_chunks(self, chunks: list[int]) -> None:
+    def promote_chunks(self, chunks: list[PpdbReplicaChunkExtended]) -> None:
         """Promote APDB replica chunks into production by executing a series of
         phases.
+
+        Parameters
+        ----------
+        chunks
+            List of `PpdbReplicaChunkExtended` objects to promote. Must not be
+            empty.
+
+        Raises
+        ------
+        ChunkPromotionError
+            Raised if any error occurs during execution of the promotion
+            phases.
+        NoPromotableChunksError
+            Raised if ``chunks`` is empty.
         """
         if not chunks:
             raise NoPromotableChunksError("No promotable chunks provided for promotion")
 
-        logging.info("Starting promotion of %d chunk(s): %s", len(chunks), chunks)
+        chunk_ids = [c.id for c in chunks]
+        logging.info("Starting promotion of %d chunk(s): %s", len(chunks), chunk_ids)
 
         # Set the list of promotable chunks for use in the promotion phases.
         self._promotable_chunks = chunks
 
-        # Execute the promotion phases in order.
+        # Execute the promotion steps in order.
         try:
-            for name, phase in self._phases.items():
-                logging.debug("Starting phase: %s", name)
-                phase()
-                logging.debug("Completed phase: %s", name)
+            # Copy prod tables to temp tables and insert staged data.
+            self._copy_to_promoted_tmp()
+
+            # Apply record updates to the temp tables.
+            self._apply_record_updates()
+
+            # Promote the temp tables to prod using atomic table swaps.
+            self._promote_tmp_to_prod()
+
+            # Delete the staged chunks from the staging tables.
+            self._delete_staged_chunks()
+
+            # Mark the chunks promoted in the database.
+            self._mark_chunks_promoted()
+
         except Exception as e:
-            raise ChunkPromoterError("Chunk promotion failed") from e
+            raise ChunkPromotionError("Chunk promotion failed") from e
         finally:
             # Always execute the cleanup, even if there were errors.
             try:
