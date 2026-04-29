@@ -109,13 +109,7 @@ class PpdbBigQueryConfig(PpdbConfig):
 
     @property
     def fq_dataset_id(self) -> str:
-        """Fully qualified BigQuery dataset ID, including project.
-
-        Returns
-        -------
-        `str`
-            Fully qualified BigQuery dataset ID, including project.
-        """
+        """Fully qualified BigQuery dataset ID, including project (`str`)."""
         return f"{self.project_id}:{self.dataset_id}"
 
 
@@ -148,7 +142,7 @@ class ConfigValidationError(Exception):
 
 
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
-    """Provides operations for the BigQuery-based PPDB.
+    """Provides management operations for the BigQuery-based PPDB.
 
     Parameters
     ----------
@@ -158,6 +152,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
     _UPDATABLE_FIELDS = {"status", "gcs_uri"}
     """Fields that are allowed to be updated on existing chunks."""
+
+    # ----------------------------------------------------------------------
+    # Construction and properties
+    # ----------------------------------------------------------------------
 
     def __init__(self, config: PpdbBigQueryConfig):
         # Read parameters from config.
@@ -188,6 +186,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         """The SQL table object for the replica chunk table."""
         return self.get_table("PpdbReplicaChunk")
 
+    # ----------------------------------------------------------------------
+    # Factory and initialization class methods
+    # ----------------------------------------------------------------------
+
     @classmethod
     def from_env(cls) -> PpdbBigQuery:
         """Create an instance of this class from a config pointed to by an
@@ -207,328 +209,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         if not isinstance(ppdb, PpdbBigQuery):
             raise ValueError(f"Ppdb from environment has wrong type: {type(ppdb)}")
         return ppdb
-
-    @classmethod
-    def _make_password_provider(cls, project_id: str) -> PasswordProvider | None:
-        """Build a password provider from the environment, if configured."""
-        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
-            _LOG.info("Using Secret Manager to retrieve database password")
-            return _SecretManagerPasswordProvider(project_id)
-        return None
-
-    def _generate_manifest(
-        self,
-        replica_chunk: ReplicaChunk,
-        table_dict: dict[str, ApdbTableData],
-        update_records: Collection[ApdbUpdateRecord],
-    ) -> Manifest:
-        """Generate the manifest data for the replica chunk."""
-        return Manifest(
-            replica_chunk_id=str(replica_chunk.id),
-            unique_id=replica_chunk.unique_id,
-            schema_version=str(self.schema_version),
-            exported_at=datetime.datetime.now(datetime.UTC),
-            last_update_time=str(replica_chunk.last_update_time),  # TAI value
-            table_data={
-                table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
-            },
-            compression_format=self.config.parq_compression,
-            update_count=len(update_records),
-        )
-
-    def store(
-        self,
-        replica_chunk: ReplicaChunk,
-        objects: ApdbTableData,
-        sources: ApdbTableData,
-        forced_sources: ApdbTableData,
-        update_records: Collection[ApdbUpdateRecord],
-        *,
-        update: bool = False,
-    ) -> None:
-        # Docstring is inherited.
-        _LOG.info("Processing %s", replica_chunk.id)
-
-        try:
-            chunk_dir = self._create_chunk_dir(replica_chunk)
-
-            if update_records:
-                self._handle_updates(replica_chunk, update_records, chunk_dir)
-
-            table_dict = {
-                ApdbTables.DiaObject.value: objects,
-                ApdbTables.DiaSource.value: sources,
-                ApdbTables.DiaForcedSource.value: forced_sources,
-            }
-
-            # Loop over the table data and write each table to a Parquet file.
-            for table_name, table_data in table_dict.items():
-                if not table_data.rows():
-                    _LOG.debug("No data for %s in %s, skipping export", table_name, replica_chunk.id)
-                    continue
-                parquet_file_path = chunk_dir / f"{table_name}.parquet"
-                try:
-                    with Timer(
-                        "write_parquet_time", _MON, tags={"table": table_name, "path": str(parquet_file_path)}
-                    ) as timer:
-                        row_count = write_parquet(
-                            table_name,
-                            table_data,
-                            parquet_file_path,
-                            batch_size=self.config.parq_batch_size,
-                            compression_format=self.config.parq_compression,
-                            exclude_columns={"apdb_replica_subchunk"},
-                        )
-                        timer.add_values(row_count=row_count)
-                    _LOG.info("Wrote %s with %d rows to %s", table_name, row_count, parquet_file_path)
-                except Exception:
-                    _LOG.exception("Failed to write %s", table_name)
-                    raise
-
-            # Create manifest for the replica chunk.
-            try:
-                manifest = self._generate_manifest(replica_chunk, table_dict, update_records)
-                _LOG.info("Generated manifest for %s: %s", replica_chunk.id, manifest.model_dump_json())
-            except Exception:
-                _LOG.exception("Failed to generate manifest for %d", replica_chunk.id)
-                raise
-
-            # Write manifest data to a JSON file.
-            try:
-                manifest.write_json_file(chunk_dir)
-            except Exception:
-                _LOG.exception("Failed to write manifest file for %d to %s", replica_chunk.id, chunk_dir)
-                raise
-        except Exception:
-            _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
-            raise
-
-        if manifest.is_empty_chunk():
-            # Mark as skipped if there is no data to export.
-            status = ChunkStatus.SKIPPED
-            _LOG.warning("No data to export for %s, marking chunk as skipped", replica_chunk.id)
-        else:
-            status = ChunkStatus.EXPORTED
-
-        # Store the replica chunk info in the database, including status,
-        # directory, and update count.
-        replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(
-            replica_chunk, status, chunk_dir, len(update_records)
-        )
-        try:
-            self.insert_chunks([replica_chunk_ext])
-        except Exception as e:
-            _LOG.exception("Failed to store replica chunk info in database for %s", replica_chunk.id)
-            raise e
-
-        _LOG.info("Done processing %s", replica_chunk.id)
-
-    def _create_chunk_dir(self, chunk: ReplicaChunk) -> Path:
-        """Create the directory for the replica chunk based on its last update
-        time and ID.
-
-        Parameters
-        ----------
-        chunk
-            The replica chunk for which to create the directory.
-
-        Returns
-        -------
-        `pathlib.Path`
-            Path to the created directory for the replica chunk.
-        """
-        last_update_time = chunk.last_update_time.to_datetime()
-        assert isinstance(last_update_time, datetime.datetime)
-        chunk_dir = Path(
-            self.config.replication_path,
-            chunk.last_update_time.strftime("%Y/%m/%d"),
-            str(chunk.id),
-        )
-        if chunk_dir.exists():
-            if not self.config.delete_existing_dirs:
-                raise FileExistsError(f"Directory already exists for {chunk.id}: {chunk_dir}")
-            _LOG.warning("Overwriting existing directory for %s: %s", chunk.id, chunk_dir)
-            shutil.rmtree(chunk_dir)
-
-        chunk_dir.mkdir(parents=True)
-        _LOG.info("Created directory for %s: %s", chunk.id, chunk_dir)
-
-        return chunk_dir
-
-    def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
-        # Docstring is inherited.
-        where_clauses: list[sqlalchemy.ColumnElement] = []
-        if start_chunk_id is not None:
-            where_clauses.append(self.chunk_table.columns["apdb_replica_chunk"] >= start_chunk_id)
-        return self.query_chunks(*where_clauses, order_by=self.chunk_table.columns["last_update_time"])
-
-    def query_chunks(
-        self,
-        *where_clauses: sqlalchemy.ColumnElement,
-        order_by: sqlalchemy.ColumnElement | None = None,
-    ) -> list[PpdbReplicaChunkExtended]:
-        """Query the ``PpdbReplicaChunk`` table with arbitrary filters.
-
-        Parameters
-        ----------
-        *where_clauses
-            SQLAlchemy column expressions to use as WHERE filters. Each
-            expression is applied with AND semantics.
-        order_by
-            Column expression to order results by. Defaults to
-            ``apdb_replica_chunk`` if not provided.
-
-        Returns
-        -------
-        `list` [ `PpdbReplicaChunkExtended` ]
-            List of matching chunks.
-        """
-        if order_by is None:
-            order_by = self.chunk_table.columns["apdb_replica_chunk"]
-        query = sqlalchemy.sql.select(self.chunk_table).order_by(order_by)
-        for clause in where_clauses:
-            query = query.where(clause)
-        chunks: list[PpdbReplicaChunkExtended] = []
-        with self._engine.connect() as conn:
-            result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
-            for row in result.mappings():
-                chunks.append(
-                    PpdbReplicaChunkExtended(
-                        id=row["apdb_replica_chunk"],
-                        last_update_time=astropy.time.Time(
-                            row["last_update_time"], format="datetime", scale="tai"
-                        ),
-                        unique_id=row["unique_id"],
-                        replica_time=astropy.time.Time(row["replica_time"], format="datetime", scale="tai"),
-                        status=ChunkStatus(row["status"]),
-                        directory=Path(row["directory"]),
-                        gcs_uri=row["gcs_uri"],
-                        update_count=row["update_count"],
-                    )
-                )
-        return chunks
-
-    def insert_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
-        """Insert one or more new replica chunks into the
-        ``PpdbReplicaChunk`` table.
-
-        Parameters
-        ----------
-        chunks
-            Replica chunks to insert.
-
-        Raises
-        ------
-        ValueError
-            Raised if ``chunks`` is empty.
-        `sqlalchemy.exc.IntegrityError`
-            Raised if any chunk already exists in the table.
-        """
-        if not chunks:
-            raise ValueError("chunks must not be empty")
-        table = self.chunk_table
-        with self._engine.begin() as connection:
-            connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
-
-    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> None:
-        """Update one or more existing replica chunks in the
-        ``PpdbReplicaChunk`` table.
-
-        Parameters
-        ----------
-        chunks
-            Replica chunks with updated values. Each chunk must already
-            exist in the table.
-        fields
-            Set of field names to update. Only ``"status"`` and
-            ``"gcs_uri"`` are allowed.
-
-        Raises
-        ------
-        ValueError
-            Raised if ``fields`` is empty or contains invalid field names,
-            or if ``chunks`` is empty.
-        LookupError
-            Raised if any chunk does not exist in the table.
-        """
-        if not chunks:
-            raise ValueError("chunks must not be empty")
-        if not fields:
-            raise ValueError("fields must not be empty")
-        invalid = fields - self._UPDATABLE_FIELDS
-        if invalid:
-            raise ValueError(f"Invalid fields for update: {invalid}. Allowed: {self._UPDATABLE_FIELDS}")
-        table = self.chunk_table
-        with self._engine.begin() as connection:
-            for chunk in chunks:
-                row = chunk.to_row()
-                result = connection.execute(
-                    table.update()
-                    .where(table.c.apdb_replica_chunk == chunk.id)
-                    .values(**{k: v for k, v in row.items() if k in fields})
-                )
-                if result.rowcount == 0:
-                    raise LookupError(f"Cannot update chunk {chunk.id}: row does not exist")
-
-    @classmethod
-    def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
-        """Create the ``PpdbReplicaChunk`` table with additional fields for
-        status and directory.
-
-        Parameters
-        ----------
-        table_name
-            Name of the table to create. If not provided, defaults to
-            "PpdbReplicaChunk".
-
-        Notes
-        -----
-        This overrides the base method to add additional columns for
-        ``status`` and ``directory`` to the replica chunk table schema.
-        """
-        replica_chunk_table = super().create_replica_chunk_table(table_name)
-        replica_chunk_table.columns.extend(
-            [
-                # Status of the chunk export process (e.g. pending, exported,
-                # skipped).
-                schema_model.Column(
-                    name="status",
-                    id=f"#{table_name}.status",
-                    datatype=felis.datamodel.DataType.string,
-                ),
-                # Local directory where the chunk data is stored for export.
-                schema_model.Column(
-                    name="directory",
-                    id=f"#{table_name}.directory",
-                    datatype=felis.datamodel.DataType.string,
-                    nullable=True,  # We might want to allow NULL if an error occurs when exporting.
-                ),
-                # URI of the chunk data in GCS after it has been uploaded.
-                # This is not a full object path but a prefix ("directory")
-                # under which the manifest and parquet files for the chunk
-                # are located.
-                schema_model.Column(
-                    name="gcs_uri",
-                    id=f"#{table_name}.gcs_uri",
-                    datatype=felis.datamodel.DataType.string,
-                    nullable=True,
-                ),
-                # Count of update records included in the chunk.
-                schema_model.Column(
-                    name="update_count",
-                    id=f"#{table_name}.update_count",
-                    datatype=felis.datamodel.DataType.int,
-                    nullable=False,
-                ),
-            ]
-        )
-        return replica_chunk_table
-
-    @classmethod
-    def filter_table_names(cls, original_table_names: Iterable[str]) -> Iterable[str]:
-        # Docstring is inherited.
-        # Only the metadata table is needed for the BigQuery-based PPDB.
-        return ["metadata"]
 
     @classmethod
     def init_bigquery(
@@ -628,16 +308,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         return bq_config
 
     @classmethod
-    def get_meta_code_version_key(cls) -> str:
-        # Docstring is inherited.
-        return "version:PpdbBigQuery"
-
-    @classmethod
-    def get_code_version(cls) -> VersionTuple:
-        # Docstring is inherited.
-        return VERSION
-
-    @classmethod
     def validate_config(cls, config: PpdbBigQueryConfig) -> None:
         """Validate the BigQuery PPDB configuration against GCP resources.
 
@@ -702,36 +372,227 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         except Exception as e:
             raise ConfigValidationError("Failed to validate BigQuery dataset") from e
 
-    def _handle_updates(
-        self, replica_chunk: ReplicaChunk, apdb_update_records: Collection[ApdbUpdateRecord], chunk_dir: Path
-    ) -> None:
-        """Handle updates to existing records in the PPDB by writing a JSON
-        file with the update information for the replica chunk.
+    # ----------------------------------------------------------------------
+    # SQL schema and versioning class methods
+    # ----------------------------------------------------------------------
+
+    @classmethod
+    def get_meta_code_version_key(cls) -> str:
+        # Docstring is inherited.
+        return "version:PpdbBigQuery"
+
+    @classmethod
+    def get_code_version(cls) -> VersionTuple:
+        # Docstring is inherited.
+        return VERSION
+
+    @classmethod
+    def filter_table_names(cls, original_table_names: Iterable[str]) -> Iterable[str]:
+        # Docstring is inherited.
+        # Only the metadata table is needed for the BigQuery-based PPDB.
+        return ["metadata"]
+
+    @classmethod
+    def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
+        """Create the ``PpdbReplicaChunk`` table with additional fields for
+        status and directory.
 
         Parameters
         ----------
-        replica_chunk
-            The replica chunk associated with the updates.
-        update_records
-            Collection of update records to process.
+        table_name
+            Name of the table to create. If not provided, defaults to
+            "PpdbReplicaChunk".
 
         Notes
         -----
-        Serializes the ApdbUpdateRecord objects into a dictionary structure
-        for processing.
+        This overrides the base method to add additional columns for
+        ``status`` and ``directory`` to the replica chunk table schema.
         """
-        update_records = UpdateRecords(
-            records=list(apdb_update_records),
+        replica_chunk_table = super().create_replica_chunk_table(table_name)
+        replica_chunk_table.columns.extend(
+            [
+                # Status of the chunk export process (e.g. pending, exported,
+                # skipped).
+                schema_model.Column(
+                    name="status",
+                    id=f"#{table_name}.status",
+                    datatype=felis.datamodel.DataType.string,
+                ),
+                # Local directory where the chunk data is stored for export.
+                schema_model.Column(
+                    name="directory",
+                    id=f"#{table_name}.directory",
+                    datatype=felis.datamodel.DataType.string,
+                    nullable=True,  # We might want to allow NULL if an error occurs when exporting.
+                ),
+                # URI of the chunk data in GCS after it has been uploaded.
+                # This is not a full object path but a prefix ("directory")
+                # under which the manifest and parquet files for the chunk
+                # are located.
+                schema_model.Column(
+                    name="gcs_uri",
+                    id=f"#{table_name}.gcs_uri",
+                    datatype=felis.datamodel.DataType.string,
+                    nullable=True,
+                ),
+                # Count of update records included in the chunk.
+                schema_model.Column(
+                    name="update_count",
+                    id=f"#{table_name}.update_count",
+                    datatype=felis.datamodel.DataType.int,
+                    nullable=False,
+                ),
+            ]
         )
-        parquet_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
-        update_records.write_parquet_file(parquet_path)
+        return replica_chunk_table
 
-        _LOG.info(
-            "Saved %d update records for %s to %s",
-            len(update_records.records),
-            replica_chunk.id,
-            parquet_path,
+    # ----------------------------------------------------------------------
+    # Public API -- chunk lifecycle (store)
+    # ----------------------------------------------------------------------
+
+    def store(
+        self,
+        replica_chunk: ReplicaChunk,
+        objects: ApdbTableData,
+        sources: ApdbTableData,
+        forced_sources: ApdbTableData,
+        update_records: Collection[ApdbUpdateRecord],
+        *,
+        update: bool = False,
+    ) -> None:
+        # Docstring is inherited.
+        _LOG.info("Processing %s", replica_chunk.id)
+
+        try:
+            chunk_dir = self._create_chunk_dir(replica_chunk)
+
+            if update_records:
+                self._handle_updates(replica_chunk, update_records, chunk_dir)
+
+            table_dict = {
+                ApdbTables.DiaObject.value: objects,
+                ApdbTables.DiaSource.value: sources,
+                ApdbTables.DiaForcedSource.value: forced_sources,
+            }
+
+            # Loop over the table data and write each table to a Parquet file.
+            for table_name, table_data in table_dict.items():
+                if not table_data.rows():
+                    _LOG.debug("No data for %s in %s, skipping export", table_name, replica_chunk.id)
+                    continue
+                parquet_file_path = chunk_dir / f"{table_name}.parquet"
+                try:
+                    with Timer(
+                        "write_parquet_time", _MON, tags={"table": table_name, "path": str(parquet_file_path)}
+                    ) as timer:
+                        row_count = write_parquet(
+                            table_name,
+                            table_data,
+                            parquet_file_path,
+                            batch_size=self.config.parq_batch_size,
+                            compression_format=self.config.parq_compression,
+                            exclude_columns={"apdb_replica_subchunk"},
+                        )
+                        timer.add_values(row_count=row_count)
+                    _LOG.info("Wrote %s with %d rows to %s", table_name, row_count, parquet_file_path)
+                except Exception:
+                    _LOG.exception("Failed to write %s", table_name)
+                    raise
+
+            # Create manifest for the replica chunk.
+            try:
+                manifest = self._generate_manifest(replica_chunk, table_dict, update_records)
+                _LOG.info("Generated manifest for %s: %s", replica_chunk.id, manifest.model_dump_json())
+            except Exception:
+                _LOG.exception("Failed to generate manifest for %d", replica_chunk.id)
+                raise
+
+            # Write manifest data to a JSON file.
+            try:
+                manifest.write_json_file(chunk_dir)
+            except Exception:
+                _LOG.exception("Failed to write manifest file for %d to %s", replica_chunk.id, chunk_dir)
+                raise
+        except Exception:
+            _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
+            raise
+
+        if manifest.is_empty_chunk():
+            # Mark as skipped if there is no data to export.
+            status = ChunkStatus.SKIPPED
+            _LOG.warning("No data to export for %s, marking chunk as skipped", replica_chunk.id)
+        else:
+            status = ChunkStatus.EXPORTED
+
+        # Store the replica chunk info in the database, including status,
+        # directory, and update count.
+        replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(
+            replica_chunk, status, chunk_dir, len(update_records)
         )
+        try:
+            self.insert_chunks([replica_chunk_ext])
+        except Exception as e:
+            _LOG.exception("Failed to store replica chunk info in database for %s", replica_chunk.id)
+            raise e
+
+        _LOG.info("Done processing %s", replica_chunk.id)
+
+    # ----------------------------------------------------------------------
+    # Public API -- chunk queries
+    # ----------------------------------------------------------------------
+
+    def get_replica_chunks(self, start_chunk_id: int | None = None) -> Sequence[PpdbReplicaChunk] | None:
+        # Docstring is inherited.
+        where_clauses: list[sqlalchemy.ColumnElement] = []
+        if start_chunk_id is not None:
+            where_clauses.append(self.chunk_table.columns["apdb_replica_chunk"] >= start_chunk_id)
+        return self.query_chunks(*where_clauses, order_by=self.chunk_table.columns["last_update_time"])
+
+    def query_chunks(
+        self,
+        *where_clauses: sqlalchemy.ColumnElement,
+        order_by: sqlalchemy.ColumnElement | None = None,
+    ) -> list[PpdbReplicaChunkExtended]:
+        """Query the ``PpdbReplicaChunk`` table with arbitrary filters.
+
+        Parameters
+        ----------
+        *where_clauses
+            SQLAlchemy column expressions to use as WHERE filters. Each
+            expression is applied with AND semantics.
+        order_by
+            Column expression to order results by. Defaults to
+            ``apdb_replica_chunk`` if not provided.
+
+        Returns
+        -------
+        `list` [ `PpdbReplicaChunkExtended` ]
+            List of matching chunks.
+        """
+        if order_by is None:
+            order_by = self.chunk_table.columns["apdb_replica_chunk"]
+        query = sqlalchemy.sql.select(self.chunk_table).order_by(order_by)
+        for clause in where_clauses:
+            query = query.where(clause)
+        chunks: list[PpdbReplicaChunkExtended] = []
+        with self._engine.connect() as conn:
+            result = conn.execution_options(stream_results=True, max_row_buffer=10000).execute(query)
+            for row in result.mappings():
+                chunks.append(
+                    PpdbReplicaChunkExtended(
+                        id=row["apdb_replica_chunk"],
+                        last_update_time=astropy.time.Time(
+                            row["last_update_time"], format="datetime", scale="tai"
+                        ),
+                        unique_id=row["unique_id"],
+                        replica_time=astropy.time.Time(row["replica_time"], format="datetime", scale="tai"),
+                        status=ChunkStatus(row["status"]),
+                        directory=Path(row["directory"]),
+                        gcs_uri=row["gcs_uri"],
+                        update_count=row["update_count"],
+                    )
+                )
+        return chunks
 
     def get_promotable_chunks(self) -> list[PpdbReplicaChunkExtended]:
         """Return the first uninterrupted sequence of staged chunks such that
@@ -764,3 +625,189 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             else:
                 break
         return promotable
+
+    # ----------------------------------------------------------------------
+    # Public API -- chunk mutations
+    # ----------------------------------------------------------------------
+
+    def insert_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
+        """Insert one or more new replica chunks into the
+        ``PpdbReplicaChunk`` table.
+
+        Parameters
+        ----------
+        chunks
+            Replica chunks to insert.
+
+        Raises
+        ------
+        ValueError
+            Raised if ``chunks`` is empty.
+        `sqlalchemy.exc.IntegrityError`
+            Raised if any chunk already exists in the table.
+        """
+        if not chunks:
+            raise ValueError("chunks must not be empty")
+        table = self.chunk_table
+        with self._engine.begin() as connection:
+            connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
+
+    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> None:
+        """Update one or more existing replica chunks in the
+        ``PpdbReplicaChunk`` table.
+
+        Parameters
+        ----------
+        chunks
+            Replica chunks with updated values. Each chunk must already
+            exist in the table.
+        fields
+            Set of field names to update. Only ``"status"`` and
+            ``"gcs_uri"`` are allowed.
+
+        Raises
+        ------
+        ValueError
+            Raised if ``fields`` is empty or contains invalid field names,
+            or if ``chunks`` is empty.
+        LookupError
+            Raised if any chunk does not exist in the table.
+        """
+        if not chunks:
+            raise ValueError("chunks must not be empty")
+        if not fields:
+            raise ValueError("fields must not be empty")
+        invalid = fields - self._UPDATABLE_FIELDS
+        if invalid:
+            raise ValueError(f"Invalid fields for update: {invalid}. Allowed: {self._UPDATABLE_FIELDS}")
+        table = self.chunk_table
+        with self._engine.begin() as connection:
+            for chunk in chunks:
+                row = chunk.to_row()
+                result = connection.execute(
+                    table.update()
+                    .where(table.c.apdb_replica_chunk == chunk.id)
+                    .values(**{k: v for k, v in row.items() if k in fields})
+                )
+                if result.rowcount == 0:
+                    raise LookupError(f"Cannot update chunk {chunk.id}: row does not exist")
+
+    # ----------------------------------------------------------------------
+    # Private helpers
+    # ----------------------------------------------------------------------
+
+    @classmethod
+    def _make_password_provider(cls, project_id: str) -> PasswordProvider | None:
+        """Build a password provider from the environment, if configured.
+
+        Parameters
+        ----------
+        project_id
+            Unique identifier of the Google Cloud project with the secrets
+            manager.
+
+        Returns
+        -------
+        PasswordProvider
+            The password provider for the cloud environment.
+        """
+        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
+            _LOG.info("Using Secret Manager to retrieve database password")
+            return _SecretManagerPasswordProvider(project_id)
+        return None
+
+    def _generate_manifest(
+        self,
+        replica_chunk: ReplicaChunk,
+        table_dict: dict[str, ApdbTableData],
+        update_records: Collection[ApdbUpdateRecord],
+    ) -> Manifest:
+        """Generate the manifest data for the replica chunk.
+
+        Parameters
+        ----------
+        replica_chunk
+            The replica chunk for which to generate the manifest.
+        table_dict
+            Dictionary mapping table names to their corresponding data for the
+            chunk.
+        update_records
+            Collection of update records included in the chunk.
+
+        Returns
+        -------
+        Manifest
+            The manifest created from the input data.
+        """
+        return Manifest(
+            replica_chunk_id=str(replica_chunk.id),
+            unique_id=replica_chunk.unique_id,
+            schema_version=str(self.schema_version),
+            exported_at=datetime.datetime.now(datetime.UTC),
+            last_update_time=str(replica_chunk.last_update_time),  # TAI value
+            table_data={
+                table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
+            },
+            compression_format=self.config.parq_compression,
+            update_count=len(update_records),
+        )
+
+    def _create_chunk_dir(self, chunk: ReplicaChunk) -> Path:
+        """Create the directory for the replica chunk based on its last update
+        time and ID.
+
+        Parameters
+        ----------
+        chunk
+            The replica chunk for which to create the directory.
+
+        Returns
+        -------
+        `pathlib.Path`
+            Path to the created directory for the replica chunk.
+        """
+        last_update_time = chunk.last_update_time.to_datetime()
+        assert isinstance(last_update_time, datetime.datetime)
+        chunk_dir = Path(
+            self.config.replication_path,
+            chunk.last_update_time.strftime("%Y/%m/%d"),
+            str(chunk.id),
+        )
+        if chunk_dir.exists():
+            if not self.config.delete_existing_dirs:
+                raise FileExistsError(f"Directory already exists for {chunk.id}: {chunk_dir}")
+            _LOG.warning("Overwriting existing directory for %s: %s", chunk.id, chunk_dir)
+            shutil.rmtree(chunk_dir)
+
+        chunk_dir.mkdir(parents=True)
+        _LOG.info("Created directory for %s: %s", chunk.id, chunk_dir)
+
+        return chunk_dir
+
+    def _handle_updates(
+        self, replica_chunk: ReplicaChunk, apdb_update_records: Collection[ApdbUpdateRecord], chunk_dir: Path
+    ) -> None:
+        """Handle updates to existing records in the PPDB by writing a parquet
+        file with the update information for the replica chunk.
+
+        Parameters
+        ----------
+        replica_chunk
+            The replica chunk associated with the updates.
+        apdb_update_records
+            Collection of update records to process.
+        chunk_dir
+            The directory containing the chunk's data.
+        """
+        update_records = UpdateRecords(
+            records=list(apdb_update_records),
+        )
+        parquet_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
+        update_records.write_parquet_file(parquet_path)
+
+        _LOG.info(
+            "Saved %d update records for %s to %s",
+            len(update_records.records),
+            replica_chunk.id,
+            parquet_path,
+        )
