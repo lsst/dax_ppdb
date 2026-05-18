@@ -37,6 +37,7 @@ from lsst.dax.apdb import ApdbTables
 from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .query_runner import QueryRunner
+from .sql_resource import SqlResource
 from .table_refs import TableRefs
 from .updates.updates_manager import UpdatesManager
 
@@ -137,6 +138,9 @@ class ChunkPromoter:
             # Copy prod tables to temp tables and insert staged data.
             self._copy_to_promoted_tmp()
 
+            # Fill in validityEndMjdTai for DiaObjects in the temp table.
+            self._fill_diaobject_validity_end()
+
             # Apply record updates to the temp tables.
             self._apply_record_updates()
 
@@ -211,6 +215,39 @@ class ChunkPromoter:
         # entirely if there are no updates, so we don't need to check that
         # here.
         updates_manager.apply_updates(self.promotable_chunks)
+
+    def _fill_diaobject_validity_end(self) -> None:
+        """Fill null ``validityEndMjdTai`` values for promoted DiaObject
+        records.
+        """
+        job_name = "fill_diaobject_validity_end"
+
+        target_table = self._table_refs.promoted_tmp_format.format(ApdbTables.DiaObject.value)
+        target_table_fqn = f"{self.config.dataset_id}.{target_table}"
+
+        staging_table = self._table_refs.staging_format.format(ApdbTables.DiaObject.value)
+        staging_table_fqn = f"{self.config.dataset_id}.{staging_table}"
+
+        sql = SqlResource(
+            job_name,
+            format_args={
+                "target_table": target_table_fqn,
+                "staging_table": staging_table_fqn,
+            },
+        ).sql
+        job = self._runner.run_job(job_name, sql)
+
+        # Log the number of number of rows updated.
+        dml_stats = job.dml_stats
+        if dml_stats:
+            updated = dml_stats.updated_row_count
+            logging.info(
+                "Finished job '%s' with %d rows updated",
+                job_name,
+                updated,
+            )
+        else:
+            logging.warning("Finished job '%s' but DML stats are not available", job_name)
 
     def _promote_tmp_to_prod(self) -> None:
         """Swap each prod table with its corresponding *_promoted_tmp by
