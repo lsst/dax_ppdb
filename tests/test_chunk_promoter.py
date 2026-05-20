@@ -37,6 +37,7 @@ from lsst.dax.ppdb.bigquery import (
     PpdbReplicaChunkExtended,
     TableRefs,
 )
+from lsst.dax.ppdb.bigquery.sql_resource import SqlResource
 from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecordExpander, UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import fill_apdb
@@ -327,6 +328,219 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         promoter = ChunkPromoter(self.ppdb)
         with self.assertRaises(NoPromotableChunksError):
             promoter.promote_chunks([])
+
+
+@unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
+class FillValidityEndTestCase(unittest.TestCase):
+    """Test the fill_diaobject_validity_end SQL MERGE logic in isolation.
+
+    Creates minimal BigQuery tables with controlled DiaObject data and
+    verifies that validityEndMjdTai is filled correctly across various
+    scenarios.
+    """
+
+    def setUp(self):
+        self.bq_client = bigquery.Client()
+        self.project_id = self.bq_client.project
+        self.dataset_id = f"test_fill_validity_end_{uuid.uuid4().hex[:8]}"
+        self.dataset_fqn = f"{self.project_id}.{self.dataset_id}"
+
+        # Create the dataset.
+        dataset = bigquery.Dataset(self.dataset_fqn)
+        self.bq_client.create_dataset(dataset, exists_ok=False)
+
+        # Table FQNs matching the format used by ChunkPromoter.
+        self.target_table = f"{self.dataset_id}._DiaObject_promoted_tmp"
+        self.staging_table = f"{self.dataset_id}._DiaObject_staging"
+        self.target_fqn = f"{self.project_id}.{self.target_table}"
+        self.staging_fqn = f"{self.project_id}.{self.staging_table}"
+
+        # Create target table (promoted_tmp).
+        self.bq_client.query(
+            f"""
+            CREATE TABLE `{self.target_fqn}` (
+                diaObjectId INT64,
+                validityStartMjdTai FLOAT64,
+                validityEndMjdTai FLOAT64
+            )
+            """
+        ).result()
+
+        # Create staging table.
+        self.bq_client.query(
+            f"""
+            CREATE TABLE `{self.staging_fqn}` (
+                diaObjectId INT64,
+                validityStartMjdTai FLOAT64,
+                validityEndMjdTai FLOAT64,
+                apdb_replica_chunk INT64
+            )
+            """
+        ).result()
+
+    def tearDown(self):
+        self.bq_client.delete_dataset(self.dataset_id, delete_contents=True, not_found_ok=True)
+
+    def _insert_target_rows(self, rows: list[tuple]) -> None:
+        """Insert rows into the target table.
+
+        Each row is (diaObjectId, validityStartMjdTai, validityEndMjdTai).
+        """
+        if not rows:
+            return
+        values = ", ".join(f"({r[0]}, {r[1]}, {'NULL' if r[2] is None else r[2]})" for r in rows)
+        self.bq_client.query(
+            f"INSERT INTO `{self.target_fqn}` (diaObjectId, validityStartMjdTai, validityEndMjdTai) "
+            f"VALUES {values}"
+        ).result()
+
+    def _insert_staging_rows(self, rows: list[tuple]) -> None:
+        """Insert rows into the staging table.
+
+        Each row is (diaObjectId, validityStartMjdTai, validityEndMjdTai,
+        apdb_replica_chunk).
+        """
+        if not rows:
+            return
+        values = ", ".join(f"({r[0]}, {r[1]}, {'NULL' if r[2] is None else r[2]}, {r[3]})" for r in rows)
+        self.bq_client.query(
+            f"INSERT INTO `{self.staging_fqn}` "
+            f"(diaObjectId, validityStartMjdTai, validityEndMjdTai, apdb_replica_chunk) "
+            f"VALUES {values}"
+        ).result()
+
+    def _run_fill(self) -> None:
+        """Execute the fill_diaobject_validity_end SQL."""
+        sql = SqlResource(
+            "fill_diaobject_validity_end",
+            format_args={
+                "target_table": self.target_table,
+                "staging_table": self.staging_table,
+            },
+        ).sql
+        self.bq_client.query(sql).result()
+
+    def _get_target_rows(self) -> list[dict]:
+        """Query target table rows sorted by
+        (diaObjectId, validityStartMjdTai).
+        """
+        rows = self.bq_client.query(
+            f"SELECT diaObjectId, validityStartMjdTai, validityEndMjdTai "
+            f"FROM `{self.target_fqn}` ORDER BY diaObjectId, validityStartMjdTai"
+        ).result()
+        return [dict(row) for row in rows]
+
+    def test_noop_all_end_times_set(self) -> None:
+        """No rows are updated when all validityEndMjdTai values are already
+        set.
+        """
+        self._insert_target_rows(
+            [
+                (1, 1.0, 2.0),
+                (1, 2.0, 3.0),
+                (1, 3.0, 4.0),
+            ]
+        )
+        self._insert_staging_rows([(1, 3.0, None, 100)])
+        self._run_fill()
+
+        rows = self._get_target_rows()
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["validityEndMjdTai"], 2.0)
+        self.assertEqual(rows[1]["validityEndMjdTai"], 3.0)
+        self.assertEqual(rows[2]["validityEndMjdTai"], 4.0)
+
+    def test_base_case_fills_chain(self) -> None:
+        """NULL validityEndMjdTai values are filled from the next version's
+        start time. The last version stays NULL (no successor).
+        """
+        self._insert_target_rows(
+            [
+                (1, 1.0, None),
+                (1, 2.0, None),
+                (1, 3.0, None),
+            ]
+        )
+        self._insert_staging_rows([(1, 3.0, None, 100)])
+        self._run_fill()
+
+        rows = self._get_target_rows()
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["validityEndMjdTai"], 2.0)
+        self.assertEqual(rows[1]["validityEndMjdTai"], 3.0)
+        self.assertIsNone(rows[2]["validityEndMjdTai"])
+
+    def test_gaps_preserves_existing(self) -> None:
+        """Already-set validityEndMjdTai values are preserved even when they
+        differ from what LEAD() would compute.
+        """
+        self._insert_target_rows(
+            [
+                (1, 1.0, None),
+                (1, 2.0, 2.5),  # Explicitly set to 2.5, not 3.0
+                (1, 3.0, None),
+                (1, 4.0, 4.5),  # Explicitly set to 4.5
+            ]
+        )
+        self._insert_staging_rows([(1, 3.0, None, 100)])
+        self._run_fill()
+
+        rows = self._get_target_rows()
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[0]["validityEndMjdTai"], 2.0)  # Filled: LEAD gives 2.0
+        self.assertEqual(rows[1]["validityEndMjdTai"], 2.5)  # Preserved
+        self.assertEqual(rows[2]["validityEndMjdTai"], 4.0)  # Filled: LEAD gives 4.0
+        self.assertEqual(rows[3]["validityEndMjdTai"], 4.5)  # Preserved
+
+    def test_multiple_objects_independent(self) -> None:
+        """Multiple diaObjectIds are filled independently (PARTITION BY)."""
+        self._insert_target_rows(
+            [
+                (1, 1.0, None),
+                (1, 2.0, None),
+                (2, 10.0, None),
+                (2, 20.0, None),
+            ]
+        )
+        self._insert_staging_rows(
+            [
+                (1, 2.0, None, 100),
+                (2, 20.0, None, 100),
+            ]
+        )
+        self._run_fill()
+
+        rows = self._get_target_rows()
+        self.assertEqual(len(rows), 4)
+        # Object 1
+        self.assertEqual(rows[0]["validityEndMjdTai"], 2.0)
+        self.assertIsNone(rows[1]["validityEndMjdTai"])
+        # Object 2
+        self.assertEqual(rows[2]["validityEndMjdTai"], 20.0)
+        self.assertIsNone(rows[3]["validityEndMjdTai"])
+
+    def test_staging_filter_only_touches_staged_objects(self) -> None:
+        """Only DiaObjects present in the staging table are updated."""
+        self._insert_target_rows(
+            [
+                (1, 1.0, None),
+                (1, 2.0, None),
+                (2, 10.0, None),
+                (2, 20.0, None),
+            ]
+        )
+        # Only object 1 is in staging.
+        self._insert_staging_rows([(1, 2.0, None, 100)])
+        self._run_fill()
+
+        rows = self._get_target_rows()
+        self.assertEqual(len(rows), 4)
+        # Object 1: filled
+        self.assertEqual(rows[0]["validityEndMjdTai"], 2.0)
+        self.assertIsNone(rows[1]["validityEndMjdTai"])
+        # Object 2: untouched
+        self.assertIsNone(rows[2]["validityEndMjdTai"])
+        self.assertIsNone(rows[3]["validityEndMjdTai"])
 
 
 if __name__ == "__main__":
