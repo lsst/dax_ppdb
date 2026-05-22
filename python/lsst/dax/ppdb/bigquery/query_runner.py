@@ -27,6 +27,7 @@ __all__ = [
 
 import logging
 
+from google.api_core.exceptions import GoogleAPICallError
 from google.cloud import bigquery
 
 
@@ -125,8 +126,18 @@ class QueryRunner:
         """
         job = self._bq_client.query(sql, job_config=job_config, location=self.dataset.location)
 
-        # Wait for the job to complete.
-        job.result()
+        try:
+            # Wait for the job to complete.
+            job.result()
+        except GoogleAPICallError as e:
+            logging.error(
+                "BQ '%s' failed: job_id=%s error=%s sql=%s",
+                label,
+                job.job_id,
+                e.message,
+                sql,
+            )
+            raise
 
         # Log the job details.
         self.log_job(job, label)
