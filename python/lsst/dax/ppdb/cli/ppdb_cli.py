@@ -24,6 +24,7 @@ from __future__ import annotations
 __all__ = ["main"]
 
 import argparse
+from collections.abc import Sequence
 
 from lsst.dax.apdb.cli.logging_cli import LoggingCli
 
@@ -31,16 +32,23 @@ from .. import scripts
 from . import options
 
 
-def main() -> None:
-    """PPDB command line tools."""
+def main(argv: Sequence[str] | None = None) -> None:
+    """PPDB command line tools.
+
+    Parameters
+    ----------
+    argv
+        Command line arguments to parse. If `None`, ``sys.argv[1:]`` is used.
+    """
     parser = argparse.ArgumentParser(description="PPDB command line tools")
     log_cli = LoggingCli(parser)
 
     subparsers = parser.add_subparsers(title="available subcommands", required=True)
     _create_sql_subcommand(subparsers)
     _create_bigquery(subparsers)
+    _create_datasets(subparsers)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     log_cli.process_args(args)
 
     kwargs = vars(args)
@@ -77,3 +85,30 @@ def _create_bigquery(subparsers: argparse._SubParsersAction) -> None:
     options.felis_schema_options(parser)
     options.bigquery_options(parser)
     parser.set_defaults(method=scripts.create_bigquery)
+
+
+def _create_datasets(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "create-datasets", help="Create one or more BigQuery datasets for the PPDB from a Felis schema file."
+    )
+    parser.add_argument("config", help="URI to the PPDB configuration file.")
+    parser.add_argument(
+        "--exists-ok",
+        help="Do not fail if a BigQuery dataset, table, or view already exists; skip creating it.",
+        default=False,
+        action="store_true",
+    )
+    parser.add_argument(
+        "--configure-authorized-views",
+        help="Configure internal dataset access entries for public authorized views after build.",
+        default=False,
+        action="store_true",
+    )
+    parser.add_argument(
+        "--disable-search-indexes",
+        help="Skip creating BigQuery search indexes for the datasets.",
+        default=False,
+        action="store_true",
+    )
+
+    parser.set_defaults(method=scripts.create_datasets)

@@ -1,3 +1,4 @@
+"""Miscellaneous utilities for BigQuery integration tests."""
 # This file is part of dax_ppdb.
 #
 # Developed for the LSST Data Management System.
@@ -23,6 +24,7 @@ import gc
 import io
 import json
 import logging
+import os
 import shutil
 import tempfile
 import uuid
@@ -46,6 +48,18 @@ try:
     import testing.postgresql
 except ImportError:
     testing = None
+
+__all__ = [
+    "TEST_CONFIG",
+    "ChunkUploaderWithoutPubSub",
+    "PostgresMixin",
+    "SqliteMixin",
+    "delete_test_bucket",
+    "generate_test_bucket_name",
+    "have_valid_google_credentials",
+    "json_rows_to_buf",
+    "search_indexes_enabled",
+]
 
 _LOG = logging.getLogger(__name__)
 
@@ -226,3 +240,11 @@ def have_valid_google_credentials() -> bool:
     credentials.refresh(Request())
 
     return True
+
+
+def search_indexes_enabled() -> bool:
+    """Check if search index creation is enabled for tests."""
+    return os.getenv(
+        "DAX_PPDB_TESTS_SEARCH_INDEXES_ENABLED",
+        "",
+    ).strip().lower() in {"1", "true", "yes", "on"}
