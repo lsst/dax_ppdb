@@ -79,7 +79,8 @@ def ppdb_from_config(config: PpdbConfig) -> Ppdb:
     TypeError
         Raised if ``config`` is not of a known type.
     """
-    from .bigquery import PpdbBigQuery, PpdbBigQueryConfig
+    from .bigquery import PpdbBigQuery
+    from .bigquery.ppdb_bigquery_config import PpdbBigQueryConfig
     from .sql import PpdbSql, PpdbSqlConfig
 
     # Instantiate appropriate subclass of Ppdb based on type of config object.

@@ -34,7 +34,8 @@ from google.cloud import bigquery
 
 from lsst.dax.apdb import ApdbTables
 
-from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
+from .ppdb_bigquery import PpdbBigQuery
+from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .query_runner import QueryRunner
 from .sql_resource import SqlResource

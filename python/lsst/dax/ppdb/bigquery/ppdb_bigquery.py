@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["ConfigValidationError", "PpdbBigQuery", "PpdbBigQueryConfig"]
+__all__ = ["ConfigValidationError", "PpdbBigQuery"]
 
 import datetime
 import logging
@@ -49,9 +49,9 @@ from lsst.dax.apdb.timer import Timer
 
 from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
-from ..ppdb_config import PpdbConfig
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, TableStats
+from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
 
@@ -64,53 +64,6 @@ VERSION = VersionTuple(0, 1, 0)
 """Version for the code defined in this module. This needs to be updated
 (following compatibility rules) when schema produced by this code changes.
 """
-
-
-class PpdbBigQueryConfig(PpdbConfig):
-    """Configuration for BigQuery-based PPDB."""
-
-    project_id: str
-    """Google Cloud project ID."""
-
-    dataset_id: str
-    """Target BigQuery dataset ID, without the project."""
-
-    bucket_name: str
-    """Name of Google Cloud Storage bucket for uploading chunks."""
-
-    object_prefix: str
-    """Base prefix for the object in cloud storage."""
-
-    replication_dir: str
-    """Directory where the exported chunks will be stored."""
-
-    stage_chunk_topic: str = "stage-chunk-topic"
-    """Pub/Sub topic name for triggering chunk staging process."""
-
-    parq_batch_size: int = 10000
-    """Number of rows to process in each batch when writing parquet files."""
-
-    parq_compression: str = "snappy"
-    """Compression format for Parquet files."""
-
-    delete_existing_dirs: bool = False
-    """If `True`, existing directories for chunks will be deleted before
-    export. If `False`, an error will be raised if the directory already
-    exists.
-    """
-
-    sql: PpdbSqlBaseConfig
-    """SQL database configuration (`~lsst.dax.ppdb.sql.PpdbSqlBaseConfig`)."""
-
-    @property
-    def replication_path(self) -> Path:
-        """Return path for writing replica chunk data (`pathlib.Path`)."""
-        return Path(self.replication_dir)
-
-    @property
-    def fq_dataset_id(self) -> str:
-        """Fully qualified BigQuery dataset ID, including project (`str`)."""
-        return f"{self.project_id}:{self.dataset_id}"
 
 
 class _SecretManagerPasswordProvider(PasswordProvider):

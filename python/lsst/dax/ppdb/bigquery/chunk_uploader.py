@@ -35,7 +35,8 @@ from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
 from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from .manifest import Manifest
-from .ppdb_bigquery import PpdbBigQuery, PpdbBigQueryConfig
+from .ppdb_bigquery import PpdbBigQuery
+from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
 
