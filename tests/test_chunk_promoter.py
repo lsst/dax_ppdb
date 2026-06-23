@@ -124,12 +124,13 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         # are not attempting to test that functionality here and the parquet
         # files do not need to be uploaded for the test.
         for chunk in self.ppdb.query_chunks():
-            manifest = Manifest.from_json_file(chunk.manifest_path)
+            chunk_dir = self.ppdb.config.chunk_dir(chunk.id)
+            manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
             status = ChunkStatus.UPLOADED if manifest.has_table_data() else ChunkStatus.STAGED
             gcs_prefix = f"data/test/{chunk.id}"
             gcs_uri = f"gs://{bucket_name}/{gcs_prefix}"
 
-            update_records_path = chunk.directory / UpdateRecords.PARQUET_FILE_NAME
+            update_records_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
             if update_records_path.exists():
                 blob = self._bucket.blob(f"{gcs_prefix}/{UpdateRecords.PARQUET_FILE_NAME}")
                 blob.upload_from_filename(str(update_records_path))
@@ -175,7 +176,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         and then truncating them. This gives BigQuery the correct schema.
         """
         for table_name, prod_ref in zip(_TABLE_NAMES, self._table_refs.prod, strict=True):
-            parquet_path = chunk.directory / f"{table_name}.parquet"
+            parquet_path = self.ppdb.config.chunk_dir(chunk.id) / f"{table_name}.parquet"
             if parquet_path.exists():
                 self._load_parquet_to_table(parquet_path, prod_ref)
                 self.bq_client.query(f"TRUNCATE TABLE `{prod_ref}`").result()
@@ -186,7 +187,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         This mocks the cloud function which stages the data using Dataflow.
         """
         for table_name, staging_ref in zip(_TABLE_NAMES, self._table_refs.staging, strict=True):
-            parquet_path = chunk.directory / f"{table_name}.parquet"
+            parquet_path = self.ppdb.config.chunk_dir(chunk.id) / f"{table_name}.parquet"
             if parquet_path.exists():
                 self._load_parquet_to_table(parquet_path, staging_ref)
                 self.bq_client.query(
@@ -214,7 +215,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         """Read update records from chunk parquet files and expand them."""
         expanded: list[ExpandedUpdateRecord] = []
         for chunk in self.ppdb.query_chunks():
-            update_path = chunk.directory / UpdateRecords.PARQUET_FILE_NAME
+            update_path = self.ppdb.config.chunk_dir(chunk.id) / UpdateRecords.PARQUET_FILE_NAME
             if update_path.exists():
                 update_records = UpdateRecords.from_parquet_file(update_path)
                 expanded.extend(UpdateRecordExpander.expand_updates(update_records, chunk.id))

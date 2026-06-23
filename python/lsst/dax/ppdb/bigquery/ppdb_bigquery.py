@@ -348,7 +348,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     @classmethod
     def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
         """Create the ``PpdbReplicaChunk`` table with additional fields for
-        status and directory.
+        replication tracking.
 
         Parameters
         ----------
@@ -359,7 +359,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         Notes
         -----
         This overrides the base method to add additional columns for
-        ``status`` and ``directory`` to the replica chunk table schema.
+        ``status``, ``gcs_uri``, and ``update_count`` to the replica chunk
+        table schema.
         """
         replica_chunk_table = super().create_replica_chunk_table(table_name)
         replica_chunk_table.columns.extend(
@@ -370,13 +371,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                     name="status",
                     id=f"#{table_name}.status",
                     datatype=felis.datamodel.DataType.string,
-                ),
-                # Local directory where the chunk data is stored for export.
-                schema_model.Column(
-                    name="directory",
-                    id=f"#{table_name}.directory",
-                    datatype=felis.datamodel.DataType.string,
-                    nullable=True,  # We might want to allow NULL if an error occurs when exporting.
                 ),
                 # URI of the chunk data in GCS after it has been uploaded.
                 # This is not a full object path but a prefix ("directory")
@@ -478,9 +472,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             status = ChunkStatus.EXPORTED
 
         # Store the replica chunk info in the database, including status,
-        # directory, and update count.
+        # GCS URI, and update count.
         replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(
-            replica_chunk, status, chunk_dir, len(update_records)
+            replica_chunk, status, len(update_records)
         )
         try:
             self.insert_chunks([replica_chunk_ext])
@@ -540,7 +534,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         unique_id=row["unique_id"],
                         replica_time=astropy.time.Time(row["replica_time"], format="datetime", scale="tai"),
                         status=ChunkStatus(row["status"]),
-                        directory=Path(row["directory"]),
                         gcs_uri=row["gcs_uri"],
                         update_count=row["update_count"],
                     )
@@ -718,10 +711,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         `pathlib.Path`
             Path to the created directory for the replica chunk.
         """
-        chunk_dir = Path(
-            self.config.replication_path,
-            str(chunk.id),
-        )
+        chunk_dir = self.config.chunk_dir(chunk.id)
         if chunk_dir.exists():
             if not self.config.delete_existing_dirs:
                 raise FileExistsError(f"Directory already exists for {chunk.id}: {chunk_dir}")

@@ -183,7 +183,7 @@ class ChunkUploader:
         Parameters
         ----------
         replica_chunk
-            The replica chunk to process, which includes its ID and directory.
+            The replica chunk to process.
 
         Raises
         ------
@@ -193,9 +193,9 @@ class ChunkUploader:
         """
         chunk_id = replica_chunk.id
 
-        # Determine the local chunk directory from the chunk ID rather than
-        # reading it from the database.
-        chunk_dir = self.config.replication_path / str(chunk_id)
+        # Determine the local directory where the chunk's parquet files and
+        # manifest are stored.
+        chunk_dir = self.config.chunk_dir(chunk_id)
         manifest_path = chunk_dir / Manifest.FILE_NAME
 
         # Read the manifest file to get metadata about the chunk.
