@@ -22,6 +22,7 @@
 import unittest
 import uuid
 from collections.abc import Collection, Sequence
+from unittest.mock import patch
 
 import astropy
 import felis
@@ -33,9 +34,9 @@ from lsst.dax.apdb import (
 )
 from lsst.dax.ppdb import Ppdb
 from lsst.dax.ppdb.bigquery import PpdbBigQuery
+from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.bigquery.updates.updates_manager import UpdatesManager
 from lsst.dax.ppdb.tests._bigquery import (
-    ChunkUploaderWithoutPubSub,
     PostgresMixin,
     generate_test_bucket_name,
     have_valid_google_credentials,
@@ -237,13 +238,14 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         )
 
         # Configure and run the uploader without publishing to Pub/Sub.
-        uploader = ChunkUploaderWithoutPubSub(
-            self.ppdb,
-            wait_interval=0,
-            exit_on_empty=True,
-            exit_on_error=True,
-        )
-        uploader.run()
+        with patch.object(ChunkUploader, "_post_to_stage_chunk_topic"):
+            uploader = ChunkUploader(
+                self.ppdb,
+                wait_interval=0,
+                exit_on_empty=True,
+                exit_on_error=True,
+            )
+            uploader.run()
 
         # Apply the updates to the target tables using the UpdatesManager.
         updates_manager = UpdatesManager(self.ppdb.config)

@@ -21,17 +21,18 @@
 
 import unittest
 from hashlib import sha256
+from unittest.mock import patch
 
 from google.cloud import storage
 
 from lsst.dax.apdb import Apdb, ApdbReplica
 from lsst.dax.ppdb import Ppdb
 from lsst.dax.ppdb.bigquery import Manifest, PpdbBigQuery
+from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.bigquery.updates import UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import fill_apdb
 from lsst.dax.ppdb.tests._bigquery import (
-    ChunkUploaderWithoutPubSub,
     PostgresMixin,
     delete_test_bucket,
     generate_test_bucket_name,
@@ -79,14 +80,17 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         Storage after replication.
         """
         # Configure and run the uploader.
-        uploader = ChunkUploaderWithoutPubSub(
-            self.ppdb,
-            wait_interval=0,
-            exit_on_empty=True,
-            exit_on_error=True,
-        )
-        print(f"Uploader will copy files to {uploader.config.bucket_name}/{uploader.config.object_prefix}/")
-        uploader.run()
+        with patch.object(ChunkUploader, "_post_to_stage_chunk_topic"):
+            uploader = ChunkUploader(
+                self.ppdb,
+                wait_interval=0,
+                exit_on_empty=True,
+                exit_on_error=True,
+            )
+            print(
+                f"Uploader will copy files to {uploader.config.bucket_name}/{uploader.config.object_prefix}/"
+            )
+            uploader.run()
 
         # Retrieve the update records file.
         blobs = list(self._bucket.list_blobs(match_glob="**/update_records.parquet"))
