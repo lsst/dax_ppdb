@@ -184,6 +184,18 @@ class PublicDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
         # same.
         self.assertEqual(len(field_names), len(source_table.columns))
 
+    def test_raises_when_validity_end_missing(self) -> None:
+        """Test that PublicDatasetBuilder raises if the DiaObject table is
+        missing the expected validityEndMjdTai column.
+        """
+        builder = self._make_builder(PublicDatasetBuilder)
+        dia_object_table = self._make_fqn_table(DatasetType.PUBLIC, ApdbTables.DiaObject.value)
+        dia_object_table.schema = [bigquery.SchemaField("diaObjectId", "INT64", mode="REQUIRED")]
+
+        with patch.object(builder._converter, "convert_tables", return_value=[dia_object_table]):
+            with self.assertRaisesRegex(DatasetBuilderError, r"validityEndMjdTai not found"):
+                builder.build_tables()
+
     def test_creates_explicit_views(self) -> None:
         """Test that PublicDatasetBuilder creates explicit views with fully
         qualified columns and proper FROM clauses.

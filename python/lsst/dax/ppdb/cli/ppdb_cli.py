@@ -89,7 +89,7 @@ def _create_bigquery(subparsers: argparse._SubParsersAction) -> None:
 
 def _create_datasets(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
-        "create-datasets", help="Create one or more BigQuery datasets for the PPDB from a Felis schema file."
+        "create-datasets", help="Create BigQuery datasets for the PPDB from a Felis schema file."
     )
     parser.add_argument("config", help="URI to the PPDB configuration file.")
     parser.add_argument(

@@ -104,7 +104,7 @@ class SearchIndexDataType(Enum):
 
 
 class SearchIndexDefinition(BaseModel, frozen=True):
-    """Definition for a search index to create."""
+    """Definition for a search index to create on a BigQuery table."""
 
     table_name: str
     """Name of the table on which to create the search index."""
@@ -124,6 +124,9 @@ class SearchIndexDefinition(BaseModel, frozen=True):
 
 class DatasetBuilder(ABC):
     """Build the BigQuery objects for a specific type of dataset.
+
+    These objects will be used by the `DatasetBuildManager` to create the
+    datasets using the BigQuery client.
 
     Parameters
     ----------
@@ -240,6 +243,7 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
         return tables
 
     def build_search_indexes(self) -> list[SearchIndexDefinition]:
+        """Create search indexes for the internal dataset type."""
         return [
             SearchIndexDefinition(
                 table_name=table_name,
@@ -277,11 +281,11 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
 
         Notes
         -----
-        DiaObject is defined using a table rather than a view, because using
-        ``validityEndMjdTai IS NULL`` as a filter in a plain view definition
-        would be inefficient. A materialized view would be cumbersome, as its
-        references would be invalidated by table swap operations during the
-        promotion process.
+        DiaObject is defined using a table rather than a view in this dataset,
+        because using ``validityEndMjdTai IS NULL`` as a filter in a plain view
+        definition would be inefficient. A materialized view would also be
+        cumbersome, as its references would be invalidated by table swap
+        operations during the promotion process.
         """
         (dia_object_table,) = self._converter.convert_tables(
             [ApdbTables.DiaObject.value],
@@ -290,6 +294,10 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
 
         # Omit the validityEndMjdTai column from the table definition, as it
         # will always be null.
+        if not any(field.name == "validityEndMjdTai" for field in dia_object_table.schema):
+            raise DatasetBuilderError(
+                f"Expected column validityEndMjdTai not found in table {dia_object_table.table_id}."
+            )
         dia_object_table.schema = [
             field for field in dia_object_table.schema if field.name != "validityEndMjdTai"
         ]
