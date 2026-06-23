@@ -706,8 +706,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         )
 
     def _create_chunk_dir(self, chunk: ReplicaChunk) -> Path:
-        """Create the directory for the replica chunk based on its last update
-        time and ID.
+        """Create the directory for the replica chunk based on its ID.
 
         Parameters
         ----------
@@ -719,11 +718,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         `pathlib.Path`
             Path to the created directory for the replica chunk.
         """
-        last_update_time = chunk.last_update_time.to_datetime()
-        assert isinstance(last_update_time, datetime.datetime)
         chunk_dir = Path(
             self.config.replication_path,
-            chunk.last_update_time.strftime("%Y/%m/%d"),
             str(chunk.id),
         )
         if chunk_dir.exists():

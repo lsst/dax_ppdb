@@ -27,7 +27,6 @@ import logging
 import posixpath
 import sys
 import time
-from pathlib import Path
 
 from lsst.dax.apdb import monitor
 from lsst.dax.apdb.timer import Timer
@@ -194,25 +193,24 @@ class ChunkUploader:
         """
         chunk_id = replica_chunk.id
 
-        if replica_chunk.directory is None:
-            raise ChunkUploadError(chunk_id, "No directory specified on replica chunk")
-        chunk_dir = replica_chunk.directory
+        # Determine the local chunk directory from the chunk ID rather than
+        # reading it from the database.
+        chunk_dir = self.config.replication_path / str(chunk_id)
+        manifest_path = chunk_dir / Manifest.FILE_NAME
 
         # Read the manifest file to get metadata about the chunk.
         manifest: Manifest | None = None
         try:
-            if not replica_chunk.manifest_path.exists():
-                raise ChunkUploadError(
-                    chunk_id, f"Manifest file does not exist: {replica_chunk.manifest_path}"
-                )
-            manifest = Manifest.from_json_file(replica_chunk.manifest_path)
+            if not manifest_path.exists():
+                raise ChunkUploadError(chunk_id, f"Manifest file does not exist: {manifest_path}")
+            manifest = Manifest.from_json_file(manifest_path)
         except Exception as e:
             raise ChunkUploadError(chunk_id, f"Failed to read manifest file for: {replica_chunk.id}") from e
 
         # Construct the GCS prefix for this chunk's files.
         gcs_prefix = posixpath.join(
             self.config.object_prefix,
-            f"{manifest.exported_at.strftime('%Y/%m/%d')}/{chunk_id}",
+            str(chunk_id),
         )
 
         # Make a list of local parquet files to upload.
@@ -266,7 +264,7 @@ class ChunkUploader:
             # 2) Upload manifest, even for empty chunks.
             try:
                 self._storage.upload_from_string(
-                    posixpath.join(gcs_prefix, Path(replica_chunk.manifest_path).name),
+                    posixpath.join(gcs_prefix, manifest_path.name),
                     manifest.model_dump_json(),
                 )
             except UploadError as e:

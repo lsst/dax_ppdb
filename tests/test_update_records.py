@@ -67,7 +67,7 @@ class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
         UpdateRecords objects.
         """
         update_records_path = (
-            self.ppdb.config.replication_path / "2021/03/01/1614600000" / "update_records.parquet"
+            self.ppdb.config.replication_path / "1614600000" / "update_records.parquet"
         )
         self.assertTrue(update_records_path.exists(), "Update records file not found in replication output")
 
