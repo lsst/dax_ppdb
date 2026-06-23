@@ -20,6 +20,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
+from hashlib import sha256
 
 from lsst.dax.apdb import (
     Apdb,
@@ -27,7 +28,7 @@ from lsst.dax.apdb import (
     apdbUpdateRecord,
 )
 from lsst.dax.ppdb import Ppdb
-from lsst.dax.ppdb.bigquery import PpdbBigQuery
+from lsst.dax.ppdb.bigquery import Manifest, PpdbBigQuery
 from lsst.dax.ppdb.bigquery.updates import UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import fill_apdb
@@ -66,10 +67,17 @@ class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
         file in the replication output and can be read back as valid
         UpdateRecords objects.
         """
-        update_records_path = (
-            self.ppdb.config.chunk_dir(1614600000) / UpdateRecords.PARQUET_FILE_NAME
-        )
+        update_records_path = (self.ppdb.config.chunk_dir(1614600000) / UpdateRecords.PARQUET_FILE_NAME)
         self.assertTrue(update_records_path.exists(), "Update records file not found in replication output")
+
+        manifest = Manifest.from_json_file(self.ppdb.config.chunk_dir(1614600000) / Manifest.FILE_NAME)
+        file_bytes = update_records_path.read_bytes()
+        expected_checksum = sha256(file_bytes).hexdigest()
+        expected_size = len(file_bytes)
+        self.assertIsNotNone(manifest.updates_data)
+        assert manifest.updates_data is not None
+        self.assertEqual(manifest.updates_data.checksum, expected_checksum)
+        self.assertEqual(manifest.updates_data.size_bytes, expected_size)
 
         update_records = UpdateRecords.from_parquet_file(update_records_path)
 

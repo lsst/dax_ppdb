@@ -75,3 +75,32 @@ class ManifestTestCase(unittest.TestCase):
             },
         )
         self.assertFalse(manifest_non_empty.is_empty_chunk())
+
+    def test_parquet_file_stats_roundtrip(self) -> None:
+        """Test that checksum and size_bytes are preserved through JSON roundtrip."""
+        manifest = Manifest(
+            replica_chunk_id="12345",
+            unique_id="550e8400-e29b-41d4-a716-446655440000",
+            schema_version="1.0",
+            exported_at="2025-12-17 07:03:09.991638+00:00",
+            last_update_time="1765951277.036",
+            compression_format="snappy",
+            table_data={
+                "DiaObject": {"row_count": 10, "checksum": "a" * 64, "size_bytes": 4096},
+                "DiaSource": {"row_count": 1, "checksum": "b" * 64, "size_bytes": 512},
+                "DiaForcedSource": {"row_count": 0, "checksum": None, "size_bytes": None},
+            },
+            update_count=1,
+            updates_data={"row_count": 1, "checksum": "c" * 64, "size_bytes": 256},
+        )
+
+        loaded = Manifest.from_json_str(manifest.model_dump_json())
+        self.assertEqual(loaded.table_data["DiaObject"].checksum, "a" * 64)
+        self.assertEqual(loaded.table_data["DiaObject"].size_bytes, 4096)
+        self.assertEqual(loaded.table_data["DiaSource"].checksum, "b" * 64)
+        self.assertEqual(loaded.table_data["DiaSource"].size_bytes, 512)
+        self.assertIsNone(loaded.table_data["DiaForcedSource"].checksum)
+        self.assertIsNone(loaded.table_data["DiaForcedSource"].size_bytes)
+        assert loaded.updates_data is not None
+        self.assertEqual(loaded.updates_data.checksum, "c" * 64)
+        self.assertEqual(loaded.updates_data.size_bytes, 256)

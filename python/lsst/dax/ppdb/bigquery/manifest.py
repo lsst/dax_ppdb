@@ -21,8 +21,9 @@
 
 from __future__ import annotations
 
-__all__ = ["Manifest", "TableStats"]
+__all__ = ["Manifest", "ParquetFileStats"]
 
+import hashlib
 import json
 import os
 from datetime import UTC, datetime
@@ -38,11 +39,57 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-class TableStats(BaseModel):
-    """Per-table file statistics."""
+class ParquetFileStats(BaseModel):
+    """Per-parquet-file statistics."""
 
     row_count: int = Field(ge=0, description="Non-negative count of rows written for this table.")
     """Number of rows written for this table (must be non-negative)."""
+
+    checksum: str | None = None
+    """SHA-256 checksum for this parquet file, if one was written."""
+
+    size_bytes: int | None = None
+    """Size of this parquet file in bytes, if one was written."""
+
+    @staticmethod
+    def compute_checksum(file_path: Path) -> str | None:
+        """Compute the SHA-256 checksum of a file.
+
+        Parameters
+        ----------
+        file_path
+            Path to the file.
+
+        Returns
+        -------
+        `str` or `None`
+            SHA-256 hex digest, or `None` if the file does not exist.
+        """
+        if not file_path.exists():
+            return None
+        digest = hashlib.sha256()
+        with open(file_path, "rb") as fd:
+            for chunk in iter(lambda: fd.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @staticmethod
+    def compute_size(file_path: Path) -> int | None:
+        """Return the size of a file in bytes.
+
+        Parameters
+        ----------
+        file_path
+            Path to the file.
+
+        Returns
+        -------
+        `int` or `None`
+            File size in bytes, or `None` if the file does not exist.
+        """
+        if not file_path.exists():
+            return None
+        return file_path.stat().st_size
 
 
 class Manifest(BaseModel):
@@ -75,9 +122,12 @@ class Manifest(BaseModel):
     """Source system's last-update timestamp for the replica; TAI value, kept
     as string to avoid any precision issues (`str`)."""
 
-    table_data: dict[str, TableStats]
+    table_data: dict[str, ParquetFileStats]
     """Mapping of table name to per-table statistics
-    (`dict` [`str`, `TableStats`])."""
+    (`dict` [`str`, `ParquetFileStats`])."""
+
+    updates_data: ParquetFileStats | None = None
+    """Statistics for ``update_records.parquet`` when update records exist."""
 
     compression_format: str
     """Name of the compression format used for artifacts (e.g., "gzip",

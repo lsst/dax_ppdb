@@ -50,7 +50,7 @@ from lsst.dax.apdb.timer import Timer
 from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
-from .manifest import Manifest, TableStats
+from .manifest import Manifest, ParquetFileStats
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
@@ -448,7 +448,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
             # Create manifest for the replica chunk.
             try:
-                manifest = self._generate_manifest(replica_chunk, table_dict, update_records)
+                manifest = self._generate_manifest(replica_chunk, table_dict, update_records, chunk_dir)
                 _LOG.info("Generated manifest for %s: %s", replica_chunk.id, manifest.model_dump_json())
             except Exception:
                 _LOG.exception("Failed to generate manifest for %d", replica_chunk.id)
@@ -667,6 +667,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         replica_chunk: ReplicaChunk,
         table_dict: dict[str, ApdbTableData],
         update_records: Collection[ApdbUpdateRecord],
+        chunk_dir: Path,
     ) -> Manifest:
         """Generate the manifest data for the replica chunk.
 
@@ -679,6 +680,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             chunk.
         update_records
             Collection of update records included in the chunk.
+        chunk_dir
+            Local directory where chunk parquet files were written.
 
         Returns
         -------
@@ -692,8 +695,22 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             exported_at=datetime.datetime.now(datetime.UTC),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
             table_data={
-                table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
+                table_name: ParquetFileStats(
+                    row_count=len(data.rows()),
+                    checksum=ParquetFileStats.compute_checksum(chunk_dir / f"{table_name}.parquet"),
+                    size_bytes=ParquetFileStats.compute_size(chunk_dir / f"{table_name}.parquet"),
+                )
+                for table_name, data in table_dict.items()
             },
+            updates_data=(
+                ParquetFileStats(
+                    row_count=len(update_records),
+                    checksum=ParquetFileStats.compute_checksum(chunk_dir / UpdateRecords.PARQUET_FILE_NAME),
+                    size_bytes=ParquetFileStats.compute_size(chunk_dir / UpdateRecords.PARQUET_FILE_NAME),
+                )
+                if update_records
+                else None
+            ),
             compression_format=self.config.parq_compression,
             update_count=len(update_records),
         )

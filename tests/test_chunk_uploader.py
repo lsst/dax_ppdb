@@ -20,12 +20,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
+from hashlib import sha256
 
 from google.cloud import storage
 
 from lsst.dax.apdb import Apdb, ApdbReplica
 from lsst.dax.ppdb import Ppdb
-from lsst.dax.ppdb.bigquery import PpdbBigQuery
+from lsst.dax.ppdb.bigquery import Manifest, PpdbBigQuery
 from lsst.dax.ppdb.bigquery.updates import UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import fill_apdb
@@ -108,19 +109,47 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
 
         # Verify uploaded objects and chunk gcs_uri use the simplified
         # prefix/chunk_id target path (without date directories).
-        uploaded_chunk = self.ppdb.query_chunks()[0]
-        expected_prefix = f"{self.ppdb.config.object_prefix}/{uploaded_chunk.id}"
-        self.assertEqual(uploaded_chunk.gcs_uri, f"gs://{self.ppdb.config.bucket_name}/{expected_prefix}")
+        # Find the chunk with update records (there should be at least one).
+        chunks_with_updates = [c for c in self.ppdb.query_chunks() if c.update_count > 0]
+        self.assertGreater(
+            len(chunks_with_updates),
+            0,
+            "Expected at least one chunk with update records",
+        )
+
+        # Verify that the uploaded file is under one of the update chunks.
+        found_match = False
+        for uploaded_chunk in chunks_with_updates:
+            expected_prefix = f"{self.ppdb.config.object_prefix}/{uploaded_chunk.id}"
+            self.assertEqual(uploaded_chunk.gcs_uri, f"gs://{self.ppdb.config.bucket_name}/{expected_prefix}")
+
+            for object_name in update_records_files:
+                if object_name.startswith(expected_prefix + "/"):
+                    found_match = True
+                    break
+
+        self.assertTrue(
+            found_match,
+            f"Expected update_records.parquet to be under one of the update chunks, but got {update_records_files}",
+        )
+
+        # Verify that none of the uploaded object paths include date directories.
         for object_name in update_records_files:
-            self.assertTrue(
-                object_name.startswith(expected_prefix + "/"),
-                f"Expected uploaded object '{object_name}' under '{expected_prefix}/'",
-            )
             self.assertNotRegex(
                 object_name,
                 r".*/\d{4}/\d{2}/\d{2}/.*",
                 f"Found unexpected date-directory path in object name: {object_name}",
             )
+
+        manifest_blob = self._bucket.blob(f"{expected_prefix}/{Manifest.FILE_NAME}")
+        self.assertTrue(manifest_blob.exists())
+        manifest = Manifest.from_json_str(manifest_blob.download_as_text())
+
+        local_update_path = self.ppdb.config.chunk_dir(uploaded_chunk.id) / UpdateRecords.PARQUET_FILE_NAME
+        expected_checksum = sha256(local_update_path.read_bytes()).hexdigest()
+        self.assertIsNotNone(manifest.updates_data)
+        assert manifest.updates_data is not None
+        self.assertEqual(manifest.updates_data.checksum, expected_checksum)
 
 
 if __name__ == "__main__":
