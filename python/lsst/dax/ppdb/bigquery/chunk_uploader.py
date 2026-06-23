@@ -248,7 +248,11 @@ class ChunkUploader:
             if upload_file_list:
                 gcs_names = {path: posixpath.join(gcs_prefix, path.name) for path in upload_file_list}
                 try:
-                    _LOG.info("Uploading %d files to GCS under prefix: %s", len(gcs_names), gcs_prefix)
+                    _LOG.info(
+                        "Uploading %d files to: gcs://%s",
+                        len(gcs_names),
+                        posixpath.join(self.config.bucket_name, gcs_prefix),
+                    )
                     with Timer(
                         "upload_files_time", _MON, tags={"prefix": str(gcs_prefix), "chunk_id": str(chunk_id)}
                     ) as timer:
