@@ -106,6 +106,22 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
             f"Expected 3 update records in the file from GCS, found {len(update_records.records)}",
         )
 
+        # Verify uploaded objects and chunk gcs_uri use the simplified
+        # prefix/chunk_id target path (without date directories).
+        uploaded_chunk = self.ppdb.query_chunks()[0]
+        expected_prefix = f"{self.ppdb.config.object_prefix}/{uploaded_chunk.id}"
+        self.assertEqual(uploaded_chunk.gcs_uri, f"gs://{self.ppdb.config.bucket_name}/{expected_prefix}")
+        for object_name in update_records_files:
+            self.assertTrue(
+                object_name.startswith(expected_prefix + "/"),
+                f"Expected uploaded object '{object_name}' under '{expected_prefix}/'",
+            )
+            self.assertNotRegex(
+                object_name,
+                r".*/\d{4}/\d{2}/\d{2}/.*",
+                f"Found unexpected date-directory path in object name: {object_name}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

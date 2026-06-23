@@ -20,6 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from enum import StrEnum
+import posixpath
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -141,6 +142,22 @@ class PpdbBigQueryConfig(PpdbConfig):
             the replication path and the chunk ID.
         """
         return self.replication_path / str(chunk_id)
+
+    def chunk_object_prefix(self, chunk_id: int) -> str:
+        """Return the cloud object-prefix for a replica chunk's data.
+
+        Parameters
+        ----------
+        chunk_id
+            ID of the replica chunk.
+
+        Returns
+        -------
+        `str`
+            Object-prefix for the chunk in cloud storage, formed by
+            convention from the base object prefix and the chunk ID.
+        """
+        return posixpath.join(self.object_prefix, str(chunk_id))
 
     # TODO: This function should be removed by DM-54681.
     @property

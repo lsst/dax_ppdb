@@ -127,7 +127,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             chunk_dir = self.ppdb.config.chunk_dir(chunk.id)
             manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
             status = ChunkStatus.UPLOADED if manifest.has_table_data() else ChunkStatus.STAGED
-            gcs_prefix = f"data/test/{chunk.id}"
+            gcs_prefix = self.ppdb.config.chunk_object_prefix(chunk.id)
             gcs_uri = f"gs://{bucket_name}/{gcs_prefix}"
 
             update_records_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
