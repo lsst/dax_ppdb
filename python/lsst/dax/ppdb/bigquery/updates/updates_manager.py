@@ -30,7 +30,7 @@ from collections.abc import Sequence
 
 from google.cloud import bigquery, storage
 
-from ..ppdb_bigquery import PpdbBigQueryConfig
+from ..ppdb_bigquery_config import PpdbBigQueryConfig
 from ..ppdb_replica_chunk_extended import PpdbReplicaChunkExtended
 from .update_record_expander import UpdateRecordExpander
 from .update_records import UpdateRecords
