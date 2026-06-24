@@ -239,13 +239,12 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
 
         # Configure and run the uploader without publishing to Pub/Sub.
         with patch.object(ChunkUploader, "_post_to_stage_chunk_topic"):
-            uploader = ChunkUploader(
+            ChunkUploader(
                 self.ppdb,
                 wait_interval=0,
                 exit_on_empty=True,
                 exit_on_error=True,
-            )
-            uploader.run()
+            ).run()
 
         # Apply the updates to the target tables using the UpdatesManager.
         updates_manager = UpdatesManager(self.ppdb.config)

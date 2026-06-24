@@ -67,17 +67,20 @@ class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
         file in the replication output and can be read back as valid
         UpdateRecords objects.
         """
-        update_records_path = (self.ppdb.config.chunk_dir(1614600000) / UpdateRecords.PARQUET_FILE_NAME)
+        update_records_path = self.ppdb.config.chunk_dir(1614600000) / UpdateRecords.PARQUET_FILE_NAME
         self.assertTrue(update_records_path.exists(), "Update records file not found in replication output")
 
         manifest = Manifest.from_json_file(self.ppdb.config.chunk_dir(1614600000) / Manifest.FILE_NAME)
         file_bytes = update_records_path.read_bytes()
         expected_checksum = sha256(file_bytes).hexdigest()
         expected_size = len(file_bytes)
-        self.assertIsNotNone(manifest.updates_data)
-        assert manifest.updates_data is not None
-        self.assertEqual(manifest.updates_data.checksum, expected_checksum)
-        self.assertEqual(manifest.updates_data.size_bytes, expected_size)
+        self.assertTrue(manifest.has_update_records, "Manifest should have update records")
+        self.assertIn(
+            UpdateRecords.PARQUET_FILE_NAME, manifest.files, "Update records file not found in manifest"
+        )
+        updates_data = manifest.files[UpdateRecords.PARQUET_FILE_NAME]
+        self.assertEqual(updates_data.checksum, expected_checksum)
+        self.assertEqual(updates_data.size_bytes, expected_size)
 
         update_records = UpdateRecords.from_parquet_file(update_records_path)
 

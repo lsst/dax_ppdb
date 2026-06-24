@@ -50,7 +50,7 @@ from lsst.dax.apdb.timer import Timer
 from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
-from .manifest import Manifest, ParquetFileStats
+from .manifest import Manifest, ParquetFileEntry
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
@@ -411,7 +411,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         _LOG.info("Processing %s", replica_chunk.id)
 
         try:
-            chunk_dir = self._create_chunk_dir(replica_chunk)
+            chunk_dir = self._make_chunk_dir(replica_chunk)
 
             if update_records:
                 self._handle_updates(replica_chunk, update_records, chunk_dir)
@@ -464,7 +464,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
             raise
 
-        if manifest.is_empty_chunk():
+        if manifest.is_empty_chunk:
             # Mark as skipped if there is no data to export.
             status = ChunkStatus.SKIPPED
             _LOG.warning("No data to export for %s, marking chunk as skipped", replica_chunk.id)
@@ -472,7 +472,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             status = ChunkStatus.EXPORTED
 
         # Store the replica chunk info in the database, including status,
-        # GCS URI, and update count.
+        # and update count.
         replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(
             replica_chunk, status, len(update_records)
         )
@@ -688,35 +688,38 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         Manifest
             The manifest created from the input data.
         """
+        # Add file data for each table if it has rows.
+        file_entries = {
+            f"{table_name}.parquet": ParquetFileEntry(
+                row_count=len(data.rows()),
+                checksum=ParquetFileEntry.compute_checksum(chunk_dir / f"{table_name}.parquet"),
+                size_bytes=ParquetFileEntry.compute_size(chunk_dir / f"{table_name}.parquet"),
+            )
+            for table_name, data in table_dict.items()
+            if len(data.rows()) > 0
+        }
+
+        # Add file data for the update records if they exist.
+        if update_records:
+            file_entries[UpdateRecords.PARQUET_FILE_NAME] = ParquetFileEntry(
+                row_count=len(update_records),
+                checksum=ParquetFileEntry.compute_checksum(chunk_dir / UpdateRecords.PARQUET_FILE_NAME),
+                size_bytes=ParquetFileEntry.compute_size(chunk_dir / UpdateRecords.PARQUET_FILE_NAME),
+            )
+
         return Manifest(
             replica_chunk_id=str(replica_chunk.id),
             unique_id=replica_chunk.unique_id,
             schema_version=str(self.schema_version),
             exported_at=datetime.datetime.now(datetime.UTC),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
-            table_data={
-                table_name: ParquetFileStats(
-                    row_count=len(data.rows()),
-                    checksum=ParquetFileStats.compute_checksum(chunk_dir / f"{table_name}.parquet"),
-                    size_bytes=ParquetFileStats.compute_size(chunk_dir / f"{table_name}.parquet"),
-                )
-                for table_name, data in table_dict.items()
-            },
-            updates_data=(
-                ParquetFileStats(
-                    row_count=len(update_records),
-                    checksum=ParquetFileStats.compute_checksum(chunk_dir / UpdateRecords.PARQUET_FILE_NAME),
-                    size_bytes=ParquetFileStats.compute_size(chunk_dir / UpdateRecords.PARQUET_FILE_NAME),
-                )
-                if update_records
-                else None
-            ),
+            files=file_entries,
             compression_format=self.config.parq_compression,
-            update_count=len(update_records),
         )
 
-    def _create_chunk_dir(self, chunk: ReplicaChunk) -> Path:
-        """Create the directory for the replica chunk based on its ID.
+    def _make_chunk_dir(self, chunk: ReplicaChunk) -> Path:
+        """Make the directory for the replica chunk within the replication
+        staging area.
 
         Parameters
         ----------

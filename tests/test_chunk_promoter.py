@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import posixpath
 import unittest
 import uuid
 from pathlib import Path
@@ -126,8 +127,8 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         for chunk in self.ppdb.query_chunks():
             chunk_dir = self.ppdb.config.chunk_dir(chunk.id)
             manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
-            status = ChunkStatus.UPLOADED if manifest.has_table_data() else ChunkStatus.STAGED
-            gcs_prefix = self.ppdb.config.chunk_object_prefix(chunk.id)
+            status = ChunkStatus.UPLOADED if manifest.has_table_data else ChunkStatus.STAGED
+            gcs_prefix = posixpath.join(self.ppdb.config.object_prefix, str(chunk.id))
             gcs_uri = f"gs://{bucket_name}/{gcs_prefix}"
 
             update_records_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME

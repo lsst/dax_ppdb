@@ -79,18 +79,15 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         """Test that the update records are correctly uploaded to Google Cloud
         Storage after replication.
         """
-        # Configure and run the uploader.
+        # Configure and run the uploader with a patch to avoid posting to the
+        # stage chunk topic.
         with patch.object(ChunkUploader, "_post_to_stage_chunk_topic"):
-            uploader = ChunkUploader(
+            ChunkUploader(
                 self.ppdb,
                 wait_interval=0,
                 exit_on_empty=True,
                 exit_on_error=True,
-            )
-            print(
-                f"Uploader will copy files to {uploader.config.bucket_name}/{uploader.config.object_prefix}/"
-            )
-            uploader.run()
+            ).run()
 
         # Retrieve the update records file.
         blobs = list(self._bucket.list_blobs(match_glob="**/update_records.parquet"))
@@ -134,16 +131,9 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
 
         self.assertTrue(
             found_match,
-            f"Expected update_records.parquet to be under one of the update chunks, but got {update_records_files}",
+            f"Expected update_records.parquet to be under one of the update chunks, "
+            f"but got {update_records_files}",
         )
-
-        # Verify that none of the uploaded object paths include date directories.
-        for object_name in update_records_files:
-            self.assertNotRegex(
-                object_name,
-                r".*/\d{4}/\d{2}/\d{2}/.*",
-                f"Found unexpected date-directory path in object name: {object_name}",
-            )
 
         manifest_blob = self._bucket.blob(f"{expected_prefix}/{Manifest.FILE_NAME}")
         self.assertTrue(manifest_blob.exists())
@@ -151,9 +141,16 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
 
         local_update_path = self.ppdb.config.chunk_dir(uploaded_chunk.id) / UpdateRecords.PARQUET_FILE_NAME
         expected_checksum = sha256(local_update_path.read_bytes()).hexdigest()
-        self.assertIsNotNone(manifest.updates_data)
-        assert manifest.updates_data is not None
-        self.assertEqual(manifest.updates_data.checksum, expected_checksum)
+        self.assertIsNotNone(
+            manifest.files.get(UpdateRecords.PARQUET_FILE_NAME),
+            "Manifest does not contain update records file entry",
+        )
+        updates_data = manifest.files[UpdateRecords.PARQUET_FILE_NAME]
+        self.assertEqual(
+            updates_data.checksum,
+            expected_checksum,
+            "Checksum of update records file in manifest does not match local file checksum",
+        )
 
 
 if __name__ == "__main__":

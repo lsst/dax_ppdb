@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["Manifest", "ParquetFileStats"]
+__all__ = ["Manifest", "ParquetFileEntry"]
 
 import hashlib
 import json
@@ -33,26 +33,33 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .updates import UpdateRecords
+
 
 def _utc_now() -> datetime:
     """Return the current UTC time as a timezone-aware datetime."""
     return datetime.now(UTC)
 
 
-class ParquetFileStats(BaseModel):
-    """Per-parquet-file statistics."""
+class ParquetFileEntry(BaseModel):
+    """Information about a single parquet file for the replica chunk.
 
-    row_count: int = Field(ge=0, description="Non-negative count of rows written for this table.")
+    Non-existent files, e.g. where data for the table was not present in the
+    chunk, should not have entries. Their absence from the manifest indicates
+    that they were not written.
+    """
+
+    row_count: int = Field(ge=1, description="Count of rows written for this table.")
     """Number of rows written for this table (must be non-negative)."""
 
     checksum: str | None = None
-    """SHA-256 checksum for this parquet file, if one was written."""
+    """SHA-256 checksum for this parquet file."""
 
     size_bytes: int | None = None
-    """Size of this parquet file in bytes, if one was written."""
+    """Size of this parquet file in bytes."""
 
     @staticmethod
-    def compute_checksum(file_path: Path) -> str | None:
+    def compute_checksum(file_path: Path) -> str:
         """Compute the SHA-256 checksum of a file.
 
         Parameters
@@ -62,19 +69,25 @@ class ParquetFileStats(BaseModel):
 
         Returns
         -------
-        `str` or `None`
-            SHA-256 hex digest, or `None` if the file does not exist.
+        `str`
+            SHA-256 hex digest of the file contents.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the file does not exist.
         """
         if not file_path.exists():
-            return None
+            raise FileNotFoundError(f"File not found: {file_path}")
         digest = hashlib.sha256()
         with open(file_path, "rb") as fd:
-            for chunk in iter(lambda: fd.read(1024 * 1024), b""):
+            chunk_size = 1024 * 1024
+            while chunk := fd.read(chunk_size):
                 digest.update(chunk)
         return digest.hexdigest()
 
     @staticmethod
-    def compute_size(file_path: Path) -> int | None:
+    def compute_size(file_path: Path) -> int:
         """Return the size of a file in bytes.
 
         Parameters
@@ -84,11 +97,11 @@ class ParquetFileStats(BaseModel):
 
         Returns
         -------
-        `int` or `None`
-            File size in bytes, or `None` if the file does not exist.
+        `int`
+            File size in bytes.
         """
         if not file_path.exists():
-            return None
+            raise FileNotFoundError(f"File not found: {file_path}")
         return file_path.stat().st_size
 
 
@@ -103,38 +116,53 @@ class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     """Pydantic model configuration."""
 
+    schema_version: str
+    """Version string of the schema used to produce this export (`str`)."""
+
     replica_chunk_id: str
-    """Sequential identifier of the replica chunk being exporter (`str`)."""
+    """Sequential identifier of the replica chunk (`str`)."""
 
     unique_id: UUID
     """Globally unique opaque identifier for the export operation or replica
     (`uuid.UUID`).
     """
 
-    schema_version: str
-    """Version string of the schema used to produce this export (`str`)."""
-
     exported_at: datetime = Field(default_factory=_utc_now)
     """Timestamp when the export was produced (UTC). Serialized as ISO 8601
-    (`datetime`)."""
+    (`datetime`).
+    """
 
     last_update_time: str
     """Source system's last-update timestamp for the replica; TAI value, kept
     as string to avoid any precision issues (`str`)."""
 
-    table_data: dict[str, ParquetFileStats]
-    """Mapping of table name to per-table statistics
-    (`dict` [`str`, `ParquetFileStats`])."""
-
-    updates_data: ParquetFileStats | None = None
-    """Statistics for ``update_records.parquet`` when update records exist."""
-
     compression_format: str
     """Name of the compression format used for artifacts (e.g., "gzip",
     "zstd", "snappy", etc.)."""
 
-    update_count: int = Field(default=0, ge=0)
-    """Number of update records included in the exported data (`int`)."""
+    files: dict[str, ParquetFileEntry] = Field(default_factory=dict)
+    """Mapping of parquet file names to their entries."""
+
+    @property
+    def is_empty_chunk(self) -> bool:
+        """`True` if the manifest represents an empty replica chunk with no
+        table data or update records, `False` otherwise (`bool`).
+        """
+        return len(self.files) == 0
+
+    @property
+    def has_table_data(self) -> bool:
+        """`True` if the chunk contains any parquet files with table data,
+        `False` otherwise (`bool`).
+        """
+        return any(name != UpdateRecords.PARQUET_FILE_NAME for name in self.files)
+
+    @property
+    def has_update_records(self) -> bool:
+        """`True` if the chunk contains the update records parquet file,
+        `False` otherwise (`bool`).
+        """
+        return UpdateRecords.PARQUET_FILE_NAME in self.files
 
     def write_json_file(self, dir_path: Path) -> None:
         """Save the manifest to a JSON file in the specified directory.
@@ -177,27 +205,3 @@ class Manifest(BaseModel):
         """
         data = json.loads(content)
         return cls.model_validate(data)
-
-    def is_empty_chunk(self) -> bool:
-        """Check if the manifest represents an empty replica chunk in which
-        all tables have zero rows and no update records are included.
-
-        Returns
-        -------
-        `bool`
-            `True` if all tables have zero rows and no update records are
-            included, indicating an empty chunk, `False` otherwise.
-        """
-        return all(table.row_count == 0 for table in self.table_data.values()) and self.update_count == 0
-
-    def has_table_data(self) -> bool:
-        """Check if the manifest contains any table data with non-zero row
-        counts.
-
-        Returns
-        -------
-        bool
-            `True` if at least one table has a non-zero row count, `False`
-            otherwise.
-        """
-        return any(table.row_count > 0 for table in self.table_data.values())
