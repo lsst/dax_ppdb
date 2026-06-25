@@ -210,7 +210,12 @@ class ChunkUploader:
         gcs_prefix = posixpath.join(self.config.object_prefix, str(chunk_id))
 
         # Make a list of parquet files to upload based on the manifest.
-        upload_file_list = [Path(chunk_dir, file_name) for file_name in manifest.files.keys()]
+        upload_file_list: list[Path] = []
+        for file_name in manifest.files.keys():
+            safe_name = Path(file_name).name
+            if safe_name != file_name:
+                raise ChunkUploadError(chunk_id, f"Invalid parquet file name in manifest: {file_name}")
+            upload_file_list.append(chunk_dir / safe_name)
 
         # Check that all expected parquet files from the manifest are present.
         for expected_file in upload_file_list:
@@ -247,6 +252,7 @@ class ChunkUploader:
                     raise ChunkUploadError(chunk_id, f"{len(eg.exceptions)} upload(s) failed") from eg
 
             # 2) Upload manifest, even for empty chunks.
+            gcs_uri = posixpath.join(self.config.bucket_name, gcs_prefix)
             try:
                 self._storage.upload_from_string(
                     posixpath.join(gcs_prefix, manifest_path.name),
@@ -260,7 +266,6 @@ class ChunkUploader:
                 # 3) Update the status and GCS URI in the database, marking
                 # chunks with no table data as "staged" since they don't need
                 # to go through the staging process in Dataflow.
-                gcs_uri = posixpath.join(self.config.bucket_name, gcs_prefix)
                 status = ChunkStatus.UPLOADED if manifest.has_table_data else ChunkStatus.STAGED
                 updated_replica_chunk = replica_chunk.with_new_status(status).with_new_gcs_uri(
                     f"gs://{gcs_uri}"

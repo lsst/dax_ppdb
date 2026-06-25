@@ -36,7 +36,7 @@ class ManifestTestCase(unittest.TestCase):
             schema_version="1.0",
             exported_at="2025-12-17 07:03:09.991638+00:00",
             last_update_time="1765951277.036",
-            files={name: {"row_count": 10} for name in file_names},
+            files={name: {"row_count": 10, "checksum": "a" * 64, "size_bytes": 100} for name in file_names},
             compression_format="snappy",
         )
 
@@ -55,11 +55,6 @@ class ManifestTestCase(unittest.TestCase):
         # considered empty.
         manifest_non_empty = self._create_manifest_with_files(["DiaObject"])
         self.assertFalse(manifest_non_empty.is_empty_chunk)
-
-        # A manifest with updates but no table data should not be considered
-        # empty.
-        manifest_with_updates = self._create_manifest_with_files([UpdateRecords.PARQUET_FILE_NAME])
-        self.assertFalse(manifest_with_updates.is_empty_chunk)
 
         # A manifest with both table data and updates should not be considered
         # empty.

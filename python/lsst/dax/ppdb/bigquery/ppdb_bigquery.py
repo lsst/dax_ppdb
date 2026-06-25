@@ -691,12 +691,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         # Add file data for each table if it has rows.
         file_entries = {
             f"{table_name}.parquet": ParquetFileEntry(
-                row_count=len(data.rows()),
+                row_count=row_count,
                 checksum=ParquetFileEntry.compute_checksum(chunk_dir / f"{table_name}.parquet"),
                 size_bytes=ParquetFileEntry.compute_size(chunk_dir / f"{table_name}.parquet"),
             )
             for table_name, data in table_dict.items()
-            if len(data.rows()) > 0
+            if (row_count := len(data.rows())) > 0
         }
 
         # Add file data for the update records if they exist.

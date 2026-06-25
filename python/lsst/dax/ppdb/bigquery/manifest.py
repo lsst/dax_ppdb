@@ -46,16 +46,17 @@ class ParquetFileEntry(BaseModel):
 
     Non-existent files, e.g. where data for the table was not present in the
     chunk, should not have entries. Their absence from the manifest indicates
-    that they were not written.
+    that they were not written. Empty files (no rows) should also not have
+    entries as they would result in no-ops when loading the data into BigQuery.
     """
 
     row_count: int = Field(ge=1, description="Count of rows written for this table.")
-    """Number of rows written for this table (must be non-negative)."""
+    """Number of rows written for this table (must be positive)."""
 
-    checksum: str | None = None
+    checksum: str
     """SHA-256 checksum for this parquet file."""
 
-    size_bytes: int | None = None
+    size_bytes: int = Field(ge=1, description="Size of this parquet file in bytes.")
     """Size of this parquet file in bytes."""
 
     @staticmethod

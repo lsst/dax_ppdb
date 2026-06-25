@@ -19,8 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import hashlib
 import unittest
-from hashlib import sha256
 from unittest.mock import patch
 
 from google.cloud import storage
@@ -118,34 +118,38 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
             "Expected at least one chunk with update records",
         )
 
-        # Verify that the uploaded file is under one of the update chunks.
-        found_match = False
+        # Verify that the uploaded file is under one of the update chunks, and
+        # select the matching chunk for subsequent manifest/checksum
+        # assertions.
+        matched_chunk = None
+        expected_prefix = None
         for uploaded_chunk in chunks_with_updates:
-            expected_prefix = f"{self.ppdb.config.object_prefix}/{uploaded_chunk.id}"
-            self.assertEqual(uploaded_chunk.gcs_uri, f"gs://{self.ppdb.config.bucket_name}/{expected_prefix}")
+            prefix = f"{self.ppdb.config.object_prefix}/{uploaded_chunk.id}"
+            self.assertEqual(uploaded_chunk.gcs_uri, f"gs://{self.ppdb.config.bucket_name}/{prefix}")
 
-            for object_name in update_records_files:
-                if object_name.startswith(expected_prefix + "/"):
-                    found_match = True
-                    break
+            if any(object_name.startswith(prefix + "/") for object_name in update_records_files):
+                matched_chunk = uploaded_chunk
+                expected_prefix = prefix
+                break
 
-        self.assertTrue(
-            found_match,
-            f"Expected update_records.parquet to be under one of the update chunks, "
-            f"but got {update_records_files}",
+        self.assertIsNotNone(
+            matched_chunk,
+            f"Expected update_records.parquet to be under one of the update chunks, but got "
+            f"{update_records_files}",
         )
 
         manifest_blob = self._bucket.blob(f"{expected_prefix}/{Manifest.FILE_NAME}")
         self.assertTrue(manifest_blob.exists())
         manifest = Manifest.from_json_str(manifest_blob.download_as_text())
 
-        local_update_path = self.ppdb.config.chunk_dir(uploaded_chunk.id) / UpdateRecords.PARQUET_FILE_NAME
-        expected_checksum = sha256(local_update_path.read_bytes()).hexdigest()
         self.assertIsNotNone(
             manifest.files.get(UpdateRecords.PARQUET_FILE_NAME),
             "Manifest does not contain update records file entry",
         )
+
         updates_data = manifest.files[UpdateRecords.PARQUET_FILE_NAME]
+        local_update_path = self.ppdb.config.chunk_dir(uploaded_chunk.id) / UpdateRecords.PARQUET_FILE_NAME
+        expected_checksum = hashlib.sha256(local_update_path.read_bytes()).hexdigest()
         self.assertEqual(
             updates_data.checksum,
             expected_checksum,
