@@ -211,7 +211,7 @@ class ChunkUploader:
 
         # Make a list of parquet files to upload based on the manifest.
         upload_file_list: list[Path] = []
-        for file_name in manifest.files.keys():
+        for file_name in manifest.files:
             safe_name = Path(file_name).name
             if safe_name != file_name:
                 raise ChunkUploadError(chunk_id, f"Invalid parquet file name in manifest: {file_name}")

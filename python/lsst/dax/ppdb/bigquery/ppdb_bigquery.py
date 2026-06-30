@@ -690,10 +690,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         """
         # Add file data for each table if it has rows.
         file_entries = {
-            f"{table_name}.parquet": ParquetFileEntry(
+            f"{table_name}.parquet": ParquetFileEntry.from_path(
+                path=chunk_dir / f"{table_name}.parquet",
                 row_count=row_count,
-                checksum=ParquetFileEntry.compute_checksum(chunk_dir / f"{table_name}.parquet"),
-                size_bytes=ParquetFileEntry.compute_size(chunk_dir / f"{table_name}.parquet"),
             )
             for table_name, data in table_dict.items()
             if (row_count := len(data.rows())) > 0
@@ -701,10 +700,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         # Add file data for the update records if they exist.
         if update_records:
-            file_entries[UpdateRecords.PARQUET_FILE_NAME] = ParquetFileEntry(
+            file_entries[UpdateRecords.PARQUET_FILE_NAME] = ParquetFileEntry.from_path(
+                path=chunk_dir / UpdateRecords.PARQUET_FILE_NAME,
                 row_count=len(update_records),
-                checksum=ParquetFileEntry.compute_checksum(chunk_dir / UpdateRecords.PARQUET_FILE_NAME),
-                size_bytes=ParquetFileEntry.compute_size(chunk_dir / UpdateRecords.PARQUET_FILE_NAME),
             )
 
         return Manifest(

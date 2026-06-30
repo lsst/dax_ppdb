@@ -59,6 +59,28 @@ class ParquetFileEntry(BaseModel):
     size_bytes: int = Field(ge=1, description="Size of this parquet file in bytes.")
     """Size of this parquet file in bytes."""
 
+    @classmethod
+    def from_path(cls, path: Path, row_count: int) -> ParquetFileEntry:
+        """Create a `ParquetFileEntry` from a parquet file path and row count.
+
+        Parameters
+        ----------
+        path
+            Path to the parquet file.
+        row_count
+            Number of rows written for this table.
+
+        Returns
+        -------
+        `ParquetFileEntry`
+            The created `ParquetFileEntry` object.
+        """
+        return cls(
+            row_count=row_count,
+            checksum=cls.compute_checksum(path),
+            size_bytes=cls.compute_size(path),
+        )
+
     @staticmethod
     def compute_checksum(file_path: Path) -> str:
         """Compute the SHA-256 checksum of a file.
@@ -76,7 +98,7 @@ class ParquetFileEntry(BaseModel):
         Raises
         ------
         FileNotFoundError
-            If the file does not exist.
+            Raised if the file does not exist.
         """
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
