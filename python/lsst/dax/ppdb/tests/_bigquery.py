@@ -41,7 +41,6 @@ from lsst.dax.apdb import (
 from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.ppdb import PpdbConfig
 from lsst.dax.ppdb.bigquery import PpdbBigQuery
-from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.tests._ppdb import TEST_SCHEMA_RESOURCE_PATH
 
 try:
@@ -51,7 +50,6 @@ except ImportError:
 
 __all__ = [
     "TEST_CONFIG",
-    "ChunkUploaderWithoutPubSub",
     "PostgresMixin",
     "SqliteMixin",
     "delete_test_bucket",
@@ -112,20 +110,6 @@ def delete_test_bucket(bucket_or_bucket_name: str | storage.Bucket) -> None:
         bucket.delete()
     except Exception as e:
         _LOG.exception("Failed to delete test GCS bucket: %s", e)
-
-
-class ChunkUploaderWithoutPubSub(ChunkUploader):
-    """A dummy implementation of the ChunkUploader that does not actually
-    post messages to Pub/Sub.
-    """
-
-    def _post_to_stage_chunk_topic(self, gcs_uri: str, chunk_id: int) -> None:
-        message = {
-            "dataset": None,
-            "chunk_id": str(chunk_id),
-            "folder": f"gs://{gcs_uri}",
-        }
-        print(f"Dummy publish to Pub/Sub topic: {message}")
 
 
 class SqliteMixin:

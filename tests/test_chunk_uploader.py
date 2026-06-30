@@ -19,18 +19,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import hashlib
 import unittest
+from unittest.mock import patch
 
 from google.cloud import storage
 
 from lsst.dax.apdb import Apdb, ApdbReplica
 from lsst.dax.ppdb import Ppdb
-from lsst.dax.ppdb.bigquery import PpdbBigQuery
+from lsst.dax.ppdb.bigquery import Manifest, PpdbBigQuery
+from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.bigquery.updates import UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import fill_apdb
 from lsst.dax.ppdb.tests._bigquery import (
-    ChunkUploaderWithoutPubSub,
     PostgresMixin,
     delete_test_bucket,
     generate_test_bucket_name,
@@ -77,15 +79,15 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         """Test that the update records are correctly uploaded to Google Cloud
         Storage after replication.
         """
-        # Configure and run the uploader.
-        uploader = ChunkUploaderWithoutPubSub(
-            self.ppdb,
-            wait_interval=0,
-            exit_on_empty=True,
-            exit_on_error=True,
-        )
-        print(f"Uploader will copy files to {uploader.config.bucket_name}/{uploader.config.object_prefix}/")
-        uploader.run()
+        # Configure and run the uploader with a patch to avoid posting to the
+        # stage chunk topic.
+        with patch.object(ChunkUploader, "_post_to_stage_chunk_topic"):
+            ChunkUploader(
+                self.ppdb,
+                wait_interval=0,
+                exit_on_empty=True,
+                exit_on_error=True,
+            ).run()
 
         # Retrieve the update records file.
         blobs = list(self._bucket.list_blobs(match_glob="**/update_records.parquet"))
@@ -104,6 +106,54 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
             len(update_records.records),
             3,
             f"Expected 3 update records in the file from GCS, found {len(update_records.records)}",
+        )
+
+        # Verify uploaded objects and chunk gcs_uri use the simplified
+        # prefix/chunk_id target path (without date directories).
+        # Find the chunk with update records (there should be at least one).
+        chunks_with_updates = [c for c in self.ppdb.query_chunks() if c.update_count > 0]
+        self.assertGreater(
+            len(chunks_with_updates),
+            0,
+            "Expected at least one chunk with update records",
+        )
+
+        # Verify that the uploaded file is under one of the update chunks, and
+        # select the matching chunk for subsequent manifest/checksum
+        # assertions.
+        matched_chunk = None
+        expected_prefix = None
+        for uploaded_chunk in chunks_with_updates:
+            prefix = f"{self.ppdb.config.object_prefix}/{uploaded_chunk.id}"
+            self.assertEqual(uploaded_chunk.gcs_uri, f"gs://{self.ppdb.config.bucket_name}/{prefix}")
+
+            if any(object_name.startswith(prefix + "/") for object_name in update_records_files):
+                matched_chunk = uploaded_chunk
+                expected_prefix = prefix
+                break
+
+        self.assertIsNotNone(
+            matched_chunk,
+            f"Expected update_records.parquet to be under one of the update chunks, but got "
+            f"{update_records_files}",
+        )
+
+        manifest_blob = self._bucket.blob(f"{expected_prefix}/{Manifest.FILE_NAME}")
+        self.assertTrue(manifest_blob.exists())
+        manifest = Manifest.from_json_str(manifest_blob.download_as_text())
+
+        self.assertIsNotNone(
+            manifest.files.get(UpdateRecords.PARQUET_FILE_NAME),
+            "Manifest does not contain update records file entry",
+        )
+
+        updates_data = manifest.files[UpdateRecords.PARQUET_FILE_NAME]
+        local_update_path = self.ppdb.config.chunk_dir(uploaded_chunk.id) / UpdateRecords.PARQUET_FILE_NAME
+        expected_checksum = hashlib.sha256(local_update_path.read_bytes()).hexdigest()
+        self.assertEqual(
+            updates_data.checksum,
+            expected_checksum,
+            "Checksum of update records file in manifest does not match local file checksum",
         )
 
 

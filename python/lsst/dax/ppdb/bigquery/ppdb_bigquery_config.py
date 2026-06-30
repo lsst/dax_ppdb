@@ -126,6 +126,22 @@ class PpdbBigQueryConfig(PpdbConfig):
         """Return path for writing replica chunk data (`pathlib.Path`)."""
         return Path(self.replication_dir)
 
+    def chunk_dir(self, chunk_id: int) -> Path:
+        """Return the local directory for a replica chunk's data.
+
+        Parameters
+        ----------
+        chunk_id
+            ID of the replica chunk.
+
+        Returns
+        -------
+        `pathlib.Path`
+            Path to the chunk's local directory, formed by convention from
+            the replication path and the chunk ID.
+        """
+        return self.replication_path / str(chunk_id)
+
     # TODO: This function should be removed by DM-54681.
     @property
     def fq_dataset_id(self) -> str:

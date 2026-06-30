@@ -50,7 +50,7 @@ from lsst.dax.apdb.timer import Timer
 from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
-from .manifest import Manifest, TableStats
+from .manifest import Manifest, ParquetFileEntry
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
@@ -348,7 +348,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     @classmethod
     def create_replica_chunk_table(cls, table_name: str | None = None) -> schema_model.Table:
         """Create the ``PpdbReplicaChunk`` table with additional fields for
-        status and directory.
+        replication tracking.
 
         Parameters
         ----------
@@ -359,7 +359,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         Notes
         -----
         This overrides the base method to add additional columns for
-        ``status`` and ``directory`` to the replica chunk table schema.
+        ``status``, ``gcs_uri``, and ``update_count`` to the replica chunk
+        table schema.
         """
         replica_chunk_table = super().create_replica_chunk_table(table_name)
         replica_chunk_table.columns.extend(
@@ -370,13 +371,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                     name="status",
                     id=f"#{table_name}.status",
                     datatype=felis.datamodel.DataType.string,
-                ),
-                # Local directory where the chunk data is stored for export.
-                schema_model.Column(
-                    name="directory",
-                    id=f"#{table_name}.directory",
-                    datatype=felis.datamodel.DataType.string,
-                    nullable=True,  # We might want to allow NULL if an error occurs when exporting.
                 ),
                 # URI of the chunk data in GCS after it has been uploaded.
                 # This is not a full object path but a prefix ("directory")
@@ -417,7 +411,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         _LOG.info("Processing %s", replica_chunk.id)
 
         try:
-            chunk_dir = self._create_chunk_dir(replica_chunk)
+            chunk_dir = self._make_chunk_dir(replica_chunk)
 
             if update_records:
                 self._handle_updates(replica_chunk, update_records, chunk_dir)
@@ -454,7 +448,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
             # Create manifest for the replica chunk.
             try:
-                manifest = self._generate_manifest(replica_chunk, table_dict, update_records)
+                manifest = self._generate_manifest(replica_chunk, table_dict, update_records, chunk_dir)
                 _LOG.info("Generated manifest for %s: %s", replica_chunk.id, manifest.model_dump_json())
             except Exception:
                 _LOG.exception("Failed to generate manifest for %d", replica_chunk.id)
@@ -470,7 +464,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             _LOG.exception("Failed to store replica chunk: %s", replica_chunk.id)
             raise
 
-        if manifest.is_empty_chunk():
+        if manifest.is_empty_chunk:
             # Mark as skipped if there is no data to export.
             status = ChunkStatus.SKIPPED
             _LOG.warning("No data to export for %s, marking chunk as skipped", replica_chunk.id)
@@ -478,9 +472,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             status = ChunkStatus.EXPORTED
 
         # Store the replica chunk info in the database, including status,
-        # directory, and update count.
+        # and update count.
         replica_chunk_ext = PpdbReplicaChunkExtended.from_replica_chunk(
-            replica_chunk, status, chunk_dir, len(update_records)
+            replica_chunk, status, len(update_records)
         )
         try:
             self.insert_chunks([replica_chunk_ext])
@@ -540,7 +534,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         unique_id=row["unique_id"],
                         replica_time=astropy.time.Time(row["replica_time"], format="datetime", scale="tai"),
                         status=ChunkStatus(row["status"]),
-                        directory=Path(row["directory"]),
                         gcs_uri=row["gcs_uri"],
                         update_count=row["update_count"],
                     )
@@ -674,6 +667,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         replica_chunk: ReplicaChunk,
         table_dict: dict[str, ApdbTableData],
         update_records: Collection[ApdbUpdateRecord],
+        chunk_dir: Path,
     ) -> Manifest:
         """Generate the manifest data for the replica chunk.
 
@@ -686,28 +680,44 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             chunk.
         update_records
             Collection of update records included in the chunk.
+        chunk_dir
+            Local directory where chunk parquet files were written.
 
         Returns
         -------
         Manifest
             The manifest created from the input data.
         """
+        # Add file data for each table if it has rows.
+        file_entries = {
+            f"{table_name}.parquet": ParquetFileEntry.from_path(
+                path=chunk_dir / f"{table_name}.parquet",
+                row_count=row_count,
+            )
+            for table_name, data in table_dict.items()
+            if (row_count := len(data.rows())) > 0
+        }
+
+        # Add file data for the update records if they exist.
+        if update_records:
+            file_entries[UpdateRecords.PARQUET_FILE_NAME] = ParquetFileEntry.from_path(
+                path=chunk_dir / UpdateRecords.PARQUET_FILE_NAME,
+                row_count=len(update_records),
+            )
+
         return Manifest(
             replica_chunk_id=str(replica_chunk.id),
             unique_id=replica_chunk.unique_id,
             schema_version=str(self.schema_version),
             exported_at=datetime.datetime.now(datetime.UTC),
             last_update_time=str(replica_chunk.last_update_time),  # TAI value
-            table_data={
-                table_name: TableStats(row_count=len(data.rows())) for table_name, data in table_dict.items()
-            },
+            files=file_entries,
             compression_format=self.config.parq_compression,
-            update_count=len(update_records),
         )
 
-    def _create_chunk_dir(self, chunk: ReplicaChunk) -> Path:
-        """Create the directory for the replica chunk based on its last update
-        time and ID.
+    def _make_chunk_dir(self, chunk: ReplicaChunk) -> Path:
+        """Make the directory for the replica chunk within the replication
+        staging area.
 
         Parameters
         ----------
@@ -719,13 +729,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         `pathlib.Path`
             Path to the created directory for the replica chunk.
         """
-        last_update_time = chunk.last_update_time.to_datetime()
-        assert isinstance(last_update_time, datetime.datetime)
-        chunk_dir = Path(
-            self.config.replication_path,
-            chunk.last_update_time.strftime("%Y/%m/%d"),
-            str(chunk.id),
-        )
+        chunk_dir = self.config.chunk_dir(chunk.id)
         if chunk_dir.exists():
             if not self.config.delete_existing_dirs:
                 raise FileExistsError(f"Directory already exists for {chunk.id}: {chunk_dir}")

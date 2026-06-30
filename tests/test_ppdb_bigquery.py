@@ -21,7 +21,6 @@
 
 import unittest
 import uuid
-from pathlib import Path
 
 import astropy.time
 import sqlalchemy
@@ -49,7 +48,6 @@ class PostgresTestCase(PostgresMixin, PpdbTest, unittest.TestCase):
 def _make_chunk(
     chunk_id: int,
     status: ChunkStatus,
-    directory: str = "/tmp/test",
 ) -> PpdbReplicaChunkExtended:
     """Create a test chunk with the given ID and status.
 
@@ -59,13 +57,11 @@ def _make_chunk(
         The ID of the chunk to create.
     status
         The status to assign to the chunk.
-    directory
-        The directory path for the chunk, by default "/tmp/test".
 
     Returns
     -------
     `PpdbReplicaChunkExtended`
-        A test chunk with the specified ID, status, and directory.
+        A test chunk with the specified ID and status.
     """
     return PpdbReplicaChunkExtended(
         id=chunk_id,
@@ -73,7 +69,6 @@ def _make_chunk(
         last_update_time=astropy.time.Time("2021-01-01T00:01:00", format="isot", scale="tai"),
         replica_time=astropy.time.Time.now(),
         status=status,
-        directory=Path(directory),
     )
 
 
@@ -158,10 +153,10 @@ class ReplicaChunkTestCase(SqliteMixin, unittest.TestCase):
             ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields=set())
 
     def test_update_chunks_invalid_fields_raises(self) -> None:
-        """Test that update_chunks raises on invalid field names."""
+        """Test that update_chunks rejects an invalid field name."""
         ppdb = self._make_ppdb()
         with self.assertRaises(ValueError):
-            ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields={"directory"})
+            ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields={"bad_field"})
 
     def test_insert_chunks_duplicate_raises(self) -> None:
         """Test that insert_chunks raises on duplicate chunk ID."""

@@ -38,7 +38,6 @@ from .manifest import Manifest
 from .ppdb_bigquery import PpdbBigQuery
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
-from .updates.update_records import UpdateRecords
 
 _LOG = logging.getLogger(__name__)
 
@@ -184,7 +183,7 @@ class ChunkUploader:
         Parameters
         ----------
         replica_chunk
-            The replica chunk to process, which includes its ID and directory.
+            The replica chunk to process.
 
         Raises
         ------
@@ -194,66 +193,55 @@ class ChunkUploader:
         """
         chunk_id = replica_chunk.id
 
-        if replica_chunk.directory is None:
-            raise ChunkUploadError(chunk_id, "No directory specified on replica chunk")
-        chunk_dir = replica_chunk.directory
+        # Determine the local directory where the chunk's parquet files and
+        # manifest are stored.
+        chunk_dir = self.config.chunk_dir(chunk_id)
+        manifest_path = chunk_dir / Manifest.FILE_NAME
 
         # Read the manifest file to get metadata about the chunk.
-        manifest: Manifest | None = None
         try:
-            if not replica_chunk.manifest_path.exists():
-                raise ChunkUploadError(
-                    chunk_id, f"Manifest file does not exist: {replica_chunk.manifest_path}"
-                )
-            manifest = Manifest.from_json_file(replica_chunk.manifest_path)
+            if not manifest_path.exists():
+                raise ChunkUploadError(chunk_id, f"Manifest file does not exist: {manifest_path}")
+            manifest = Manifest.from_json_file(manifest_path)
         except Exception as e:
             raise ChunkUploadError(chunk_id, f"Failed to read manifest file for: {replica_chunk.id}") from e
 
         # Construct the GCS prefix for this chunk's files.
-        gcs_prefix = posixpath.join(
-            self.config.object_prefix,
-            f"{manifest.exported_at.strftime('%Y/%m/%d')}/{chunk_id}",
-        )
+        gcs_prefix = posixpath.join(self.config.object_prefix, str(chunk_id))
 
-        # Make a list of local parquet files to upload.
-        upload_file_list = list(chunk_dir.glob("*.parquet"))
+        # Make a list of parquet files to upload based on the manifest.
+        upload_file_list: list[Path] = []
+        for file_name in manifest.files:
+            safe_name = Path(file_name).name
+            if safe_name != file_name:
+                raise ChunkUploadError(chunk_id, f"Invalid parquet file name in manifest: {file_name}")
+            upload_file_list.append(chunk_dir / safe_name)
 
-        # Check if the chunk is expected to be empty.
-        is_empty = manifest.is_empty_chunk()
+        # Check that all expected parquet files from the manifest are present.
+        for expected_file in upload_file_list:
+            if not expected_file.exists():
+                raise ChunkUploadError(
+                    chunk_id,
+                    f"Missing expected parquet file: {expected_file}",
+                )
 
         # Raise an error if no files are present for non-empty chunks since
         # this likely indicates a problem during the export process.
-        if not upload_file_list and not is_empty:
+        if not upload_file_list and not manifest.is_empty_chunk:
             raise ChunkUploadError(chunk_id, f"No files found to upload in {chunk_dir} for non-empty chunk")
 
-        # Check that all expected parquet files from the manifest containing
-        # table data are present.
-        for table_name, table_stats in manifest.table_data.items():
-            if table_stats.row_count > 0:
-                expected_file = chunk_dir / f"{table_name}.parquet"
-                if not expected_file.exists():
-                    raise ChunkUploadError(
-                        chunk_id,
-                        f"Expected parquet file for table '{table_name}' does not exist: {expected_file}",
-                    )
-
-        # Ensure that the parquet file containing updates exists if the
-        # manifest indicates that there are update records in this chunk.
-        if manifest.update_count > 0:
-            update_records_file = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
-            if not update_records_file.exists():
-                raise ChunkUploadError(
-                    chunk_id,
-                    f"Manifest indicates that replica chunk {chunk_id} has update records but file does not "
-                    f"exist: {update_records_file}",
-                )
-
         try:
-            # 1) Upload the files to GCS for non-empty chunks.
+            # 1) Upload the parquet files to GCS for non-empty chunks.
             if upload_file_list:
-                gcs_names = {path: posixpath.join(gcs_prefix, path.name) for path in upload_file_list}
+                gcs_names = {
+                    file_path: posixpath.join(gcs_prefix, file_path.name) for file_path in upload_file_list
+                }
                 try:
-                    _LOG.info("Uploading %d files to GCS under prefix: %s", len(gcs_names), gcs_prefix)
+                    _LOG.info(
+                        "Uploading %d files to: gcs://%s",
+                        len(gcs_names),
+                        posixpath.join(self.config.bucket_name, gcs_prefix),
+                    )
                     with Timer(
                         "upload_files_time", _MON, tags={"prefix": str(gcs_prefix), "chunk_id": str(chunk_id)}
                     ) as timer:
@@ -264,21 +252,21 @@ class ChunkUploader:
                     raise ChunkUploadError(chunk_id, f"{len(eg.exceptions)} upload(s) failed") from eg
 
             # 2) Upload manifest, even for empty chunks.
+            gcs_uri = posixpath.join(self.config.bucket_name, gcs_prefix)
             try:
                 self._storage.upload_from_string(
-                    posixpath.join(gcs_prefix, Path(replica_chunk.manifest_path).name),
+                    posixpath.join(gcs_prefix, manifest_path.name),
                     manifest.model_dump_json(),
                 )
             except UploadError as e:
                 raise ChunkUploadError(chunk_id, "Manifest upload failed") from e
 
             # Next two steps are inapplicable to empty chunks.
-            if not is_empty:
+            if not manifest.is_empty_chunk:
                 # 3) Update the status and GCS URI in the database, marking
                 # chunks with no table data as "staged" since they don't need
                 # to go through the staging process in Dataflow.
-                gcs_uri = posixpath.join(self.config.bucket_name, gcs_prefix)
-                status = ChunkStatus.UPLOADED if manifest.has_table_data() else ChunkStatus.STAGED
+                status = ChunkStatus.UPLOADED if manifest.has_table_data else ChunkStatus.STAGED
                 updated_replica_chunk = replica_chunk.with_new_status(status).with_new_gcs_uri(
                     f"gs://{gcs_uri}"
                 )
@@ -295,7 +283,7 @@ class ChunkUploader:
 
                 # 4) Publish Pub/Sub event to trigger the Dataflow staging
                 # job for chunks with table data (skipped for updates-only).
-                if manifest.has_table_data():
+                if manifest.has_table_data:
                     try:
                         self._post_to_stage_chunk_topic(gcs_uri, chunk_id)
                     except Exception as e:

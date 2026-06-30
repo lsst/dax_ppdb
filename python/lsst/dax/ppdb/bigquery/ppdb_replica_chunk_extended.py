@@ -27,7 +27,6 @@ import dataclasses
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import astropy.time
@@ -38,7 +37,6 @@ if TYPE_CHECKING:
 from lsst.dax.apdb import ReplicaChunk
 
 from ..ppdb import PpdbReplicaChunk
-from .manifest import Manifest
 
 
 class ChunkStatus(StrEnum):
@@ -65,9 +63,6 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     status: ChunkStatus
     """Status of the replica chunk."""
 
-    directory: Path
-    """Directory where the exported replica chunk data is stored locally."""
-
     gcs_uri: str | None = None
     """GCS URI where the replica chunk data is stored, or `None` if not
     uploaded yet."""
@@ -75,15 +70,6 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     update_count: int = 0
     """Count of APDB update records included in the chunk
     (must be non-negative)."""
-
-    @property
-    def manifest_path(self) -> Path:
-        """Path to the manifest file for this chunk, or `None` if directory is
-        not set.
-        """
-        if self.directory is None:
-            raise ValueError(f"directory for replica chunk {self.id} is not set")
-        return self.directory / Manifest.FILE_NAME
 
     @property
     def replica_time_dt_utc(self) -> datetime:
@@ -100,7 +86,6 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         cls,
         replica_chunk: ReplicaChunk,
         status: ChunkStatus,
-        directory: Path,
         update_count: int = 0,
     ) -> PpdbReplicaChunkExtended:
         """Create a `PpdbReplicaChunkExtended` from a
@@ -112,8 +97,6 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             The `~lsst.dax.apdb.ReplicaChunk` to convert.
         status
             Status of the replica chunk.
-        directory
-            Directory where the replica chunk data is stored.
 
         Returns
         -------
@@ -126,7 +109,6 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             last_update_time=replica_chunk.last_update_time,
             replica_time=astropy.time.Time.now(),
             status=status,
-            directory=directory,
             update_count=update_count,
         )
 
@@ -177,7 +159,6 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             "unique_id": self.unique_id,
             "replica_time": self.replica_time_dt_utc,
             "status": self.status.value,
-            "directory": str(self.directory),
             "gcs_uri": self.gcs_uri,  # This field can be null.
             "update_count": self.update_count,
         }
