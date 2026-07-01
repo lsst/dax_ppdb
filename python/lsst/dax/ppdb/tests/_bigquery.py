@@ -59,7 +59,6 @@ __all__ = [
     "create_datasets",
     "delete_datasets",
     "delete_test_bucket",
-    "generate_test_bucket_name",
     "have_valid_google_credentials",
     "init_bigquery_sql",
     "json_rows_to_buf",
@@ -208,12 +207,6 @@ def json_rows_to_buf(rows: list[dict]) -> io.StringIO:
         buf.write(json.dumps(row) + "\n")
     buf.seek(0)
     return buf
-
-
-def generate_test_bucket_name(test_prefix: str = "ppdb-test") -> str:
-    """Generate a unique bucket name for testing."""
-    test_id = uuid.uuid4().hex[:16]
-    return f"{test_prefix}-{test_id}"
 
 
 def delete_test_bucket(bucket_target: str | storage.Bucket | PpdbBigQueryConfig) -> None:
