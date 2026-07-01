@@ -28,10 +28,11 @@ import os
 import shutil
 import tempfile
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import google.auth
-from google.auth.exceptions import DefaultCredentialsError
+from google.auth.credentials import Credentials
+from google.auth.exceptions import DefaultCredentialsError, RefreshError
 from google.auth.transport.requests import Request
 from google.cloud import (
     bigquery,
@@ -42,8 +43,7 @@ from lsst.dax.apdb import (
     ApdbConfig,
 )
 from lsst.dax.apdb.sql import ApdbSql
-from lsst.dax.ppdb import PpdbConfig
-from lsst.dax.ppdb.bigquery import DatasetType, PpdbBigQuery, PpdbBigQueryConfig
+from lsst.dax.ppdb.bigquery import Datasets, DatasetType, PpdbBigQuery, PpdbBigQueryConfig
 from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
 from lsst.dax.ppdb.tests._ppdb import TEST_SCHEMA_RESOURCE_PATH
 
@@ -88,10 +88,22 @@ def make_bigquery_config(
     db_url
         Optional database URL to use for the test. If not provided, a default
         SQLite in-memory config will be used.
+    schema_name
+        Optional schema name to use for the test. If not provided, a default
+        schema name will be used.
+    replication_dir
+        Optional directory to use for storing replica chunk data. If not
+        provided, a temporary directory will be created.
+    delete_existing_dirs
+        If True, existing directories for chunks will be deleted before export.
+        If False, an error will be raised if the directory already exists.
     """
     unique_id = uuid.uuid4().hex[:16]
 
     credentials, project_id = google.auth.default()
+
+    if project_id is None:
+        raise RuntimeError("Google Cloud project ID could not be determined from credentials")
 
     if replication_dir is None:
         replication_dir = tempfile.mkdtemp()
@@ -102,11 +114,11 @@ def make_bigquery_config(
         object_prefix="data/test",
         replication_dir=replication_dir,
         delete_existing_dirs=delete_existing_dirs,
-        datasets={
-            "staging": f"{test_name}_staging_{unique_id}",
-            "internal": f"{test_name}_internal_{unique_id}",
-            "public": f"{test_name}_public_{unique_id}",
-        },
+        datasets=Datasets(
+            staging=f"{test_name}_staging_{unique_id}",
+            internal=f"{test_name}_internal_{unique_id}",
+            public=f"{test_name}_public_{unique_id}",
+        ),
         sql=PpdbSqlBaseConfig(
             db_url=db_url,
             schema_name=schema_name,
@@ -137,7 +149,8 @@ def init_bigquery_sql(config: PpdbBigQueryConfig, db_drop: bool = True) -> None:
 def create_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType] | None = None) -> None:
     """Create the BigQuery datasets for testing.
 
-    This will not create any tables, just the empty datasets.
+    This will not create any tables, just the empty datasets. The tests will
+    generally create their own tables in these datasets as needed.
 
     Parameters
     ----------
@@ -160,7 +173,7 @@ def create_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType]
 
 
 def drop_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType] | None = None) -> None:
-    """Delete the BigQuery datasets for testing.
+    """Drop the BigQuery datasets.
 
     Parameters
     ----------
@@ -182,8 +195,8 @@ def drop_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType] |
             raise
 
 
-def create_bucket(config: PpdbBigQueryConfig) -> None:
-    """Create the cloud storage bucket for testing.
+def create_bucket(config: PpdbBigQueryConfig) -> storage.Bucket:
+    """Create the cloud storage bucket from the config.
 
     Parameters
     ----------
@@ -196,6 +209,7 @@ def create_bucket(config: PpdbBigQueryConfig) -> None:
     except Exception as e:
         _LOG.exception("Failed to create bucket %s: %s", config.bucket_name, e)
         raise
+    return storage_client.get_bucket(config.bucket_name)
 
 
 def json_rows_to_buf(rows: list[dict]) -> io.StringIO:
@@ -210,7 +224,7 @@ def json_rows_to_buf(rows: list[dict]) -> io.StringIO:
 
 
 def delete_bucket(bucket_target: str | storage.Bucket | PpdbBigQueryConfig) -> None:
-    """Delete a cloud storage bucket that was created for testing.
+    """Delete a cloud storage bucket.
 
     Parameters
     ----------
@@ -236,7 +250,7 @@ def delete_bucket(bucket_target: str | storage.Bucket | PpdbBigQueryConfig) -> N
 
 
 class SqliteMixin:
-    """Mixin class to provide Sqlite-specific setup/teardown and instance
+    """Mixin class to provide Sqlite-specific setup, teardown, and instance
     creation.
     """
 
@@ -248,7 +262,7 @@ class SqliteMixin:
     def tearDown(self) -> None:
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
-    def make_instance(self, test_name: str = "test") -> PpdbConfig:
+    def make_instance(self, test_name: str = "test") -> PpdbBigQueryConfig:
         """Make config class instance used in all tests."""
         config = make_bigquery_config(db_url=self.ppdb_url, replication_dir=self.tempdir, test_name=test_name)
         init_bigquery_sql(config)
@@ -265,7 +279,7 @@ class SqliteMixin:
 
 
 class PostgresMixin:
-    """Mixin class to provide Postgres-specific setup/teardown and instance
+    """Mixin class to provide Postgres-specific setup, teardown, and instance
     creation.
     """
 
@@ -274,7 +288,10 @@ class PostgresMixin:
     @classmethod
     def setUpClass(cls) -> None:
         # Create the postgres test server.
-        cls.postgresql = testing.postgresql.PostgresqlFactory(cache_initialized_db=True)
+        if testing is not None:
+            cls.postgresql = testing.postgresql.PostgresqlFactory(cache_initialized_db=True)
+        else:
+            raise RuntimeError("testing.postgresql module is not available")
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -291,7 +308,7 @@ class PostgresMixin:
         self.server = self.postgresql()
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
-    def make_instance(self, test_name: str = "test") -> PpdbConfig:
+    def make_instance(self, test_name: str = "test") -> PpdbBigQueryConfig:
         """Make config class instance used in all tests."""
         config = make_bigquery_config(
             test_name=test_name,
@@ -328,13 +345,11 @@ def have_valid_google_credentials() -> bool:
         Raised for other transport or configuration failures.
     """
     try:
-        credentials, _ = google.auth.default()
-    except DefaultCredentialsError:
+        raw_credentials, _ = google.auth.default()
+        credentials = cast(Credentials, raw_credentials)
+        credentials.refresh(Request())
+    except (DefaultCredentialsError, RefreshError):
         return False
-
-    # This will validate the default credentials that were found in the
-    # environment.
-    credentials.refresh(Request())
 
     return True
 
