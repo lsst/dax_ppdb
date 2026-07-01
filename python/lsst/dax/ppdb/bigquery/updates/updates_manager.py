@@ -30,7 +30,7 @@ from collections.abc import Sequence
 
 from google.cloud import bigquery, storage
 
-from ..ppdb_bigquery_config import PpdbBigQueryConfig
+from ..ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
 from ..ppdb_replica_chunk_extended import PpdbReplicaChunkExtended
 from .update_record_expander import UpdateRecordExpander
 from .update_records import UpdateRecords
@@ -76,7 +76,6 @@ class UpdatesManager:
     ) -> None:
         # Get some necessary setup information from the config.
         project_id = config.project_id
-        dataset_id = config.dataset_id
         bucket_name = config.bucket_name
 
         # Merger instances for handling each target table.
@@ -87,7 +86,7 @@ class UpdatesManager:
         self._updates_table = UpdatesTable(
             self._bq_client,
             project_id,
-            dataset_id,
+            config.datasets.staging,
         )
 
         # Setup the GCS client and bucket.
@@ -95,7 +94,7 @@ class UpdatesManager:
         self._bucket = self._gcs_client.bucket(bucket_name)
 
         # Set the target dataset FQN for the mergers to use.
-        self._target_dataset_fqn = f"{project_id}.{dataset_id}"
+        self._target_dataset_fqn = config.fqn_for(DatasetType.INTERNAL)
 
     def apply_updates(self, replica_chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
         """Apply update records from replica chunk data to target tables in

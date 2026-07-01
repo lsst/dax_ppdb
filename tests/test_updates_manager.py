@@ -33,12 +33,17 @@ from lsst.dax.apdb import (
     ReplicaChunk,
 )
 from lsst.dax.ppdb import Ppdb
-from lsst.dax.ppdb.bigquery import PpdbBigQuery
+from lsst.dax.ppdb.bigquery import (
+    DatasetType,
+    PpdbBigQuery,
+    PpdbBigQueryConfig,
+)
 from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.bigquery.updates.updates_manager import UpdatesManager
 from lsst.dax.ppdb.tests._bigquery import (
     PostgresMixin,
-    generate_test_bucket_name,
+    create_datasets,
+    delete_test_bucket,
     have_valid_google_credentials,
     json_rows_to_buf,
 )
@@ -54,66 +59,50 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
 
-        # Set up BigQuery client and test dataset.
-        self.bq_client = bigquery.Client()
-
-        bucket_name = generate_test_bucket_name("ppdb-updates-manager-test")
-        dataset_id = f"test_updates_manager_{uuid.uuid4().hex[:8]}"
-        project_id = self.bq_client.project
-        config = {
-            "db_drop": True,
-            "validate_config": False,
-            "delete_existing_dirs": True,
-            "bucket_name": bucket_name,
-            "object_prefix": "data/test",
-            "dataset_id": dataset_id,
-            "project_id": project_id,
-        }
-
         # Setup the Postgres database and create the config instance.
-        self.ppdb_config = self.make_instance(config)
+        config = self.make_instance(test_name="test_updates_manager")
 
-        # Create the test dataset and tables in BigQuery.
-        self.target_dataset_fqn = f"{project_id}.{dataset_id}"
-        self._create_test_dataset(self.bq_client, dataset_id)
+        # Create the necessary datasets in BigQuery for the test.
+        create_datasets(config, [DatasetType.INTERNAL, DatasetType.STAGING])
+
+        # Create the test tables in BigQuery.
+        self._create_test_tables(config, DatasetType.INTERNAL)
 
         # Create the test GCS bucket.
         storage_client = storage.Client()
         try:
-            bucket = storage_client.bucket(self.ppdb_config.bucket_name)
+            bucket = storage_client.bucket(config.bucket_name)
             bucket.create(location="US")
         except Exception as e:
             self.fail(f"Failed to create test GCS bucket: {e}")
 
         # Create the PPDB instance.
-        self.ppdb = Ppdb.from_config(self.ppdb_config)
+        self.ppdb = Ppdb.from_config(config)
         assert isinstance(self.ppdb, PpdbBigQuery)
 
     def tearDown(self):
         # Delete the test dataset.
-        try:
-            self.bq_client.delete_dataset(
-                self.ppdb_config.dataset_id, delete_contents=True, not_found_ok=True
-            )
-        except Exception as e:
-            print(f"Failed to delete test dataset: {e}")
+        client = bigquery.Client()
+        for dataset_type in [DatasetType.INTERNAL, DatasetType.STAGING]:
+            try:
+                client.delete_dataset(
+                    self.ppdb.config.datasets.name_for(dataset_type), delete_contents=True, not_found_ok=True
+                )
+            except Exception as e:
+                self.fail(f"Failed to delete test dataset: {e}")
 
         # Delete the test GCS bucket.
-        storage_client = storage.Client()
         try:
-            bucket = storage_client.bucket(self.ppdb_config.bucket_name)
-            blobs = list(bucket.list_blobs())
-            for blob in blobs:
-                blob.delete()
-            bucket.delete()
+            delete_test_bucket(self.ppdb.config)
         except Exception as e:
-            print(f"Failed to delete test GCS bucket: {e}")
+            self.fail(f"Failed to delete test GCS bucket: {e}")
 
         super().tearDown()
 
-    def _create_test_dataset(self, client: bigquery.Client, dataset_id: str) -> None:
-        dataset = bigquery.Dataset(f"{client.project}.{dataset_id}")
-        client.create_dataset(dataset, exists_ok=False)
+    @staticmethod
+    def _create_test_tables(config: PpdbBigQueryConfig, dataset_type: DatasetType) -> None:
+        """Create test tables in the specified BigQuery dataset."""
+        client = bigquery.Client()
 
         # Create DiaObject table.
         schema = [
@@ -121,7 +110,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             bigquery.SchemaField("validityEndMjdTai", "FLOAT", mode="NULLABLE"),
             bigquery.SchemaField("nDiaSources", "INTEGER", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaObject"
+        table_fqn = config.fqn_for(dataset_type, "DiaObject")
         table = bigquery.Table(table_fqn, schema=schema)
         client.create_table(table)
         rows = [
@@ -145,9 +134,9 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             bigquery.SchemaField("ssObjectReassocTimeMjdTai", "FLOAT", mode="NULLABLE"),
             bigquery.SchemaField("timeWithdrawnMjdTai", "FLOAT", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaSource"
+        table_fqn = config.fqn_for(dataset_type, "DiaSource")
         table = bigquery.Table(table_fqn, schema=schema)
-        self.bq_client.create_table(table)
+        client.create_table(table)
         rows = [
             {
                 "diaSourceId": 100001,
@@ -192,14 +181,14 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             bigquery.SchemaField("detector", "INTEGER", mode="REQUIRED"),
             bigquery.SchemaField("timeWithdrawnMjdTai", "FLOAT", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaForcedSource"
+        table_fqn = config.fqn_for(dataset_type, "DiaForcedSource")
         table = bigquery.Table(table_fqn, schema=schema)
-        self.bq_client.create_table(table)
+        client.create_table(table)
         rows = [
             {"diaObjectId": 200001, "visit": 12345, "detector": 42, "timeWithdrawnMjdTai": None},
             {"diaObjectId": 200001, "visit": 12346, "detector": 42, "timeWithdrawnMjdTai": None},
         ]
-        job = self.bq_client.load_table_from_file(
+        job = client.load_table_from_file(
             json_rows_to_buf(rows),
             table_fqn,
             job_config=bigquery.LoadJobConfig(source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON),
