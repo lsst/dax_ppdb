@@ -241,3 +241,122 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             self.ppdb.chunk_table.columns["apdb_replica_chunk"].in_([test_replica_chunk_id])
         )
         updates_manager.apply_updates(replica_chunks)
+
+        client = bigquery.Client()
+
+        # Verify DiaSource updates.
+        dia_source_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaSource")
+        rows = client.query(
+            f"""
+            SELECT
+              diaSourceId,
+              diaObjectId,
+              ssObjectId,
+              ssObjectReassocTimeMjdTai,
+              timeWithdrawnMjdTai
+            FROM `{dia_source_fqn}`
+            WHERE diaSourceId IN (100001, 100002, 100003, 100004)
+            """
+        ).result()
+
+        dia_sources = {row["diaSourceId"]: row for row in rows}
+
+        self.assertEqual(set(dia_sources), {100001, 100002, 100003, 100004})
+
+        # Latest reassign record should win: 400001, not 300001.
+        self.assertEqual(dia_sources[100001]["diaObjectId"], 400001)
+        self.assertIsNone(dia_sources[100001]["ssObjectId"])
+        self.assertIsNone(dia_sources[100001]["ssObjectReassocTimeMjdTai"])
+        self.assertIsNone(dia_sources[100001]["timeWithdrawnMjdTai"])
+
+        # Reassigned to SSObject.
+        self.assertEqual(dia_sources[100002]["ssObjectId"], 2001)
+        self.assertEqual(
+            dia_sources[100002]["ssObjectReassocTimeMjdTai"],
+            59580.0,
+        )
+        self.assertIsNone(dia_sources[100002]["timeWithdrawnMjdTai"])
+
+        # Withdrawn DiaSource.
+        self.assertEqual(
+            dia_sources[100003]["timeWithdrawnMjdTai"],
+            59580.0,
+        )
+
+        # Unaffected DiaSource should remain unchanged.
+        self.assertEqual(dia_sources[100004]["diaObjectId"], 200004)
+        self.assertIsNone(dia_sources[100004]["ssObjectId"])
+        self.assertIsNone(dia_sources[100004]["ssObjectReassocTimeMjdTai"])
+        self.assertIsNone(dia_sources[100004]["timeWithdrawnMjdTai"])
+
+        # Verify DiaForcedSource updates.
+        dia_forced_source_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaForcedSource")
+        rows = client.query(
+            f"""
+            SELECT
+              diaObjectId,
+              visit,
+              detector,
+              timeWithdrawnMjdTai
+            FROM `{dia_forced_source_fqn}`
+            WHERE diaObjectId = 200001
+              AND visit IN (12345, 12346)
+              AND detector = 42
+            """
+        ).result()
+
+        forced_sources = {(row["diaObjectId"], row["visit"], row["detector"]): row for row in rows}
+
+        self.assertEqual(
+            set(forced_sources),
+            {
+                (200001, 12345, 42),
+                (200001, 12346, 42),
+            },
+        )
+
+        # Withdrawn DiaForcedSource.
+        self.assertEqual(
+            forced_sources[(200001, 12345, 42)]["timeWithdrawnMjdTai"],
+            59580.0,
+        )
+
+        # Unaffected DiaForcedSource should remain unchanged.
+        self.assertIsNone(
+            forced_sources[(200001, 12346, 42)]["timeWithdrawnMjdTai"],
+        )
+
+        # Verify DiaObject updates.
+        dia_object_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaObject")
+        rows = client.query(
+            f"""
+            SELECT
+              diaObjectId,
+              validityEndMjdTai,
+              nDiaSources
+            FROM `{dia_object_fqn}`
+            WHERE diaObjectId IN (200001, 200002, 200003)
+            """
+        ).result()
+
+        dia_objects = {row["diaObjectId"]: row for row in rows}
+
+        self.assertEqual(set(dia_objects), {200001, 200002, 200003})
+
+        # Closed validity interval.
+        self.assertEqual(
+            dia_objects[200001]["validityEndMjdTai"],
+            59580.0,
+        )
+        self.assertEqual(dia_objects[200001]["nDiaSources"], 5)
+
+        # Latest nDiaSources update should win: 10, not older value 8.
+        self.assertIsNone(dia_objects[200002]["validityEndMjdTai"])
+        self.assertEqual(dia_objects[200002]["nDiaSources"], 10)
+
+        # Unaffected DiaObject should remain unchanged.
+        self.assertEqual(
+            dia_objects[200003]["validityEndMjdTai"],
+            59000.0,
+        )
+        self.assertEqual(dia_objects[200003]["nDiaSources"], 2)
