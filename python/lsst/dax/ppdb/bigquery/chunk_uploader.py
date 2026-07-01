@@ -303,7 +303,7 @@ class ChunkUploader:
 
     def _post_to_stage_chunk_topic(self, gcs_uri: str, chunk_id: int) -> None:
         message = {
-            "dataset": self.config.fq_dataset_id,
+            "dataset": self.config.datasets.staging,
             "chunk_id": str(chunk_id),
             "folder": f"gs://{gcs_uri}",
         }
