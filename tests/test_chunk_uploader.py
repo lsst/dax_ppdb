@@ -56,7 +56,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         self.ppdb = Ppdb.from_config(self.ppdb_config)
         assert isinstance(self.ppdb, PpdbBigQuery)
 
-        create_bucket(self.ppdb_config)
+        self.bucket = create_bucket(self.ppdb_config)
 
         # Replicate APDB replica chunks to the PPDB.
         replicator = Replicator(
@@ -67,7 +67,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
     def tearDown(self):
         # Delete the test GCS bucket.
         try:
-            delete_bucket(self._bucket)
+            delete_bucket(self.bucket)
         except Exception:
             self.fail("Failed to delete test GCS bucket")
         finally:
@@ -88,7 +88,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
             ).run()
 
         # Retrieve the update records file.
-        blobs = list(self._bucket.list_blobs(match_glob="**/update_records.parquet"))
+        blobs = list(self.bucket.list_blobs(match_glob="**/update_records.parquet"))
         update_records_files = [b.name for b in blobs]
         self.assertEqual(
             len(update_records_files),
@@ -136,7 +136,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
             f"{update_records_files}",
         )
 
-        manifest_blob = self._bucket.blob(f"{expected_prefix}/{Manifest.FILE_NAME}")
+        manifest_blob = self.bucket.blob(f"{expected_prefix}/{Manifest.FILE_NAME}")
         self.assertTrue(manifest_blob.exists())
         manifest = Manifest.from_json_str(manifest_blob.download_as_text())
 
@@ -146,7 +146,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         )
 
         updates_data = manifest.files[UpdateRecords.PARQUET_FILE_NAME]
-        local_update_path = self.ppdb.config.chunk_dir(uploaded_chunk.id) / UpdateRecords.PARQUET_FILE_NAME
+        local_update_path = self.ppdb.config.chunk_dir(matched_chunk.id) / UpdateRecords.PARQUET_FILE_NAME
         expected_checksum = hashlib.sha256(local_update_path.read_bytes()).hexdigest()
         self.assertEqual(
             updates_data.checksum,
