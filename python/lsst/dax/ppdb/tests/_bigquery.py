@@ -53,7 +53,6 @@ except ImportError:
     testing = None
 
 __all__ = [
-    "TEST_CONFIG",
     "PostgresMixin",
     "SqliteMixin",
     "create_bucket",
@@ -70,16 +69,6 @@ __all__ = [
 
 _LOG = logging.getLogger(__name__)
 
-
-TEST_CONFIG = {
-    "db_drop": True,
-    "validate_config": False,
-    "delete_existing_dirs": True,
-    "bucket_name": "ppdb-test",
-    "object_prefix": "data/test",
-    "dataset_id": "test_dataset",
-    "project_id": "test_project",
-}
 
 _APDB_SCHEMA_RESOURCE_PATH = "resource://lsst.dax.ppdb/resources/config/schemas/test_apdb_schema.yaml"
 
@@ -109,7 +98,6 @@ def make_bigquery_config(
         replication_dir = tempfile.mkdtemp()
 
     config = PpdbBigQueryConfig(
-        dataset_id="fake",  # FIXME: Remove this eventually.
         project_id=project_id,
         bucket_name=f"{test_name.lower().replace('_', '-')}-bucket-{unique_id}",
         object_prefix="data/test",
