@@ -23,8 +23,6 @@ import hashlib
 import unittest
 from unittest.mock import patch
 
-from google.cloud import storage
-
 from lsst.dax.apdb import Apdb, ApdbReplica
 from lsst.dax.ppdb import Ppdb
 from lsst.dax.ppdb.bigquery import Manifest, PpdbBigQuery
@@ -34,8 +32,8 @@ from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import fill_apdb
 from lsst.dax.ppdb.tests._bigquery import (
     PostgresMixin,
+    create_bucket,
     delete_test_bucket,
-    generate_test_bucket_name,
     have_valid_google_credentials,
 )
 
@@ -54,9 +52,11 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         apdb_replica = ApdbReplica.from_config(apdb_config)
 
         # Make PPDB instance.
-        self.ppdb_config = self.make_instance()
+        self.ppdb_config = self.make_instance(test_name="test_chunk_uploader")
         self.ppdb = Ppdb.from_config(self.ppdb_config)
         assert isinstance(self.ppdb, PpdbBigQuery)
+
+        create_bucket(self.ppdb_config)
 
         # Replicate APDB replica chunks to the PPDB.
         replicator = Replicator(
@@ -64,16 +64,14 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         )
         replicator.run(exit_on_empty=True)
 
-        # Create a unique test bucket name and set up GCS resources.
-        self.ppdb_config.bucket_name = generate_test_bucket_name("ppdb-test-gcs-upload")
-        self._storage_client = storage.Client()
-        self._bucket = self._storage_client.bucket(self.ppdb_config.bucket_name)
-        self._bucket.create(location="US")
-
     def tearDown(self):
         # Delete the test GCS bucket.
-        delete_test_bucket(self._bucket)
-        super().tearDown()
+        try:
+            delete_test_bucket(self._bucket)
+        except Exception:
+            self.fail("Failed to delete test GCS bucket")
+        finally:
+            super().tearDown()
 
     def test_chunk_uploader(self) -> None:
         """Test that the update records are correctly uploaded to Google Cloud

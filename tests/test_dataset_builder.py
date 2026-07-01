@@ -93,7 +93,6 @@ class DatasetBuilderTestMixin:
         """
         return PpdbBigQueryConfig(
             project_id=project_id,
-            dataset_id="test_dataset_builder",
             bucket_name="test-bucket",
             object_prefix="data/test",
             replication_dir="/tmp",

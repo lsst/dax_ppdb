@@ -20,12 +20,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
-import uuid
 
 from google.cloud import bigquery
 
+from lsst.dax.ppdb.bigquery import DatasetType
 from lsst.dax.ppdb.bigquery.updates import UpdateRecordExpander, UpdatesTable
-from lsst.dax.ppdb.tests._bigquery import have_valid_google_credentials
+from lsst.dax.ppdb.tests import (
+    create_datasets,
+    delete_datasets,
+    have_valid_google_credentials,
+    make_bigquery_config,
+)
 from lsst.dax.ppdb.tests._updates import _create_test_update_records
 
 
@@ -38,31 +43,26 @@ class TestUpdatesTable(unittest.TestCase):
         # Create BigQuery client.
         self.client = bigquery.Client()
 
-        # Create unique dataset name for this test run.
-        self.dataset_id = f"test_updates_{uuid.uuid4().hex[:8]}"
-        self.project_id = self.client.project
-        self.table_name = "updates"
-        self.table_fqn = f"{self.project_id}.{self.dataset_id}.{self.table_name}"
+        # Create PPDB BigQuery config for test.
+        self.config = make_bigquery_config(test_name="test_updates_table")
 
-        # Create the test dataset.
-        dataset = bigquery.Dataset(f"{self.project_id}.{self.dataset_id}")
+        # Create the BigQuery dataset for the tests.
+        create_datasets(self.config, [DatasetType.STAGING])
 
-        # Set a short expiration on the dataset for cleanup safety (1 hour).
-        dataset.default_table_expiration_ms = 3600000
+        # Set the FQN of the updates table.
+        self.table_fqn = self.config.fqn_for(DatasetType.STAGING, "updates")
 
-        self.dataset = self.client.create_dataset(dataset)
-
-        # Create UpdatesTable instance.
-        self.updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
+        # Create the UpdatesTable instance.
+        self.updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
 
     def tearDown(self) -> None:
         """Clean up test fixtures."""
         # Always clean up the test dataset, whether test passed or failed.
         try:
-            self.client.delete_dataset(self.dataset_id, delete_contents=True, not_found_ok=True)
+            delete_datasets(self.config, [DatasetType.STAGING])
         except Exception:
-            # If deletion fails, at least the expiration will clean it up.
-            pass
+            self.fail("Failed to delete test datasets")
+            raise
 
     def test_table_fqn_property(self) -> None:
         """Test the table_fqn property."""
@@ -73,8 +73,8 @@ class TestUpdatesTable(unittest.TestCase):
         table = self.updates_table.create()
 
         # Verify table was created successfully.
-        self.assertEqual(table.table_id, self.table_name)
-        self.assertEqual(table.dataset_id, self.dataset_id)
+        self.assertEqual(table.table_id, "updates")
+        self.assertEqual(table.dataset_id, self.config.datasets.staging)
 
         # Verify schema is correct.
         expected_fields = {
