@@ -148,13 +148,15 @@ class PpdbBigQueryConfig(PpdbConfig):
         """Fully qualified BigQuery dataset ID, including project (`str`)."""
         return f"{self.project_id}:{self.dataset_id}"
 
-    def fqn_for(self, dataset_type: DatasetType) -> str:
+    def fqn_for(self, dataset_type: DatasetType, table_name: str | None = None) -> str:
         """Return the fully qualified BigQuery dataset name for a dataset type.
 
         Parameters
         ----------
         dataset_type
             Type of dataset to get the name for.
+        table_name
+            Optional table name to include in the fully qualified name.
 
         Returns
         -------
@@ -162,4 +164,7 @@ class PpdbBigQueryConfig(PpdbConfig):
             Fully qualified BigQuery dataset name (project.dataset).
         """
         dataset_name = self.datasets.name_for(dataset_type)
-        return f"{self.project_id}.{dataset_name}"
+        fqn = f"{self.project_id}.{dataset_name}"
+        if table_name:
+            fqn = f"{fqn}.{table_name}"
+        return fqn
