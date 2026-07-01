@@ -57,8 +57,8 @@ __all__ = [
     "SqliteMixin",
     "create_bucket",
     "create_datasets",
-    "delete_datasets",
-    "delete_test_bucket",
+    "delete_bucket",
+    "drop_datasets",
     "have_valid_google_credentials",
     "init_bigquery_sql",
     "json_rows_to_buf",
@@ -159,7 +159,7 @@ def create_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType]
             raise
 
 
-def delete_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType] | None = None) -> None:
+def drop_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType] | None = None) -> None:
     """Delete the BigQuery datasets for testing.
 
     Parameters
@@ -209,7 +209,7 @@ def json_rows_to_buf(rows: list[dict]) -> io.StringIO:
     return buf
 
 
-def delete_test_bucket(bucket_target: str | storage.Bucket | PpdbBigQueryConfig) -> None:
+def delete_bucket(bucket_target: str | storage.Bucket | PpdbBigQueryConfig) -> None:
     """Delete a cloud storage bucket that was created for testing.
 
     Parameters

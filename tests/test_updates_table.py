@@ -27,7 +27,7 @@ from lsst.dax.ppdb.bigquery import DatasetType
 from lsst.dax.ppdb.bigquery.updates import UpdateRecordExpander, UpdatesTable
 from lsst.dax.ppdb.tests import (
     create_datasets,
-    delete_datasets,
+    drop_datasets,
     have_valid_google_credentials,
     make_bigquery_config,
 )
@@ -59,7 +59,7 @@ class TestUpdatesTable(unittest.TestCase):
         """Clean up test fixtures."""
         # Always clean up the test dataset, whether test passed or failed.
         try:
-            delete_datasets(self.config, [DatasetType.STAGING])
+            drop_datasets(self.config, [DatasetType.STAGING])
         except Exception:
             self.fail("Failed to delete test datasets")
             raise

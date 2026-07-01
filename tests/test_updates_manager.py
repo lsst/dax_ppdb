@@ -43,7 +43,7 @@ from lsst.dax.ppdb.bigquery.updates.updates_manager import UpdatesManager
 from lsst.dax.ppdb.tests._bigquery import (
     PostgresMixin,
     create_datasets,
-    delete_test_bucket,
+    delete_bucket,
     have_valid_google_credentials,
     json_rows_to_buf,
 )
@@ -93,7 +93,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
 
         # Delete the test GCS bucket.
         try:
-            delete_test_bucket(self.ppdb.config)
+            delete_bucket(self.ppdb.config)
         except Exception as e:
             self.fail(f"Failed to delete test GCS bucket: {e}")
 

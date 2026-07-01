@@ -33,7 +33,7 @@ from lsst.dax.ppdb.tests import fill_apdb
 from lsst.dax.ppdb.tests._bigquery import (
     PostgresMixin,
     create_bucket,
-    delete_test_bucket,
+    delete_bucket,
     have_valid_google_credentials,
 )
 
@@ -67,7 +67,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
     def tearDown(self):
         # Delete the test GCS bucket.
         try:
-            delete_test_bucket(self._bucket)
+            delete_bucket(self._bucket)
         except Exception:
             self.fail("Failed to delete test GCS bucket")
         finally:

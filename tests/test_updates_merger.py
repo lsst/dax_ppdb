@@ -33,7 +33,7 @@ from lsst.dax.ppdb.bigquery.updates import (
 )
 from lsst.dax.ppdb.tests import (
     create_datasets,
-    delete_datasets,
+    drop_datasets,
     have_valid_google_credentials,
     json_rows_to_buf,
     make_bigquery_config,
@@ -54,7 +54,7 @@ class TestUpdatesMerger(unittest.TestCase):
 
     def tearDown(self):
         try:
-            delete_datasets(self.config, [DatasetType.STAGING, DatasetType.INTERNAL])
+            drop_datasets(self.config, [DatasetType.STAGING, DatasetType.INTERNAL])
         except Exception:
             pass
 

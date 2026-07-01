@@ -44,8 +44,8 @@ from lsst.dax.ppdb.tests import (
     PostgresMixin,
     create_bucket,
     create_datasets,
-    delete_datasets,
-    delete_test_bucket,
+    delete_bucket,
+    drop_datasets,
     fill_apdb,
     have_valid_google_credentials,
     make_bigquery_config,
@@ -137,13 +137,13 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
     def tearDown(self):
         # Delete the BigQuery test datasets.
         try:
-            delete_datasets(self.config)
+            drop_datasets(self.config)
         except Exception as e:
             print(f"Failed to delete test datasets: {e}")
 
         # Delete the GCS test bucket.
         try:
-            delete_test_bucket(self.bucket)
+            delete_bucket(self.bucket)
         except Exception as e:
             print(f"Failed to delete test GCS bucket: {e}")
         super().tearDown()
@@ -375,7 +375,7 @@ class FillValidityEndTestCase(unittest.TestCase):
     def tearDown(self):
         # Delete test datasets.
         try:
-            delete_datasets(self.config, [DatasetType.INTERNAL, DatasetType.STAGING])
+            drop_datasets(self.config, [DatasetType.INTERNAL, DatasetType.STAGING])
         except Exception:
             self.fail("Failed to delete test datasets")
 
