@@ -140,7 +140,8 @@ class PpdbBigQueryConfig(PpdbConfig):
         return self.replication_path / str(chunk_id)
 
     def fqn_for(self, dataset_type: DatasetType, table_name: str | None = None) -> str:
-        """Return the fully qualified BigQuery dataset name for a dataset type.
+        """Return the fully qualified BigQuery dataset or table name (if
+        provided) for a dataset type.
 
         Parameters
         ----------
@@ -152,7 +153,7 @@ class PpdbBigQueryConfig(PpdbConfig):
         Returns
         -------
         str
-            Fully qualified BigQuery dataset name (project.dataset).
+            Fully qualified BigQuery dataset or table name.
         """
         dataset_name = self.datasets.name_for(dataset_type)
         fqn = f"{self.project_id}.{dataset_name}"
