@@ -28,10 +28,9 @@ import os
 import shutil
 import tempfile
 import uuid
-from typing import Any, cast
+from typing import Any
 
 import google.auth
-from google.auth.credentials import Credentials
 from google.auth.exceptions import DefaultCredentialsError, RefreshError
 from google.auth.transport.requests import Request
 from google.cloud import (
@@ -104,7 +103,7 @@ def make_bigquery_config(
     # use a placeholder if not available.
     project_id: str | None = None
     try:
-        _credentials, project_id = google.auth.default()
+        _, project_id = google.auth.default()
     except DefaultCredentialsError:
         pass
     if project_id is None:
@@ -350,8 +349,7 @@ def have_valid_google_credentials() -> bool:
         Raised for other transport or configuration failures.
     """
     try:
-        raw_credentials, _ = google.auth.default()
-        credentials = cast(Credentials, raw_credentials)
+        credentials, _ = google.auth.default()
         credentials.refresh(Request())
     except (DefaultCredentialsError, RefreshError):
         return False
