@@ -51,7 +51,7 @@ from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, ParquetFileEntry
-from .ppdb_bigquery_config import PpdbBigQueryConfig
+from .ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
 
@@ -316,7 +316,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ConfigValidationError("Failed to validate GCS bucket") from e
 
         # Check existence of the BigQuery dataset.
-        for dataset_name in (config.datasets.internal, config.datasets.public, config.datasets.staging):
+        for dataset_type in tuple(DatasetType):
+            dataset_name = config.datasets.name_for(dataset_type)
             try:
                 check_dataset_exists(config.project_id, dataset_name)
             except Exception as e:

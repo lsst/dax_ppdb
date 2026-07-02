@@ -168,7 +168,7 @@ class ChunkPromoter:
         logging.info("Completed promotion of %d chunk(s)", len(chunks))
 
     def _copy_to_promoted_tmp(self) -> None:
-        """Build a temporary tables by cloning the current prod tables and
+        """Build temporary tables by cloning the current prod tables and
         inserting staged rows for the promotable chunks.
         """
         job_cfg = bigquery.QueryJobConfig(
