@@ -32,6 +32,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import google.auth
+from google.api_core.exceptions import GoogleAPIError
 from google.auth.exceptions import DefaultCredentialsError, RefreshError
 from google.auth.transport.requests import Request
 from google.cloud import (
@@ -171,7 +172,7 @@ def create_datasets(config: PpdbBigQueryConfig, dataset_types: Sequence[DatasetT
             dataset = bigquery.Dataset(dataset_fqn)
             dataset.default_table_expiration_ms = 60 * 60 * 1000  # 1 hour in milliseconds
             bq_client.create_dataset(dataset)
-        except Exception as e:
+        except GoogleAPIError as e:
             _LOG.exception("Failed to create dataset %s: %s", dataset_fqn, e)
             raise
 
@@ -198,7 +199,7 @@ def drop_datasets(config: PpdbBigQueryConfig, dataset_types: Sequence[DatasetTyp
                 delete_contents=True,
                 not_found_ok=True,
             )
-        except Exception as e:
+        except GoogleAPIError as e:
             _LOG.exception("Failed to delete dataset %s: %s", dataset_fqn, e)
             raise
 
@@ -214,7 +215,7 @@ def create_bucket(config: PpdbBigQueryConfig) -> storage.Bucket:
     storage_client = storage.Client(project=config.project_id)
     try:
         storage_client.create_bucket(config.bucket_name)
-    except Exception as e:
+    except GoogleAPIError as e:
         _LOG.exception("Failed to create bucket %s: %s", config.bucket_name, e)
         raise
     return storage_client.get_bucket(config.bucket_name)
@@ -252,7 +253,7 @@ def delete_bucket(bucket_target: str | storage.Bucket | PpdbBigQueryConfig) -> N
         for blob in blobs:
             blob.delete()
         bucket.delete()
-    except Exception as e:
+    except GoogleAPIError as e:
         _LOG.exception("Failed to delete test GCS bucket: %s", e)
         raise
 
