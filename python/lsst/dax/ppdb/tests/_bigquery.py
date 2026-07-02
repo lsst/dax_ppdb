@@ -100,10 +100,15 @@ def make_bigquery_config(
     """
     unique_id = uuid.uuid4().hex[:16]
 
-    credentials, project_id = google.auth.default()
-
+    # Determine the Google Cloud project ID from the default credentials or
+    # use a placeholder if not available.
+    project_id: str | None = None
+    try:
+        _credentials, project_id = google.auth.default()
+    except DefaultCredentialsError:
+        pass
     if project_id is None:
-        raise RuntimeError("Google Cloud project ID could not be determined from credentials")
+        project_id = "Unavailable"
 
     if replication_dir is None:
         replication_dir = tempfile.mkdtemp()
