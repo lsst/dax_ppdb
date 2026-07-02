@@ -313,7 +313,7 @@ class ChunkPromoter:
     def _cleanup(self) -> None:
         """Cleanup state after executing the promotion."""
         # Delete the tmp tables.
-        for table_name in self._DEFAULT_TABLE_NAMES:
+        for table_name in self.table_names:
             tmp_ref = self.config.fqn_for(DatasetType.INTERNAL, table_name + _PROMOTED_TMP_SUFFIX)
             self._bq_client.delete_table(tmp_ref, not_found_ok=True)
             logging.debug("Dropped %s (if it existed)", tmp_ref)
