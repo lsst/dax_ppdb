@@ -316,10 +316,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ConfigValidationError("Failed to validate GCS bucket") from e
 
         # Check existence of the BigQuery dataset.
-        try:
-            check_dataset_exists(config.project_id, config.dataset_id)
-        except Exception as e:
-            raise ConfigValidationError("Failed to validate BigQuery dataset") from e
+        for dataset_name in (config.datasets.internal, config.datasets.public, config.datasets.staging):
+            try:
+                check_dataset_exists(config.project_id, dataset_name)
+            except Exception as e:
+                raise ConfigValidationError(f"Failed to validate BigQuery dataset: {dataset_name}") from e
 
     # ----------------------------------------------------------------------
     # SQL schema and versioning class methods
