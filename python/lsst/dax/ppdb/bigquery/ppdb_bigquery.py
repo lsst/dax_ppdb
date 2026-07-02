@@ -168,7 +168,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         cls,
         db_url: str,
         project_id: str,
-        dataset_id: str,
         bucket_name: str,
         object_prefix: str,
         replication_dir: str,
@@ -191,8 +190,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             Database URL in SQLAlchemy format for PPDB instance.
         project_id
             GCP project ID.
-        dataset_id
-            BigQuery dataset name without the project ID.
         bucket_name
             GCS bucket name to use for Parquet output.
         object_prefix
@@ -236,7 +233,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             sql=sql_config,
             replication_dir=replication_dir,
             bucket_name=bucket_name,
-            dataset_id=dataset_id,
             project_id=project_id,
             object_prefix=object_prefix,
             delete_existing_dirs=delete_existing_dirs,
