@@ -69,9 +69,6 @@ __all__ = [
 _LOG = logging.getLogger(__name__)
 
 
-_APDB_SCHEMA_RESOURCE_PATH = "resource://lsst.dax.ppdb/resources/config/schemas/test_apdb_schema.yaml"
-
-
 def make_bigquery_config(
     test_name: str = "test",
     db_url: str = "sqlite:///:memory:",
@@ -127,7 +124,7 @@ def make_bigquery_config(
         sql=PpdbSqlBaseConfig(
             db_url=db_url,
             schema_name=schema_name,
-            felis_path=_APDB_SCHEMA_RESOURCE_PATH,
+            felis_path=TEST_SCHEMA_RESOURCE_PATH,
         ),
     )
     return config
@@ -282,7 +279,7 @@ class SqliteMixin:
     def make_apdb_instance(self) -> ApdbConfig:
         """Make APDB instance for tests."""
         return ApdbSql.init_database(
-            schema_file=_APDB_SCHEMA_RESOURCE_PATH,
+            schema_file=TEST_SCHEMA_RESOURCE_PATH,
             ss_schema_file="",
             db_url=self.apdb_url,
             enable_replica=True,
