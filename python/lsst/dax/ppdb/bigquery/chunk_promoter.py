@@ -36,13 +36,12 @@ from google.cloud import bigquery
 from lsst.dax.apdb import ApdbTables
 
 from .ppdb_bigquery import PpdbBigQuery
-from .ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
+from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .query_runner import QueryRunner
 from .sql_resource import SqlResource
+from .table_refs import TableRefs
 from .updates.updates_manager import UpdatesManager
-
-_PROMOTED_TMP_SUFFIX = "_promoted_tmp"
 
 
 class NoPromotableChunksError(Exception):
@@ -74,6 +73,8 @@ class ChunkPromoter:
         ApdbTables.DiaForcedSource.value,
     )
 
+    _PROMOTED_TMP_SUFFIX = "_promoted_tmp"
+
     def __init__(
         self,
         ppdb: PpdbBigQuery,
@@ -81,13 +82,13 @@ class ChunkPromoter:
     ):
         self._ppdb = ppdb
 
-        # FIXME: This should be changed to accept the location and not the
-        # dataset.
         self._runner = QueryRunner(self.config.project_id, self.config.datasets.internal)
 
         self._table_names = tuple(table_names) if table_names is not None else self._DEFAULT_TABLE_NAMES
         if len(self._table_names) == 0:
             raise ChunkPromotionError("table_names must not be empty")
+
+        self._table_refs = TableRefs(self.config)
 
         self._bq_client = bigquery.Client(project=self.config.project_id)
 
@@ -106,9 +107,21 @@ class ChunkPromoter:
         return self._promotable_chunks
 
     @property
+    def table_refs(self) -> TableRefs:
+        """Table references (`TableRefs`, read-only)."""
+        return self._table_refs
+
+    @property
     def table_names(self) -> tuple[str, ...]:
         """Table names to promote (`tuple` [`str`], read-only)."""
         return self._table_names
+
+    @classmethod
+    def _promoted_tmp_name(cls, table_name: str) -> str:
+        """Return the promoted temporary table name for a given base table
+        name.
+        """
+        return f"{table_name}{cls._PROMOTED_TMP_SUFFIX}"
 
     def promote_chunks(self, chunks: list[PpdbReplicaChunkExtended]) -> None:
         """Promote APDB replica chunks into production by executing a series of
@@ -181,9 +194,9 @@ class ChunkPromoter:
         for table_name in self.table_names:
             # Build fully qualified table names which will be used in the
             # queries.
-            staging_table_fqn = self.config.fqn_for(DatasetType.STAGING, table_name)
-            internal_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, table_name)
-            tmp_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, table_name + _PROMOTED_TMP_SUFFIX)
+            staging_table_fqn = self.table_refs.staging(table_name)
+            internal_table_fqn = self.table_refs.internal(table_name)
+            tmp_table_fqn = self.table_refs.internal(self._promoted_tmp_name(table_name))
 
             # Drop existing promoted tmp table, if it exists.
             self._runner.run_job("drop_tmp", f"DROP TABLE IF EXISTS `{tmp_table_fqn}`")
@@ -192,7 +205,7 @@ class ChunkPromoter:
             self._runner.run_job("clone_prod", f"CREATE TABLE `{tmp_table_fqn}` CLONE `{internal_table_fqn}`")
 
             # Build target column list for SQL statement from the internal
-            # table's schema.
+            # table's schema. This will include the geo_point column.
             target_schema = self._bq_client.get_table(internal_table_fqn).schema
             target_names = [target_column.name for target_column in target_schema]
             target_list_sql = ", ".join(f"`{column_name}`" for column_name in target_names)
@@ -204,9 +217,8 @@ class ChunkPromoter:
                 for column_name in target_names
             )
 
-            # Insert staged rows into the promoted tmp table. If staging does
-            # not match the internal table schema, this will fail with a schema
-            # mismatch error.
+            # Insert staged rows into the promoted tmp table. If the staging
+            # and internal schemas do not match, this will fail.
             sql = f"""
             INSERT INTO `{tmp_table_fqn}` ({target_list_sql})
             SELECT {source_list_sql}
@@ -220,7 +232,7 @@ class ChunkPromoter:
         """Apply record updates to the promoted temporary tables."""
         updates_manager = UpdatesManager(
             self._ppdb.config,
-            table_name_format="{}" + _PROMOTED_TMP_SUFFIX,
+            table_name_format="{}" + self._PROMOTED_TMP_SUFFIX,
         )
 
         # Apply the updates for the chunks. The manager will skip the process
@@ -234,11 +246,11 @@ class ChunkPromoter:
         """
         job_name = "fill_diaobject_validity_end"
 
-        target_table = ApdbTables.DiaObject.value + _PROMOTED_TMP_SUFFIX
-        target_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, target_table)
+        target_table = self._promoted_tmp_name(ApdbTables.DiaObject.value)
+        target_table_fqn = self.table_refs.internal(target_table)
 
         staging_table = ApdbTables.DiaObject.value
-        staging_table_fqn = self.config.fqn_for(DatasetType.STAGING, staging_table)
+        staging_table_fqn = self.table_refs.staging(staging_table)
 
         sql = SqlResource(
             job_name,
@@ -268,8 +280,8 @@ class ChunkPromoter:
         dataset.
         """
         for table_name in self.table_names:
-            tmp_ref = self.config.fqn_for(DatasetType.INTERNAL, table_name + _PROMOTED_TMP_SUFFIX)
-            prod_ref = self.config.fqn_for(DatasetType.INTERNAL, table_name)
+            tmp_ref = self.table_refs.internal(self._promoted_tmp_name(table_name))
+            prod_ref = self.table_refs.internal(table_name)
 
             # Ensure tmp exists.
             try:
@@ -296,15 +308,17 @@ class ChunkPromoter:
         )
 
         for table_name in self.table_names:
-            staging_ref = self.config.fqn_for(DatasetType.STAGING, table_name)
+            staging_table_fqn = self.table_refs.staging(table_name)
             try:
-                sql = f"DELETE FROM `{staging_ref}` WHERE apdb_replica_chunk IN UNNEST(@ids)"
+                sql = f"DELETE FROM `{staging_table_fqn}` WHERE apdb_replica_chunk IN UNNEST(@ids)"
                 self._runner.run_job("delete_staged_chunks", sql, job_config=job_config)
                 logging.debug(
-                    "Deleted %d chunk(s) from staging table %s", len(self.promotable_chunks), staging_ref
+                    "Deleted %d chunk(s) from staging table %s",
+                    len(self.promotable_chunks),
+                    staging_table_fqn,
                 )
             except NotFound:
-                logging.warning("Staging table %s does not exist, skipping delete", staging_ref)
+                logging.warning("Staging table %s does not exist, skipping delete", staging_table_fqn)
 
     def _mark_chunks_promoted(self) -> None:
         """Mark the replica chunks as promoted in the database."""
@@ -315,7 +329,7 @@ class ChunkPromoter:
         """Cleanup state after executing the promotion."""
         # Delete the tmp tables.
         for table_name in self.table_names:
-            tmp_ref = self.config.fqn_for(DatasetType.INTERNAL, table_name + _PROMOTED_TMP_SUFFIX)
+            tmp_ref = self.table_refs.internal(self._promoted_tmp_name(table_name))
             self._bq_client.delete_table(tmp_ref, not_found_ok=True)
             logging.debug("Dropped %s (if it existed)", tmp_ref)
 
