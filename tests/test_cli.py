@@ -57,11 +57,8 @@ class CreateDatasetsTestCase(unittest.TestCase):
         with open(self.config_path, "w") as config_file:
             yaml.dump(config_dict, config_file)
 
-    def tearDown(self) -> None:
-        try:
-            drop_datasets(self.config)
-        except Exception:
-            self.fail("Failed to delete test datasets")
+        # Add cleanup of datasets after test.
+        self.addCleanup(drop_datasets, self.config)
 
     def test_create_datasets(self) -> None:
         """Test that ``ppdb-cli create-datasets`` creates the BigQuery

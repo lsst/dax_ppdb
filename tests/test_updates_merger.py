@@ -45,18 +45,17 @@ from lsst.dax.ppdb.tests._updates import _create_test_update_records
 class TestUpdatesMerger(unittest.TestCase):
     """Test UpdatesMerger functionality."""
 
+    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+
     def setUp(self):
         self.client = bigquery.Client()
 
         self.config = make_bigquery_config("test_updates_merger")
 
-        create_datasets(self.config, [DatasetType.STAGING, DatasetType.INTERNAL])
+        create_datasets(self.config, self.dataset_types)
 
-    def tearDown(self):
-        try:
-            drop_datasets(self.config, [DatasetType.STAGING, DatasetType.INTERNAL])
-        except Exception:
-            pass
+        # Add cleanup for datasets after test.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
     def _create_target_table(self):
         schema = [

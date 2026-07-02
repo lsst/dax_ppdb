@@ -38,6 +38,8 @@ from lsst.dax.ppdb.tests._updates import _create_test_update_records
 class TestUpdatesTable(unittest.TestCase):
     """Test UpdatesTable functionality."""
 
+    dataset_types = (DatasetType.STAGING,)
+
     def setUp(self) -> None:
         """Set up test fixtures."""
         # Create BigQuery client.
@@ -47,22 +49,16 @@ class TestUpdatesTable(unittest.TestCase):
         self.config = make_bigquery_config(test_name="test_updates_table")
 
         # Create the BigQuery dataset for the tests.
-        create_datasets(self.config, [DatasetType.STAGING])
+        create_datasets(self.config, self.dataset_types)
+
+        # Add cleanup for datasets after test.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
         # Set the FQN of the updates table.
         self.table_fqn = self.config.fqn_for(DatasetType.STAGING, "updates")
 
         # Create the UpdatesTable instance.
         self.updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
-
-    def tearDown(self) -> None:
-        """Clean up test fixtures."""
-        # Always clean up the test dataset, whether test passed or failed.
-        try:
-            drop_datasets(self.config, [DatasetType.STAGING])
-        except Exception:
-            self.fail("Failed to delete test datasets")
-            raise
 
     def test_table_fqn_property(self) -> None:
         """Test the table_fqn property."""

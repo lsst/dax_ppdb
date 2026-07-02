@@ -28,6 +28,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import google.auth
@@ -150,7 +151,7 @@ def init_bigquery_sql(config: PpdbBigQueryConfig, db_drop: bool = True) -> None:
     PpdbBigQuery.make_database(engine, config.sql, sa_metadata, schema_version, db_drop)
 
 
-def create_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType] | None = None) -> None:
+def create_datasets(config: PpdbBigQueryConfig, dataset_types: Sequence[DatasetType] | None = None) -> None:
     """Create the BigQuery datasets for testing.
 
     This will not create any tables, just the empty datasets. The tests will
@@ -165,18 +166,20 @@ def create_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType]
         created.
     """
     if dataset_types is None:
-        dataset_types = [DatasetType.STAGING, DatasetType.INTERNAL, DatasetType.PUBLIC]
+        dataset_types = tuple(DatasetType)
     bq_client = bigquery.Client(project=config.project_id)
     for dataset_type in dataset_types:
         dataset_fqn = config.fqn_for(dataset_type)
         try:
-            bq_client.create_dataset(bigquery.Dataset(dataset_fqn))
+            dataset = bigquery.Dataset(dataset_fqn)
+            dataset.default_table_expiration_ms = 60 * 60 * 1000  # 1 hour in milliseconds
+            bq_client.create_dataset(dataset)
         except Exception as e:
             _LOG.exception("Failed to create dataset %s: %s", dataset_fqn, e)
             raise
 
 
-def drop_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType] | None = None) -> None:
+def drop_datasets(config: PpdbBigQueryConfig, dataset_types: Sequence[DatasetType] | None = None) -> None:
     """Drop the BigQuery datasets.
 
     Parameters
@@ -188,12 +191,16 @@ def drop_datasets(config: PpdbBigQueryConfig, dataset_types: list[DatasetType] |
         deleted.
     """
     if dataset_types is None:
-        dataset_types = [DatasetType.STAGING, DatasetType.INTERNAL, DatasetType.PUBLIC]
+        dataset_types = tuple(DatasetType)
     bq_client = bigquery.Client(project=config.project_id)
     for dataset_type in dataset_types:
         dataset_fqn = config.fqn_for(dataset_type)
         try:
-            bq_client.delete_dataset(dataset_fqn, delete_contents=True, not_found_ok=True)
+            bq_client.delete_dataset(
+                dataset_fqn,
+                delete_contents=True,
+                not_found_ok=True,
+            )
         except Exception as e:
             _LOG.exception("Failed to delete dataset %s: %s", dataset_fqn, e)
             raise

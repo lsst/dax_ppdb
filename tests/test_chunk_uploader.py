@@ -58,20 +58,14 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
 
         self.bucket = create_bucket(self.ppdb_config)
 
+        # Add cleanup for bucket after test.
+        self.addCleanup(delete_bucket, self.bucket)
+
         # Replicate APDB replica chunks to the PPDB.
         replicator = Replicator(
             apdb_replica, self.ppdb, update=False, min_wait_time=0, max_wait_time=0, check_interval=0
         )
         replicator.run(exit_on_empty=True)
-
-    def tearDown(self):
-        # Delete the test GCS bucket.
-        try:
-            delete_bucket(self.bucket)
-        except Exception:
-            self.fail("Failed to delete test GCS bucket")
-        finally:
-            super().tearDown()
 
     def test_chunk_uploader(self) -> None:
         """Test that the update records are correctly uploaded to Google Cloud

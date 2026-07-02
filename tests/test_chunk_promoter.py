@@ -24,7 +24,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
 
 from lsst.dax.apdb import Apdb, ApdbReplica, ApdbTables
 from lsst.dax.ppdb import Ppdb
@@ -88,7 +88,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         # Create PPDB config with unique BQ dataset and GCS bucket.
         self.bq_client = bigquery.Client()
 
-        self.config = self.make_instance(test_name="test_promoter")
+        self.config = self.make_instance(test_name="test_chunk_promoter")
 
         # Create the PPDB instance.
         self.ppdb = Ppdb.from_config(self.config)
@@ -96,6 +96,9 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
         # Create the BigQuery datasets for the test.
         create_datasets(self.config)
+
+        # Add cleanup of datasets after test.
+        self.addCleanup(drop_datasets, self.config)
 
         # Replicate the APDB data into the PPDB, creating parquet files for
         # each chunk.
@@ -110,8 +113,10 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         replicator.run(exit_on_empty=True)
 
         # Create GCS bucket needed for storing parquet with update records.
-        create_bucket(self.config)
-        self.bucket = storage.Client().bucket(self.config.bucket_name)
+        self.bucket = create_bucket(self.config)
+
+        # Add cleanup for datasets and bucket after test.
+        self.addCleanup(delete_bucket, self.bucket)
 
         # Set chunk statuses and upload only the updates file to GCS. Table
         # data is loaded from local parquet files directly into BQ, bypassing
@@ -133,20 +138,6 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             self.ppdb.update_chunks(
                 [chunk.with_new_status(status).with_new_gcs_uri(gcs_uri)], fields={"status", "gcs_uri"}
             )
-
-    def tearDown(self):
-        # Delete the BigQuery test datasets.
-        try:
-            drop_datasets(self.config)
-        except Exception as e:
-            print(f"Failed to delete test datasets: {e}")
-
-        # Delete the GCS test bucket.
-        try:
-            delete_bucket(self.bucket)
-        except Exception as e:
-            print(f"Failed to delete test GCS bucket: {e}")
-        super().tearDown()
 
     def _load_parquet_to_table(self, parquet_path: Path, table_fqn: str) -> None:
         """Load a local parquet file into a BigQuery table, creating the table
@@ -336,12 +327,17 @@ class FillValidityEndTestCase(unittest.TestCase):
     scenarios.
     """
 
+    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+
     def setUp(self):
         # Create the PPDB BigQuery config.
         self.config = make_bigquery_config(test_name="test_fill_validity_end")
 
         # Create the datasets.
-        create_datasets(self.config, [DatasetType.INTERNAL, DatasetType.STAGING])
+        create_datasets(self.config, self.dataset_types)
+
+        # Add cleanup of datasets after test.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
         # Build table FQNs for the test tables.
         self.internal_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaObject_promoted_tmp")
@@ -371,13 +367,6 @@ class FillValidityEndTestCase(unittest.TestCase):
             )
             """
         ).result()
-
-    def tearDown(self):
-        # Delete test datasets.
-        try:
-            drop_datasets(self.config, [DatasetType.INTERNAL, DatasetType.STAGING])
-        except Exception:
-            self.fail("Failed to delete test datasets")
 
     def _insert_target_rows(self, rows: list[tuple]) -> None:
         """Insert rows into the internal table.

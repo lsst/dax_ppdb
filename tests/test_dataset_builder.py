@@ -21,7 +21,6 @@
 
 from __future__ import annotations
 
-import sys
 import unittest
 import uuid
 from unittest.mock import Mock, patch
@@ -51,6 +50,7 @@ from lsst.dax.ppdb.bigquery.schema.dataset_builder import (
 from lsst.dax.ppdb.bigquery.schema.felis_converter import FelisConverter
 from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
 from lsst.dax.ppdb.tests._bigquery import (
+    drop_datasets,
     have_valid_google_credentials,
     search_indexes_enabled,
 )
@@ -693,14 +693,8 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
             datasets=self.datasets,
         )
 
-    def tearDown(self) -> None:
-        for dataset_type in DatasetType:
-            dataset_name = self.datasets.name_for(dataset_type)
-            dataset_fqn = f"{self.project_id}.{dataset_name}"
-            try:
-                self.client.delete_dataset(dataset_fqn, delete_contents=True, not_found_ok=True)
-            except Exception as e:
-                print(f"Failed to delete {dataset_fqn}: {type(e).__name__}: {e}", file=sys.stderr)
+        # Clean up datasets after tests.
+        self.addCleanup(drop_datasets, self.config)
 
     def test_build_datasets_creates_expected_bigquery_objects(self) -> None:
         """Test that build_datasets creates expected tables and views.

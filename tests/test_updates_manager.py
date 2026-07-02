@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 import astropy
 import felis
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
 
 from lsst.dax.apdb import (
     ApdbTableData,
@@ -42,8 +42,10 @@ from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.bigquery.updates.updates_manager import UpdatesManager
 from lsst.dax.ppdb.tests._bigquery import (
     PostgresMixin,
+    create_bucket,
     create_datasets,
     delete_bucket,
+    drop_datasets,
     have_valid_google_credentials,
     json_rows_to_buf,
 )
@@ -56,48 +58,32 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
     related classes including the ChunkUploader.
     """
 
+    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+
     def setUp(self):
         super().setUp()
 
         # Setup the Postgres database and create the config instance.
-        config = self.make_instance(test_name="test_updates_manager")
+        self.config = self.make_instance(test_name="test_updates_manager")
 
         # Create the necessary datasets in BigQuery for the test.
-        create_datasets(config, [DatasetType.INTERNAL, DatasetType.STAGING])
+        create_datasets(self.config, self.dataset_types)
+
+        # Add cleanup for datasets after test.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
         # Create the test tables in BigQuery.
-        self._create_test_tables(config, DatasetType.INTERNAL)
+        self._create_test_tables(self.config, DatasetType.INTERNAL)
 
         # Create the test GCS bucket.
-        storage_client = storage.Client()
-        try:
-            bucket = storage_client.bucket(config.bucket_name)
-            bucket.create(location="US")
-        except Exception as e:
-            self.fail(f"Failed to create test GCS bucket: {e}")
+        create_bucket(self.config)
+
+        # Add cleanup for the bucket after test.
+        self.addCleanup(delete_bucket, self.config.bucket_name)
 
         # Create the PPDB instance.
-        self.ppdb = Ppdb.from_config(config)
+        self.ppdb = Ppdb.from_config(self.config)
         assert isinstance(self.ppdb, PpdbBigQuery)
-
-    def tearDown(self):
-        # Delete the test dataset.
-        client = bigquery.Client()
-        for dataset_type in [DatasetType.INTERNAL, DatasetType.STAGING]:
-            try:
-                client.delete_dataset(
-                    self.ppdb.config.datasets.name_for(dataset_type), delete_contents=True, not_found_ok=True
-                )
-            except Exception as e:
-                self.fail(f"Failed to delete test dataset: {e}")
-
-        # Delete the test GCS bucket.
-        try:
-            delete_bucket(self.ppdb.config)
-        except Exception as e:
-            self.fail(f"Failed to delete test GCS bucket: {e}")
-
-        super().tearDown()
 
     @staticmethod
     def _create_test_tables(config: PpdbBigQueryConfig, dataset_type: DatasetType) -> None:
