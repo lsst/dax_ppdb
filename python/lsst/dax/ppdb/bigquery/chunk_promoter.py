@@ -28,6 +28,7 @@ __all__ = [
 ]
 
 import logging
+from collections.abc import Sequence
 
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
@@ -64,19 +65,19 @@ class ChunkPromoter:
     ppdb
         Interface to the PPDB in BigQuery.
     table_names
-        List of table names to promote or if None a default list will be used.
+        Table names to promote or None to use a default set.
     """
 
-    _DEFAULT_TABLE_NAMES = [
+    _DEFAULT_TABLE_NAMES = (
         ApdbTables.DiaObject.value,
         ApdbTables.DiaSource.value,
         ApdbTables.DiaForcedSource.value,
-    ]
+    )
 
     def __init__(
         self,
         ppdb: PpdbBigQuery,
-        table_names: list[str] | None = None,
+        table_names: Sequence[str] | None = None,
     ):
         self._ppdb = ppdb
 
@@ -84,7 +85,7 @@ class ChunkPromoter:
         # dataset.
         self._runner = QueryRunner(self.config.project_id, self.config.datasets.internal)
 
-        self._table_names = table_names if table_names is not None else self._DEFAULT_TABLE_NAMES
+        self._table_names = tuple(table_names) if table_names is not None else self._DEFAULT_TABLE_NAMES
         if len(self._table_names) == 0:
             raise ChunkPromotionError("table_names must not be empty")
 
@@ -105,8 +106,8 @@ class ChunkPromoter:
         return self._promotable_chunks
 
     @property
-    def table_names(self) -> list[str]:
-        """List of table names to promote (`list` [`str`], read-only)."""
+    def table_names(self) -> tuple[str, ...]:
+        """Table names to promote (`tuple` [`str`], read-only)."""
         return self._table_names
 
     def promote_chunks(self, chunks: list[PpdbReplicaChunkExtended]) -> None:
