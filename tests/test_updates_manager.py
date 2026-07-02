@@ -26,19 +26,26 @@ from unittest.mock import patch
 
 import astropy
 import felis
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
 
 from lsst.dax.apdb import (
     ApdbTableData,
     ReplicaChunk,
 )
 from lsst.dax.ppdb import Ppdb
-from lsst.dax.ppdb.bigquery import PpdbBigQuery
+from lsst.dax.ppdb.bigquery import (
+    DatasetType,
+    PpdbBigQuery,
+    PpdbBigQueryConfig,
+)
 from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.bigquery.updates.updates_manager import UpdatesManager
 from lsst.dax.ppdb.tests._bigquery import (
     PostgresMixin,
-    generate_test_bucket_name,
+    create_bucket,
+    create_datasets,
+    delete_bucket,
+    drop_datasets,
     have_valid_google_credentials,
     json_rows_to_buf,
 )
@@ -51,69 +58,37 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
     related classes including the ChunkUploader.
     """
 
+    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+
     def setUp(self):
         super().setUp()
 
-        # Set up BigQuery client and test dataset.
-        self.bq_client = bigquery.Client()
-
-        bucket_name = generate_test_bucket_name("ppdb-updates-manager-test")
-        dataset_id = f"test_updates_manager_{uuid.uuid4().hex[:8]}"
-        project_id = self.bq_client.project
-        config = {
-            "db_drop": True,
-            "validate_config": False,
-            "delete_existing_dirs": True,
-            "bucket_name": bucket_name,
-            "object_prefix": "data/test",
-            "dataset_id": dataset_id,
-            "project_id": project_id,
-        }
-
         # Setup the Postgres database and create the config instance.
-        self.ppdb_config = self.make_instance(config)
+        self.config = self.make_instance(test_name="test_updates_manager")
 
-        # Create the test dataset and tables in BigQuery.
-        self.target_dataset_fqn = f"{project_id}.{dataset_id}"
-        self._create_test_dataset(self.bq_client, dataset_id)
+        # Create the necessary datasets in BigQuery for the test.
+        create_datasets(self.config, self.dataset_types)
+
+        # Add cleanup for datasets after test.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
+
+        # Create the test tables in BigQuery.
+        self._create_test_tables(self.config, DatasetType.INTERNAL)
 
         # Create the test GCS bucket.
-        storage_client = storage.Client()
-        try:
-            bucket = storage_client.bucket(self.ppdb_config.bucket_name)
-            bucket.create(location="US")
-        except Exception as e:
-            self.fail(f"Failed to create test GCS bucket: {e}")
+        create_bucket(self.config)
+
+        # Add cleanup for the bucket after test.
+        self.addCleanup(delete_bucket, self.config.bucket_name)
 
         # Create the PPDB instance.
-        self.ppdb = Ppdb.from_config(self.ppdb_config)
+        self.ppdb = Ppdb.from_config(self.config)
         assert isinstance(self.ppdb, PpdbBigQuery)
 
-    def tearDown(self):
-        # Delete the test dataset.
-        try:
-            self.bq_client.delete_dataset(
-                self.ppdb_config.dataset_id, delete_contents=True, not_found_ok=True
-            )
-        except Exception as e:
-            print(f"Failed to delete test dataset: {e}")
-
-        # Delete the test GCS bucket.
-        storage_client = storage.Client()
-        try:
-            bucket = storage_client.bucket(self.ppdb_config.bucket_name)
-            blobs = list(bucket.list_blobs())
-            for blob in blobs:
-                blob.delete()
-            bucket.delete()
-        except Exception as e:
-            print(f"Failed to delete test GCS bucket: {e}")
-
-        super().tearDown()
-
-    def _create_test_dataset(self, client: bigquery.Client, dataset_id: str) -> None:
-        dataset = bigquery.Dataset(f"{client.project}.{dataset_id}")
-        client.create_dataset(dataset, exists_ok=False)
+    @staticmethod
+    def _create_test_tables(config: PpdbBigQueryConfig, dataset_type: DatasetType) -> None:
+        """Create test tables in the specified BigQuery dataset."""
+        client = bigquery.Client()
 
         # Create DiaObject table.
         schema = [
@@ -121,7 +96,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             bigquery.SchemaField("validityEndMjdTai", "FLOAT", mode="NULLABLE"),
             bigquery.SchemaField("nDiaSources", "INTEGER", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaObject"
+        table_fqn = config.fqn_for(dataset_type, "DiaObject")
         table = bigquery.Table(table_fqn, schema=schema)
         client.create_table(table)
         rows = [
@@ -145,9 +120,9 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             bigquery.SchemaField("ssObjectReassocTimeMjdTai", "FLOAT", mode="NULLABLE"),
             bigquery.SchemaField("timeWithdrawnMjdTai", "FLOAT", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaSource"
+        table_fqn = config.fqn_for(dataset_type, "DiaSource")
         table = bigquery.Table(table_fqn, schema=schema)
-        self.bq_client.create_table(table)
+        client.create_table(table)
         rows = [
             {
                 "diaSourceId": 100001,
@@ -192,14 +167,14 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             bigquery.SchemaField("detector", "INTEGER", mode="REQUIRED"),
             bigquery.SchemaField("timeWithdrawnMjdTai", "FLOAT", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaForcedSource"
+        table_fqn = config.fqn_for(dataset_type, "DiaForcedSource")
         table = bigquery.Table(table_fqn, schema=schema)
-        self.bq_client.create_table(table)
+        client.create_table(table)
         rows = [
             {"diaObjectId": 200001, "visit": 12345, "detector": 42, "timeWithdrawnMjdTai": None},
             {"diaObjectId": 200001, "visit": 12346, "detector": 42, "timeWithdrawnMjdTai": None},
         ]
-        job = self.bq_client.load_table_from_file(
+        job = client.load_table_from_file(
             json_rows_to_buf(rows),
             table_fqn,
             job_config=bigquery.LoadJobConfig(source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON),
@@ -252,3 +227,122 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             self.ppdb.chunk_table.columns["apdb_replica_chunk"].in_([test_replica_chunk_id])
         )
         updates_manager.apply_updates(replica_chunks)
+
+        client = bigquery.Client()
+
+        # Verify DiaSource updates.
+        dia_source_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaSource")
+        rows = client.query(
+            f"""
+            SELECT
+              diaSourceId,
+              diaObjectId,
+              ssObjectId,
+              ssObjectReassocTimeMjdTai,
+              timeWithdrawnMjdTai
+            FROM `{dia_source_fqn}`
+            WHERE diaSourceId IN (100001, 100002, 100003, 100004)
+            """
+        ).result()
+
+        dia_sources = {row["diaSourceId"]: row for row in rows}
+
+        self.assertEqual(set(dia_sources), {100001, 100002, 100003, 100004})
+
+        # Latest reassign record should win: 400001, not 300001.
+        self.assertEqual(dia_sources[100001]["diaObjectId"], 400001)
+        self.assertIsNone(dia_sources[100001]["ssObjectId"])
+        self.assertIsNone(dia_sources[100001]["ssObjectReassocTimeMjdTai"])
+        self.assertIsNone(dia_sources[100001]["timeWithdrawnMjdTai"])
+
+        # Reassigned to SSObject.
+        self.assertEqual(dia_sources[100002]["ssObjectId"], 2001)
+        self.assertEqual(
+            dia_sources[100002]["ssObjectReassocTimeMjdTai"],
+            59580.0,
+        )
+        self.assertIsNone(dia_sources[100002]["timeWithdrawnMjdTai"])
+
+        # Withdrawn DiaSource.
+        self.assertEqual(
+            dia_sources[100003]["timeWithdrawnMjdTai"],
+            59580.0,
+        )
+
+        # Unaffected DiaSource should remain unchanged.
+        self.assertEqual(dia_sources[100004]["diaObjectId"], 200004)
+        self.assertIsNone(dia_sources[100004]["ssObjectId"])
+        self.assertIsNone(dia_sources[100004]["ssObjectReassocTimeMjdTai"])
+        self.assertIsNone(dia_sources[100004]["timeWithdrawnMjdTai"])
+
+        # Verify DiaForcedSource updates.
+        dia_forced_source_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaForcedSource")
+        rows = client.query(
+            f"""
+            SELECT
+              diaObjectId,
+              visit,
+              detector,
+              timeWithdrawnMjdTai
+            FROM `{dia_forced_source_fqn}`
+            WHERE diaObjectId = 200001
+              AND visit IN (12345, 12346)
+              AND detector = 42
+            """
+        ).result()
+
+        forced_sources = {(row["diaObjectId"], row["visit"], row["detector"]): row for row in rows}
+
+        self.assertEqual(
+            set(forced_sources),
+            {
+                (200001, 12345, 42),
+                (200001, 12346, 42),
+            },
+        )
+
+        # Withdrawn DiaForcedSource.
+        self.assertEqual(
+            forced_sources[(200001, 12345, 42)]["timeWithdrawnMjdTai"],
+            59580.0,
+        )
+
+        # Unaffected DiaForcedSource should remain unchanged.
+        self.assertIsNone(
+            forced_sources[(200001, 12346, 42)]["timeWithdrawnMjdTai"],
+        )
+
+        # Verify DiaObject updates.
+        dia_object_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaObject")
+        rows = client.query(
+            f"""
+            SELECT
+              diaObjectId,
+              validityEndMjdTai,
+              nDiaSources
+            FROM `{dia_object_fqn}`
+            WHERE diaObjectId IN (200001, 200002, 200003)
+            """
+        ).result()
+
+        dia_objects = {row["diaObjectId"]: row for row in rows}
+
+        self.assertEqual(set(dia_objects), {200001, 200002, 200003})
+
+        # Closed validity interval.
+        self.assertEqual(
+            dia_objects[200001]["validityEndMjdTai"],
+            59580.0,
+        )
+        self.assertEqual(dia_objects[200001]["nDiaSources"], 5)
+
+        # Latest nDiaSources update should win: 10, not older value 8.
+        self.assertIsNone(dia_objects[200002]["validityEndMjdTai"])
+        self.assertEqual(dia_objects[200002]["nDiaSources"], 10)
+
+        # Unaffected DiaObject should remain unchanged.
+        self.assertEqual(
+            dia_objects[200003]["validityEndMjdTai"],
+            59000.0,
+        )
+        self.assertEqual(dia_objects[200003]["nDiaSources"], 2)

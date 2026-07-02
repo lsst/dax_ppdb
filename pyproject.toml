@@ -166,3 +166,7 @@ convention = "numpy"
 # D200, D205 and D400 all complain if the first sentence of the docstring does
 # not fit on one line. We do not require docstrings in __init__ files (D104).
 add-ignore = ["D107", "D105", "D102", "D100", "D200", "D205", "D400", "D104"]
+
+[tool.pyright]
+include = ["python", "tests"]
+extraPaths = ["python"]

@@ -36,7 +36,6 @@ def create_bigquery(
     output_config: str,
     db_url: str,
     project_id: str,
-    dataset_id: str,
     bucket_name: str,
     object_prefix: str,
     replication_dir: str,
@@ -61,8 +60,6 @@ def create_bigquery(
         Database URL in SQLAlchemy format for PPDB instance.
     project_id
         GCP project ID.
-    dataset_id
-        BigQuery dataset name, e.g., 'my_project:my_dataset'.
     bucket_name
         GCS bucket name to use for Parquet output.
     object_prefix
@@ -103,7 +100,6 @@ def create_bigquery(
         bucket_name=bucket_name,
         object_prefix=object_prefix,
         project_id=project_id,
-        dataset_id=dataset_id,
         validate_config=validate_config,
     )
     _LOG.info("Created BigQuery configuration: %s", bq_config)

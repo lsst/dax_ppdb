@@ -51,7 +51,7 @@ from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, ParquetFileEntry
-from .ppdb_bigquery_config import PpdbBigQueryConfig
+from .ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
 
@@ -168,7 +168,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         cls,
         db_url: str,
         project_id: str,
-        dataset_id: str,
         bucket_name: str,
         object_prefix: str,
         replication_dir: str,
@@ -191,8 +190,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             Database URL in SQLAlchemy format for PPDB instance.
         project_id
             GCP project ID.
-        dataset_id
-            BigQuery dataset name without the project ID.
         bucket_name
             GCS bucket name to use for Parquet output.
         object_prefix
@@ -236,7 +233,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             sql=sql_config,
             replication_dir=replication_dir,
             bucket_name=bucket_name,
-            dataset_id=dataset_id,
             project_id=project_id,
             object_prefix=object_prefix,
             delete_existing_dirs=delete_existing_dirs,
@@ -320,10 +316,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ConfigValidationError("Failed to validate GCS bucket") from e
 
         # Check existence of the BigQuery dataset.
-        try:
-            check_dataset_exists(config.project_id, config.dataset_id)
-        except Exception as e:
-            raise ConfigValidationError("Failed to validate BigQuery dataset") from e
+        for dataset_type in tuple(DatasetType):
+            dataset_name = config.datasets.name_for(dataset_type)
+            try:
+                check_dataset_exists(config.project_id, dataset_name)
+            except Exception as e:
+                raise ConfigValidationError(f"Failed to validate BigQuery dataset: {dataset_name}") from e
 
     # ----------------------------------------------------------------------
     # SQL schema and versioning class methods

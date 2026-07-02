@@ -27,4 +27,3 @@ from .ppdb_bigquery_config import *
 from .ppdb_replica_chunk_extended import *
 from .query_runner import *
 from .sql_resource import *
-from .table_refs import *

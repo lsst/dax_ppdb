@@ -217,13 +217,6 @@ def bigquery_options(parser: argparse.ArgumentParser) -> None:
         required=True,
     )
     group.add_argument(
-        "--dataset-id",
-        type=str,
-        help="BigQuery dataset ID, e.g., 'my_dataset'.",
-        metavar="DATASET_NAME",
-        required=True,
-    )
-    group.add_argument(
         "--project-id",
         type=str,
         help="Google Cloud project ID containing the dataset.",
