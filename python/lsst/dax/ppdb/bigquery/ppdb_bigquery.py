@@ -570,6 +570,22 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 break
         return promotable
 
+    def find_chunk_by_id(self, chunk_id: int) -> PpdbReplicaChunkExtended | None:
+        """Find a replica chunk by its ID.
+
+        Parameters
+        ----------
+        chunk_id
+            The ID of the replica chunk to find.
+
+        Returns
+        -------
+        `PpdbReplicaChunkExtended` or `None`
+            The matching replica chunk, or `None` if not found.
+        """
+        chunks = self.query_chunks(self.chunk_table.columns["apdb_replica_chunk"] == chunk_id)
+        return chunks[0] if chunks else None
+
     # ----------------------------------------------------------------------
     # Public API -- chunk mutations
     # ----------------------------------------------------------------------
