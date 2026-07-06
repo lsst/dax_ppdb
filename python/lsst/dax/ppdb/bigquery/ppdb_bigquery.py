@@ -21,13 +21,14 @@
 
 from __future__ import annotations
 
-__all__ = ["ConfigValidationError", "PpdbBigQuery"]
+__all__ = ["ConfigValidationError", "PpdbBigQuery", "UpdatableField"]
 
 import datetime
 import logging
 import os
 import shutil
 from collections.abc import Collection, Iterable, Sequence
+from enum import StrEnum
 from pathlib import Path
 
 import astropy.time
@@ -66,6 +67,13 @@ VERSION = VersionTuple(0, 1, 0)
 """
 
 
+class UpdatableField(StrEnum):
+    """Chunk fields that are allowed to be updated on existing chunks."""
+
+    STATUS = "status"
+    GCS_URI = "gcs_uri"
+
+
 class _SecretManagerPasswordProvider(PasswordProvider):
     """Retrieves a database password from Google Cloud Secret Manager.
 
@@ -102,9 +110,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     config
         Configuration object with BigQuery and SQL database parameters.
     """
-
-    _UPDATABLE_FIELDS = {"status", "gcs_uri"}
-    """Fields that are allowed to be updated on existing chunks."""
 
     # ----------------------------------------------------------------------
     # Construction and properties
@@ -637,9 +642,11 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ValueError("chunks must not be empty")
         if not fields:
             raise ValueError("fields must not be empty")
-        invalid = fields - self._UPDATABLE_FIELDS
+        invalid = {field for field in fields if field not in UpdatableField}
         if invalid:
-            raise ValueError(f"Invalid fields for update: {invalid}. Allowed: {self._UPDATABLE_FIELDS}")
+            raise ValueError(
+                f"Invalid fields for update: {invalid}. Allowed: {sorted(f.value for f in UpdatableField)}"
+            )
         table = self.chunk_table
         updated_count = 0
         with self._engine.begin() as connection:
@@ -651,7 +658,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                     .values(**{k: v for k, v in row.items() if k in fields})
                 )
                 if result.rowcount == 0:
-                    raise LookupError(f"Cannot update chunk {chunk.id}: row does not exist")
+                    raise LookupError(f"Chunk {chunk.id} does not exist")
                 updated_count += result.rowcount
         return updated_count
 
