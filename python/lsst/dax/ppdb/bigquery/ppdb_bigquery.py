@@ -612,7 +612,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         with self._engine.begin() as connection:
             connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
 
-    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> None:
+    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> int:
         """Update one or more existing replica chunks in the
         ``PpdbReplicaChunk`` table.
 
@@ -641,6 +641,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         if invalid:
             raise ValueError(f"Invalid fields for update: {invalid}. Allowed: {self._UPDATABLE_FIELDS}")
         table = self.chunk_table
+        updated_count = 0
         with self._engine.begin() as connection:
             for chunk in chunks:
                 row = chunk.to_row()
@@ -651,6 +652,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 )
                 if result.rowcount == 0:
                     raise LookupError(f"Cannot update chunk {chunk.id}: row does not exist")
+                updated_count += result.rowcount
+        return updated_count
 
     # ----------------------------------------------------------------------
     # Private helpers
