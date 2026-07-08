@@ -46,23 +46,17 @@ from collections.abc import Sequence
 from typing import Any
 
 import google.auth
+import testing.postgresql
 from google.api_core.exceptions import GoogleAPIError
 from google.auth.exceptions import DefaultCredentialsError, RefreshError
 from google.auth.transport.requests import Request
 from google.cloud import bigquery, storage
 
-
 from lsst.dax.apdb import ApdbConfig
-
 from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.ppdb.bigquery import Datasets, DatasetType, PpdbBigQuery, PpdbBigQueryConfig
 from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
 from lsst.dax.ppdb.tests._ppdb import TEST_SCHEMA_RESOURCE_PATH
-
-try:
-    import testing.postgresql
-except ImportError:
-    testing = None
 
 _LOG = logging.getLogger(__name__)
 
@@ -301,10 +295,7 @@ class PostgresMixin:
     @classmethod
     def setUpClass(cls) -> None:
         # Create the postgres test server.
-        if testing is not None:
-            cls.postgresql = testing.postgresql.PostgresqlFactory(cache_initialized_db=True)
-        else:
-            raise RuntimeError("testing.postgresql module is not available")
+        cls.postgresql = testing.postgresql.PostgresqlFactory(cache_initialized_db=True)
 
     @classmethod
     def tearDownClass(cls) -> None:
