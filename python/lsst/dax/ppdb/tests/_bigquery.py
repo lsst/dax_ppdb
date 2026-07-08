@@ -20,6 +20,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+__all__ = [
+    "PostgresMixin",
+    "SqliteMixin",
+    "create_bucket",
+    "create_datasets",
+    "delete_bucket",
+    "drop_datasets",
+    "have_valid_google_credentials",
+    "init_bigquery_sql",
+    "json_rows_to_buf",
+    "make_bigquery_config",
+    "search_indexes_enabled",
+]
+
 import gc
 import io
 import json
@@ -35,14 +49,11 @@ import google.auth
 from google.api_core.exceptions import GoogleAPIError
 from google.auth.exceptions import DefaultCredentialsError, RefreshError
 from google.auth.transport.requests import Request
-from google.cloud import (
-    bigquery,
-    storage,
-)
+from google.cloud import bigquery, storage
 
-from lsst.dax.apdb import (
-    ApdbConfig,
-)
+
+from lsst.dax.apdb import ApdbConfig
+
 from lsst.dax.apdb.sql import ApdbSql
 from lsst.dax.ppdb.bigquery import Datasets, DatasetType, PpdbBigQuery, PpdbBigQueryConfig
 from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
@@ -52,20 +63,6 @@ try:
     import testing.postgresql
 except ImportError:
     testing = None
-
-__all__ = [
-    "PostgresMixin",
-    "SqliteMixin",
-    "create_bucket",
-    "create_datasets",
-    "delete_bucket",
-    "drop_datasets",
-    "have_valid_google_credentials",
-    "init_bigquery_sql",
-    "json_rows_to_buf",
-    "make_bigquery_config",
-    "search_indexes_enabled",
-]
 
 _LOG = logging.getLogger(__name__)
 
@@ -191,8 +188,12 @@ def drop_datasets(config: PpdbBigQueryConfig, dataset_types: Sequence[DatasetTyp
     if dataset_types is None:
         dataset_types = tuple(DatasetType)
     bq_client = bigquery.Client(project=config.project_id)
+    failures: list[GoogleAPIError] = []
+
     for dataset_type in dataset_types:
         dataset_fqn = config.fqn_for(dataset_type)
+        _LOG.debug("Dropping BigQuery dataset %s", dataset_fqn)
+
         try:
             bq_client.delete_dataset(
                 dataset_fqn,
@@ -200,8 +201,11 @@ def drop_datasets(config: PpdbBigQueryConfig, dataset_types: Sequence[DatasetTyp
                 not_found_ok=True,
             )
         except GoogleAPIError as e:
-            _LOG.exception("Failed to delete dataset %s: %s", dataset_fqn, e)
-            raise
+            _LOG.error("Failed to drop BigQuery dataset %s", dataset_fqn)
+            failures.append(e)
+
+    if failures:
+        raise ExceptionGroup("Failed to drop BigQuery datasets", failures)
 
 
 def create_bucket(config: PpdbBigQueryConfig) -> storage.Bucket:
