@@ -94,11 +94,11 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         self.ppdb = Ppdb.from_config(self.config)
         assert isinstance(self.ppdb, PpdbBigQuery)
 
-        # Create the BigQuery datasets for the test.
-        create_datasets(self.config)
-
         # Add cleanup of datasets after test.
         self.addCleanup(drop_datasets, self.config)
+
+        # Create the BigQuery datasets for the test.
+        create_datasets(self.config)
 
         # Replicate the APDB data into the PPDB, creating parquet files for
         # each chunk.

@@ -66,11 +66,11 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         # Setup the Postgres database and create the config instance.
         self.config = self.make_instance(test_name="test_updates_manager")
 
-        # Create the necessary datasets in BigQuery for the test.
-        create_datasets(self.config, self.dataset_types)
-
         # Add cleanup for datasets after test.
         self.addCleanup(drop_datasets, self.config, self.dataset_types)
+
+        # Create the necessary datasets in BigQuery for the test.
+        create_datasets(self.config, self.dataset_types)
 
         # Create the test tables in BigQuery.
         self._create_test_tables(self.config, DatasetType.INTERNAL)

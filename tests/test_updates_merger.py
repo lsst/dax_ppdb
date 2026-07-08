@@ -52,10 +52,10 @@ class TestUpdatesMerger(unittest.TestCase):
 
         self.config = make_bigquery_config("test_updates_merger")
 
-        create_datasets(self.config, self.dataset_types)
-
         # Add cleanup for datasets after test.
         self.addCleanup(drop_datasets, self.config, self.dataset_types)
+
+        create_datasets(self.config, self.dataset_types)
 
     def _create_target_table(self):
         schema = [
