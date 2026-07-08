@@ -90,12 +90,12 @@ class FelisConverterTestCase(unittest.TestCase):
         )
 
         converter = FelisConverter(schema)
-        converted = converter.convert_tables(["TypeCoverage"], "test-project.test_dataset")
+        converted = converter.convert_tables(["TypeCoverage"], "dummy-project.dummy_dataset")
 
         self.assertEqual(len(converted), 1)
         bq_table = converted[0]
-        self.assertEqual(bq_table.project, "test-project")
-        self.assertEqual(bq_table.dataset_id, "test_dataset")
+        self.assertEqual(bq_table.project, "dummy-project")
+        self.assertEqual(bq_table.dataset_id, "dummy_dataset")
         self.assertEqual(bq_table.table_id, "TypeCoverage")
 
         self.assertEqual(len(bq_table.schema), len(columns))
@@ -112,7 +112,7 @@ class FelisConverterTestCase(unittest.TestCase):
     def test_convert_tables_raises_for_missing_name(self) -> None:
         """convert_tables should surface missing table lookup failures."""
         with self.assertRaisesRegex(FelisConverterError, r"Table 'MissingTable' not found"):
-            self.converter.convert_tables(["MissingTable"], "test-project.test_dataset")
+            self.converter.convert_tables(["MissingTable"], "dummy-project.dummy_dataset")
 
 
 if __name__ == "__main__":

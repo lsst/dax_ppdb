@@ -23,51 +23,62 @@ from __future__ import annotations
 
 __all__ = ["TableRefs"]
 
-from pydantic import BaseModel
+from .ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
 
 
-class TableRefs(BaseModel, frozen=True):
-    """Fully-qualified BigQuery table references for a set of tables.
-
-    Provides named properties for production, staging, and promoted temporary
-    table FQNs derived from the base ``table_names``.  The format strings
-    used for staging and promoted-tmp names are configurable.
+class TableRefs:
+    """Builder for fully qualified BigQuery table references.
 
     Parameters
     ----------
-    project_id
-        GCP project ID.
-    dataset_id
-        BigQuery dataset ID.
-    table_names
-        Base table names.
-    staging_format
-        Format string for staging table names.
-    promoted_tmp_format
-        Format string for promoted temporary table names.
+    config
+        Configuration providing the project ID and dataset names.
     """
 
-    project_id: str
-    dataset_id: str
-    table_names: tuple[str, ...]
-    staging_format: str = "_{}_staging"
-    promoted_tmp_format: str = "_{}_promoted_tmp"
+    def __init__(self, config: PpdbBigQueryConfig):
+        self._config = config
 
-    def _fqns(self, fmt: str = "{}") -> list[str]:
-        """Build fully-qualified names using the given format string."""
-        return [f"{self.project_id}.{self.dataset_id}.{fmt.format(name)}" for name in self.table_names]
+    def staging(self, table_name: str) -> str:
+        """Return the fully qualified staging table reference.
 
-    @property
-    def prod(self) -> list[str]:
-        """Fully-qualified production table names (`list` [`str`])."""
-        return self._fqns()
+        Parameters
+        ----------
+        table_name
+            Name of the table.
 
-    @property
-    def staging(self) -> list[str]:
-        """Fully-qualified staging table names (`list` [`str`])."""
-        return self._fqns(self.staging_format)
+        Returns
+        -------
+        `str`
+            Fully qualified staging table reference.
+        """
+        return self._config.fqn_for(DatasetType.STAGING, table_name)
 
-    @property
-    def promoted_tmp(self) -> list[str]:
-        """Fully-qualified promoted temporary table names (`list` [`str`])."""
-        return self._fqns(self.promoted_tmp_format)
+    def internal(self, table_name: str) -> str:
+        """Return the fully qualified internal table reference.
+
+        Parameters
+        ----------
+        table_name
+            Name of the table.
+
+        Returns
+        -------
+        `str`
+            Fully qualified internal table reference.
+        """
+        return self._config.fqn_for(DatasetType.INTERNAL, table_name)
+
+    def public(self, table_name: str) -> str:
+        """Return the fully qualified public table reference.
+
+        Parameters
+        ----------
+        table_name
+            Name of the table.
+
+        Returns
+        -------
+        `str`
+            Fully qualified public table reference.
+        """
+        return self._config.fqn_for(DatasetType.PUBLIC, table_name)

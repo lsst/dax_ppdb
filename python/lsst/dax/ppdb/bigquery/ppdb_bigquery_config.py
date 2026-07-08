@@ -86,9 +86,6 @@ class PpdbBigQueryConfig(PpdbConfig):
     project_id: str
     """Google Cloud project ID."""
 
-    dataset_id: str  # TODO: This should be removed by DM-54681.
-    """Target BigQuery dataset ID, without the project."""
-
     bucket_name: str
     """Name of Google Cloud Storage bucket for uploading chunks."""
 
@@ -142,24 +139,24 @@ class PpdbBigQueryConfig(PpdbConfig):
         """
         return self.replication_path / str(chunk_id)
 
-    # TODO: This function should be removed by DM-54681.
-    @property
-    def fq_dataset_id(self) -> str:
-        """Fully qualified BigQuery dataset ID, including project (`str`)."""
-        return f"{self.project_id}:{self.dataset_id}"
-
-    def fqn_for(self, dataset_type: DatasetType) -> str:
-        """Return the fully qualified BigQuery dataset name for a dataset type.
+    def fqn_for(self, dataset_type: DatasetType, table_name: str | None = None) -> str:
+        """Return the fully qualified BigQuery dataset or table name (if
+        provided) for a dataset type.
 
         Parameters
         ----------
         dataset_type
             Type of dataset to get the name for.
+        table_name
+            Optional table name to include in the fully qualified name.
 
         Returns
         -------
         str
-            Fully qualified BigQuery dataset name (project.dataset).
+            Fully qualified BigQuery dataset or table name.
         """
         dataset_name = self.datasets.name_for(dataset_type)
-        return f"{self.project_id}.{dataset_name}"
+        fqn = f"{self.project_id}.{dataset_name}"
+        if table_name:
+            fqn = f"{fqn}.{table_name}"
+        return fqn

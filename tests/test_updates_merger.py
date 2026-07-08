@@ -20,13 +20,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
-import uuid
 
-try:
-    from google.cloud import bigquery
-except ImportError:
-    bigquery = None
+from google.cloud import bigquery
 
+from lsst.dax.ppdb.bigquery import DatasetType
 from lsst.dax.ppdb.bigquery.updates import (
     DiaForcedSourceUpdatesMerger,
     DiaObjectUpdatesMerger,
@@ -34,7 +31,13 @@ from lsst.dax.ppdb.bigquery.updates import (
     UpdateRecordExpander,
     UpdatesTable,
 )
-from lsst.dax.ppdb.tests._bigquery import have_valid_google_credentials, json_rows_to_buf
+from lsst.dax.ppdb.tests import (
+    create_datasets,
+    drop_datasets,
+    have_valid_google_credentials,
+    json_rows_to_buf,
+    make_bigquery_config,
+)
 from lsst.dax.ppdb.tests._updates import _create_test_update_records
 
 
@@ -42,21 +45,17 @@ from lsst.dax.ppdb.tests._updates import _create_test_update_records
 class TestUpdatesMerger(unittest.TestCase):
     """Test UpdatesMerger functionality."""
 
+    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+
     def setUp(self):
         self.client = bigquery.Client()
-        self.dataset_id = f"test_merger_{uuid.uuid4().hex[:8]}"
-        self.project_id = self.client.project
-        self.updates_table_fqn = f"{self.project_id}.{self.dataset_id}.updates"
-        self.target_dataset_fqn = f"{self.project_id}.{self.dataset_id}"
-        dataset = bigquery.Dataset(f"{self.project_id}.{self.dataset_id}")
-        dataset.default_table_expiration_ms = 3600000
-        self.client.create_dataset(dataset)
 
-    def tearDown(self):
-        try:
-            self.client.delete_dataset(self.dataset_id, delete_contents=True, not_found_ok=True)
-        except Exception:
-            pass
+        self.config = make_bigquery_config("test_updates_merger")
+
+        # Add cleanup for datasets after test.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
+
+        create_datasets(self.config, self.dataset_types)
 
     def _create_target_table(self):
         schema = [
@@ -64,7 +63,7 @@ class TestUpdatesMerger(unittest.TestCase):
             bigquery.SchemaField("validityEndMjdTai", "FLOAT", mode="NULLABLE"),
             bigquery.SchemaField("nDiaSources", "INTEGER", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaObject"
+        table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaObject")
         table = bigquery.Table(table_fqn, schema=schema)
         self.client.create_table(table)
         rows = [
@@ -82,20 +81,20 @@ class TestUpdatesMerger(unittest.TestCase):
 
     def test_merge_diaobject(self):
         self._create_target_table()
-        updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
+        updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
         updates_table.create()
         update_records = _create_test_update_records()
         expanded = UpdateRecordExpander.expand_updates(update_records, 0)
         updates_table.insert(expanded)
         updates_table.create_latest_only()
-        table_fqn = f"{self.target_dataset_fqn}.DiaObject"
+        table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaObject")
         query = f"SELECT * FROM `{table_fqn}` ORDER BY diaObjectId"
         before = {r.diaObjectId: r for r in self.client.query(query).result()}
         merger = DiaObjectUpdatesMerger()
         merger.merge(
             client=self.client,
             updates_table_fqn=updates_table.latest_only_table_fqn,
-            target_dataset_fqn=self.target_dataset_fqn,
+            target_dataset_fqn=self.config.fqn_for(DatasetType.INTERNAL),
         )
         after = {r.diaObjectId: r for r in self.client.query(query).result()}
         self.assertEqual(after[200001].validityEndMjdTai, 59580.0)
@@ -113,7 +112,7 @@ class TestUpdatesMerger(unittest.TestCase):
             bigquery.SchemaField("ssObjectReassocTimeMjdTai", "FLOAT", mode="NULLABLE"),
             bigquery.SchemaField("timeWithdrawnMjdTai", "FLOAT", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaSource"
+        table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaSource")
         table = bigquery.Table(table_fqn, schema=schema)
         self.client.create_table(table)
         rows = [
@@ -153,7 +152,7 @@ class TestUpdatesMerger(unittest.TestCase):
         )
         job.result()
 
-        updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
+        updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
         updates_table.create()
         update_records = _create_test_update_records()
         expanded = UpdateRecordExpander.expand_updates(update_records, 0)
@@ -166,7 +165,7 @@ class TestUpdatesMerger(unittest.TestCase):
         merger.merge(
             client=self.client,
             updates_table_fqn=updates_table.latest_only_table_fqn,
-            target_dataset_fqn=self.target_dataset_fqn,
+            target_dataset_fqn=self.config.fqn_for(DatasetType.INTERNAL),
         )
         after = {r.diaSourceId: r for r in self.client.query(query).result()}
 
@@ -185,7 +184,7 @@ class TestUpdatesMerger(unittest.TestCase):
             bigquery.SchemaField("detector", "INTEGER", mode="REQUIRED"),
             bigquery.SchemaField("timeWithdrawnMjdTai", "FLOAT", mode="NULLABLE"),
         ]
-        table_fqn = f"{self.target_dataset_fqn}.DiaForcedSource"
+        table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaForcedSource")
         table = bigquery.Table(table_fqn, schema=schema)
         self.client.create_table(table)
         rows = [
@@ -199,7 +198,7 @@ class TestUpdatesMerger(unittest.TestCase):
         )
         job.result()
 
-        updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
+        updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
         updates_table.create()
         update_records = _create_test_update_records()
         expanded = UpdateRecordExpander.expand_updates(update_records, 0)
@@ -212,7 +211,7 @@ class TestUpdatesMerger(unittest.TestCase):
         merger.merge(
             client=self.client,
             updates_table_fqn=updates_table.latest_only_table_fqn,
-            target_dataset_fqn=self.target_dataset_fqn,
+            target_dataset_fqn=self.config.fqn_for(DatasetType.INTERNAL),
         )
         after = {(r.diaObjectId, r.visit, r.detector): r for r in self.client.query(query).result()}
 
@@ -224,16 +223,16 @@ class TestUpdatesMerger(unittest.TestCase):
 
     def test_merge_no_updates(self):
         self._create_target_table()
-        updates_table = UpdatesTable(self.client, self.project_id, self.dataset_id)
+        updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
         updates_table.create()
         updates_table.create_latest_only()
-        table_fqn = f"{self.target_dataset_fqn}.DiaObject"
+        table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaObject")
         before = {r.diaObjectId: r for r in self.client.query(f"SELECT * FROM `{table_fqn}`").result()}
         merger = DiaObjectUpdatesMerger()
         merger.merge(
             client=self.client,
             updates_table_fqn=updates_table.latest_only_table_fqn,
-            target_dataset_fqn=self.target_dataset_fqn,
+            target_dataset_fqn=self.config.fqn_for(DatasetType.INTERNAL),
         )
         after = {r.diaObjectId: r for r in self.client.query(f"SELECT * FROM `{table_fqn}`").result()}
         for obj_id in before:

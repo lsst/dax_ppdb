@@ -21,13 +21,14 @@
 
 from __future__ import annotations
 
-__all__ = ["ConfigValidationError", "PpdbBigQuery"]
+__all__ = ["ConfigValidationError", "PpdbBigQuery", "UpdatableField"]
 
 import datetime
 import logging
 import os
 import shutil
 from collections.abc import Collection, Iterable, Sequence
+from enum import StrEnum
 from pathlib import Path
 
 import astropy.time
@@ -51,7 +52,7 @@ from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, ParquetFileEntry
-from .ppdb_bigquery_config import PpdbBigQueryConfig
+from .ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
 
@@ -64,6 +65,13 @@ VERSION = VersionTuple(0, 1, 0)
 """Version for the code defined in this module. This needs to be updated
 (following compatibility rules) when schema produced by this code changes.
 """
+
+
+class UpdatableField(StrEnum):
+    """Chunk fields that are allowed to be updated on existing chunks."""
+
+    STATUS = "status"
+    GCS_URI = "gcs_uri"
 
 
 class _SecretManagerPasswordProvider(PasswordProvider):
@@ -102,9 +110,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     config
         Configuration object with BigQuery and SQL database parameters.
     """
-
-    _UPDATABLE_FIELDS = {"status", "gcs_uri"}
-    """Fields that are allowed to be updated on existing chunks."""
 
     # ----------------------------------------------------------------------
     # Construction and properties
@@ -168,7 +173,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         cls,
         db_url: str,
         project_id: str,
-        dataset_id: str,
         bucket_name: str,
         object_prefix: str,
         replication_dir: str,
@@ -191,8 +195,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             Database URL in SQLAlchemy format for PPDB instance.
         project_id
             GCP project ID.
-        dataset_id
-            BigQuery dataset name without the project ID.
         bucket_name
             GCS bucket name to use for Parquet output.
         object_prefix
@@ -236,7 +238,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             sql=sql_config,
             replication_dir=replication_dir,
             bucket_name=bucket_name,
-            dataset_id=dataset_id,
             project_id=project_id,
             object_prefix=object_prefix,
             delete_existing_dirs=delete_existing_dirs,
@@ -320,10 +321,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ConfigValidationError("Failed to validate GCS bucket") from e
 
         # Check existence of the BigQuery dataset.
-        try:
-            check_dataset_exists(config.project_id, config.dataset_id)
-        except Exception as e:
-            raise ConfigValidationError("Failed to validate BigQuery dataset") from e
+        for dataset_type in tuple(DatasetType):
+            dataset_name = config.datasets.name_for(dataset_type)
+            try:
+                check_dataset_exists(config.project_id, dataset_name)
+            except Exception as e:
+                raise ConfigValidationError(f"Failed to validate BigQuery dataset: {dataset_name}") from e
 
     # ----------------------------------------------------------------------
     # SQL schema and versioning class methods
@@ -572,6 +575,22 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 break
         return promotable
 
+    def find_chunk_by_id(self, chunk_id: int) -> PpdbReplicaChunkExtended | None:
+        """Find a replica chunk by its ID.
+
+        Parameters
+        ----------
+        chunk_id
+            The ID of the replica chunk to find.
+
+        Returns
+        -------
+        `PpdbReplicaChunkExtended` or `None`
+            The matching replica chunk, or `None` if not found.
+        """
+        chunks = self.query_chunks(self.chunk_table.columns["apdb_replica_chunk"] == chunk_id)
+        return chunks[0] if chunks else None
+
     # ----------------------------------------------------------------------
     # Public API -- chunk mutations
     # ----------------------------------------------------------------------
@@ -598,7 +617,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         with self._engine.begin() as connection:
             connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
 
-    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> None:
+    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> int:
         """Update one or more existing replica chunks in the
         ``PpdbReplicaChunk`` table.
 
@@ -623,10 +642,13 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ValueError("chunks must not be empty")
         if not fields:
             raise ValueError("fields must not be empty")
-        invalid = fields - self._UPDATABLE_FIELDS
+        invalid = {field for field in fields if field not in UpdatableField}
         if invalid:
-            raise ValueError(f"Invalid fields for update: {invalid}. Allowed: {self._UPDATABLE_FIELDS}")
+            raise ValueError(
+                f"Invalid fields for update: {invalid}. Allowed: {sorted(f.value for f in UpdatableField)}"
+            )
         table = self.chunk_table
+        updated_count = 0
         with self._engine.begin() as connection:
             for chunk in chunks:
                 row = chunk.to_row()
@@ -636,7 +658,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                     .values(**{k: v for k, v in row.items() if k in fields})
                 )
                 if result.rowcount == 0:
-                    raise LookupError(f"Cannot update chunk {chunk.id}: row does not exist")
+                    raise LookupError(f"Chunk {chunk.id} does not exist")
+                updated_count += result.rowcount
+        return updated_count
 
     # ----------------------------------------------------------------------
     # Private helpers

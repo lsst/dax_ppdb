@@ -72,7 +72,7 @@ def _make_chunk(
     )
 
 
-class ReplicaChunkTestCase(SqliteMixin, unittest.TestCase):
+class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
     """Tests for replica chunk database operations."""
 
     def _make_ppdb(self) -> PpdbBigQuery:

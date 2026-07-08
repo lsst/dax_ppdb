@@ -21,35 +21,35 @@
 
 import posixpath
 import unittest
-import uuid
 from pathlib import Path
 
 import pandas as pd
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
 
-from lsst.dax.apdb import Apdb, ApdbReplica
+from lsst.dax.apdb import Apdb, ApdbReplica, ApdbTables
 from lsst.dax.ppdb import Ppdb
 from lsst.dax.ppdb.bigquery import (
     ChunkPromoter,
     ChunkStatus,
+    DatasetType,
     Manifest,
     NoPromotableChunksError,
     PpdbBigQuery,
     PpdbReplicaChunkExtended,
-    TableRefs,
 )
 from lsst.dax.ppdb.bigquery.sql_resource import SqlResource
 from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecordExpander, UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
-from lsst.dax.ppdb.tests import fill_apdb
-from lsst.dax.ppdb.tests._bigquery import (
+from lsst.dax.ppdb.tests import (
     PostgresMixin,
-    delete_test_bucket,
-    generate_test_bucket_name,
+    create_bucket,
+    create_datasets,
+    delete_bucket,
+    drop_datasets,
+    fill_apdb,
     have_valid_google_credentials,
+    make_bigquery_config,
 )
-
-_TABLE_NAMES = ["DiaObject", "DiaSource", "DiaForcedSource"]
 
 
 @unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
@@ -61,6 +61,12 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
     staging). Only the parquet file containing update records is uploaded to
     GCS, as it is read directly during the promotion process.
     """
+
+    TABLE_NAMES = [
+        ApdbTables.DiaObject.value,
+        ApdbTables.DiaSource.value,
+        ApdbTables.DiaForcedSource.value,
+    ]
 
     def setUp(self):
         """Set up the test case.
@@ -81,29 +87,21 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
         # Create PPDB config with unique BQ dataset and GCS bucket.
         self.bq_client = bigquery.Client()
-        dataset_id = f"test_promoter_{uuid.uuid4().hex[:8]}"
-        project_id = self.bq_client.project
-        bucket_name = generate_test_bucket_name("ppdb-promoter-test")
-        config = {
-            "db_drop": True,
-            "validate_config": False,
-            "delete_existing_dirs": True,
-            "bucket_name": bucket_name,
-            "object_prefix": "data/test",
-            "dataset_id": dataset_id,
-            "project_id": project_id,
-        }
-        self.ppdb_config = self.make_instance(config)
-        self.target_dataset_fqn = f"{project_id}.{dataset_id}"
-        self._table_refs = TableRefs(
-            project_id=project_id,
-            dataset_id=dataset_id,
-            table_names=tuple(_TABLE_NAMES),
-        )
 
-        # Create the PPDB instance and replicate APDB data.
-        self.ppdb = Ppdb.from_config(self.ppdb_config)
+        self.config = self.make_instance(test_name="test_chunk_promoter")
+
+        # Create the PPDB instance.
+        self.ppdb = Ppdb.from_config(self.config)
         assert isinstance(self.ppdb, PpdbBigQuery)
+
+        # Add cleanup of datasets after test.
+        self.addCleanup(drop_datasets, self.config)
+
+        # Create the BigQuery datasets for the test.
+        create_datasets(self.config)
+
+        # Replicate the APDB data into the PPDB, creating parquet files for
+        # each chunk.
         replicator = Replicator(
             apdb_replica,
             self.ppdb,
@@ -115,9 +113,10 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         replicator.run(exit_on_empty=True)
 
         # Create GCS bucket needed for storing parquet with update records.
-        storage_client = storage.Client()
-        self._bucket = storage_client.bucket(bucket_name)
-        self._bucket.create(location="US")
+        self.bucket = create_bucket(self.config)
+
+        # Add cleanup for datasets and bucket after test.
+        self.addCleanup(delete_bucket, self.bucket)
 
         # Set chunk statuses and upload only the updates file to GCS. Table
         # data is loaded from local parquet files directly into BQ, bypassing
@@ -129,33 +128,16 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
             status = ChunkStatus.UPLOADED if manifest.has_table_data else ChunkStatus.STAGED
             gcs_prefix = posixpath.join(self.ppdb.config.object_prefix, str(chunk.id))
-            gcs_uri = f"gs://{bucket_name}/{gcs_prefix}"
+            gcs_uri = f"gs://{self.config.bucket_name}/{gcs_prefix}"
 
             update_records_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
             if update_records_path.exists():
-                blob = self._bucket.blob(f"{gcs_prefix}/{UpdateRecords.PARQUET_FILE_NAME}")
+                blob = self.bucket.blob(f"{gcs_prefix}/{UpdateRecords.PARQUET_FILE_NAME}")
                 blob.upload_from_filename(str(update_records_path))
 
             self.ppdb.update_chunks(
                 [chunk.with_new_status(status).with_new_gcs_uri(gcs_uri)], fields={"status", "gcs_uri"}
             )
-
-        # Create the BQ dataset.
-        dataset = bigquery.Dataset(self.target_dataset_fqn)
-        self.bq_client.create_dataset(dataset, exists_ok=False)
-
-    def tearDown(self):
-        try:
-            self.bq_client.delete_dataset(
-                self.ppdb_config.dataset_id, delete_contents=True, not_found_ok=True
-            )
-        except Exception as e:
-            print(f"Failed to delete test dataset: {e}")
-        try:
-            delete_test_bucket(self._bucket)
-        except Exception as e:
-            print(f"Failed to delete test GCS bucket: {e}")
-        super().tearDown()
 
     def _load_parquet_to_table(self, parquet_path: Path, table_fqn: str) -> None:
         """Load a local parquet file into a BigQuery table, creating the table
@@ -172,30 +154,32 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             )
             job.result()
 
-    def _create_empty_prod_tables(self, chunk: PpdbReplicaChunkExtended) -> None:
-        """Create empty prod tables by loading a chunk's parquet files
+    def _create_empty_internal_tables(self, chunk: PpdbReplicaChunkExtended) -> None:
+        """Create empty internal tables by loading a chunk's parquet files
         and then truncating them. This gives BigQuery the correct schema.
         """
-        for table_name, prod_ref in zip(_TABLE_NAMES, self._table_refs.prod, strict=True):
+        for table_name in self.TABLE_NAMES:
+            internal_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, table_name)
             parquet_path = self.ppdb.config.chunk_dir(chunk.id) / f"{table_name}.parquet"
             if parquet_path.exists():
-                self._load_parquet_to_table(parquet_path, prod_ref)
-                self.bq_client.query(f"TRUNCATE TABLE `{prod_ref}`").result()
+                self._load_parquet_to_table(parquet_path, internal_table_fqn)
+                self.bq_client.query(f"TRUNCATE TABLE `{internal_table_fqn}`").result()
 
     def _load_chunk_to_staging(self, chunk: PpdbReplicaChunkExtended) -> None:
         """Load a chunk's parquet files into staging tables and add the
         ``apdb_replica_chunk`` column, simulating the Dataflow staging step.
         This mocks the cloud function which stages the data using Dataflow.
         """
-        for table_name, staging_ref in zip(_TABLE_NAMES, self._table_refs.staging, strict=True):
+        for table_name in self.TABLE_NAMES:
+            staging_table_fqn = self.config.fqn_for(DatasetType.STAGING, table_name)
             parquet_path = self.ppdb.config.chunk_dir(chunk.id) / f"{table_name}.parquet"
             if parquet_path.exists():
-                self._load_parquet_to_table(parquet_path, staging_ref)
+                self._load_parquet_to_table(parquet_path, staging_table_fqn)
                 self.bq_client.query(
-                    f"ALTER TABLE `{staging_ref}` ADD COLUMN IF NOT EXISTS apdb_replica_chunk INT64"
+                    f"ALTER TABLE `{staging_table_fqn}` ADD COLUMN IF NOT EXISTS apdb_replica_chunk INT64"
                 ).result()
                 self.bq_client.query(
-                    f"UPDATE `{staging_ref}` SET apdb_replica_chunk = {chunk.id} WHERE "
+                    f"UPDATE `{staging_table_fqn}` SET apdb_replica_chunk = {chunk.id} WHERE "
                     f"apdb_replica_chunk IS NULL"
                 ).result()
 
@@ -227,11 +211,11 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         staging_rows: dict[str, list[dict]],
         expanded_updates: list[ExpandedUpdateRecord],
     ) -> None:
-        """Verify promoted prod data matches staging data with updates applied.
+        """Verify promoted data matches staging data with updates applied.
 
         For each table, builds an expected DataFrame from the staging snapshot
-        with update records applied, then compares it against the actual prod
-        DataFrame.
+        with update records applied, then compares it against the actual
+        internal DataFrame.
         """
         # Keys used by MERGE SQL to match update records to rows.
         merge_match_keys: dict[str, tuple[str, ...]] = {
@@ -246,9 +230,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         unique_row_keys = dict(merge_match_keys)
         unique_row_keys["DiaObject"] = ("diaObjectId", "validityStartMjdTai")
 
-        for table_name, prod_table_ref in zip(
-            self._table_refs.table_names, self._table_refs.prod, strict=True
-        ):
+        for table_name in self.TABLE_NAMES:
             sort_columns = list(unique_row_keys[table_name])
             match_columns = list(merge_match_keys[table_name])
 
@@ -267,8 +249,9 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
             # Convert to DataFrames, sort, and compare.
             expected = pd.DataFrame(expected_rows).sort_values(sort_columns).reset_index(drop=True)
+            internal_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, table_name)
             actual = (
-                pd.DataFrame(self._query_table(prod_table_ref))
+                pd.DataFrame(self._query_table(internal_table_fqn))
                 .sort_values(sort_columns)
                 .reset_index(drop=True)
             )
@@ -283,19 +266,20 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         data_chunks = [c for c in all_chunks if c.status == ChunkStatus.UPLOADED]
         self.assertTrue(data_chunks, "Expected at least one data chunk")
 
-        # Create empty prod tables (promoter clones them for the tmp tables).
-        self._create_empty_prod_tables(data_chunks[0])
+        # Create empty internal tables from parquet data.
+        self._create_empty_internal_tables(data_chunks[0])
 
-        # Stage all data chunks (simulating the Dataflow staging step).
+        # Stage all data chunks, simulating the Dataflow staging step.
         for chunk in data_chunks:
             self._load_chunk_to_staging(chunk)
             self.ppdb.update_chunks([chunk.with_new_status(ChunkStatus.STAGED)], fields={"status"})
 
         # Snapshot the staged rows per table before promotion.
         staging_rows: dict[str, list[dict]] = {}
-        for table_name, staging_ref in zip(_TABLE_NAMES, self._table_refs.staging, strict=True):
-            if self._table_exists(staging_ref):
-                staging_rows[table_name] = self._query_table(staging_ref)
+        for table_name in self.TABLE_NAMES:
+            staging_table_fqn = self.config.fqn_for(DatasetType.STAGING, table_name)
+            if self._table_exists(staging_table_fqn):
+                staging_rows[table_name] = self._query_table(staging_table_fqn)
 
         # Expand update records before promotion for later verification.
         expanded_updates = self._get_expanded_updates()
@@ -306,13 +290,15 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         promoter.promote_chunks(chunks_to_promote)
 
         # Verify staging tables are empty.
-        for staging_ref in self._table_refs.staging:
-            if self._table_exists(staging_ref):
-                rows = self._query_table(staging_ref)
-                self.assertEqual(len(rows), 0, f"{staging_ref} should be empty")
+        for table_name in self.TABLE_NAMES:
+            staging_table_fqn = self.config.fqn_for(DatasetType.STAGING, table_name)
+            if self._table_exists(staging_table_fqn):
+                rows = self._query_table(staging_table_fqn)
+                self.assertEqual(len(rows), 0, f"{staging_table_fqn} should be empty")
 
         # Verify tmp tables were cleaned up.
-        for tmp_ref in self._table_refs.promoted_tmp:
+        for table_name in self.TABLE_NAMES:
+            tmp_ref = self.config.fqn_for(DatasetType.INTERNAL, f"{table_name}_promoted_tmp")
             self.assertFalse(self._table_exists(tmp_ref), f"{tmp_ref} should not exist")
 
         # Verify all chunks are marked PROMOTED.
@@ -341,26 +327,28 @@ class FillValidityEndTestCase(unittest.TestCase):
     scenarios.
     """
 
+    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+
     def setUp(self):
+        # Create the PPDB BigQuery config.
+        self.config = make_bigquery_config(test_name="test_fill_validity_end")
+
+        # Create the datasets.
+        create_datasets(self.config, self.dataset_types)
+
+        # Add cleanup of datasets after test.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
+
+        # Build table FQNs for the test tables.
+        self.internal_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaObject_promoted_tmp")
+        self.staging_table_fqn = self.config.fqn_for(DatasetType.STAGING, "DiaObject")
+
         self.bq_client = bigquery.Client()
-        self.project_id = self.bq_client.project
-        self.dataset_id = f"test_fill_validity_end_{uuid.uuid4().hex[:8]}"
-        self.dataset_fqn = f"{self.project_id}.{self.dataset_id}"
-
-        # Create the dataset.
-        dataset = bigquery.Dataset(self.dataset_fqn)
-        self.bq_client.create_dataset(dataset, exists_ok=False)
-
-        # Table FQNs matching the format used by ChunkPromoter.
-        self.target_table = f"{self.dataset_id}._DiaObject_promoted_tmp"
-        self.staging_table = f"{self.dataset_id}._DiaObject_staging"
-        self.target_fqn = f"{self.project_id}.{self.target_table}"
-        self.staging_fqn = f"{self.project_id}.{self.staging_table}"
 
         # Create target table (promoted_tmp).
         self.bq_client.query(
             f"""
-            CREATE TABLE `{self.target_fqn}` (
+            CREATE TABLE `{self.internal_table_fqn}` (
                 diaObjectId INT64,
                 validityStartMjdTai FLOAT64,
                 validityEndMjdTai FLOAT64
@@ -371,7 +359,7 @@ class FillValidityEndTestCase(unittest.TestCase):
         # Create staging table.
         self.bq_client.query(
             f"""
-            CREATE TABLE `{self.staging_fqn}` (
+            CREATE TABLE `{self.staging_table_fqn}` (
                 diaObjectId INT64,
                 validityStartMjdTai FLOAT64,
                 validityEndMjdTai FLOAT64,
@@ -380,11 +368,8 @@ class FillValidityEndTestCase(unittest.TestCase):
             """
         ).result()
 
-    def tearDown(self):
-        self.bq_client.delete_dataset(self.dataset_id, delete_contents=True, not_found_ok=True)
-
     def _insert_target_rows(self, rows: list[tuple]) -> None:
-        """Insert rows into the target table.
+        """Insert rows into the internal table.
 
         Each row is (diaObjectId, validityStartMjdTai, validityEndMjdTai).
         """
@@ -392,7 +377,7 @@ class FillValidityEndTestCase(unittest.TestCase):
             return
         values = ", ".join(f"({r[0]}, {r[1]}, {'NULL' if r[2] is None else r[2]})" for r in rows)
         self.bq_client.query(
-            f"INSERT INTO `{self.target_fqn}` (diaObjectId, validityStartMjdTai, validityEndMjdTai) "
+            f"INSERT INTO `{self.internal_table_fqn}` (diaObjectId, validityStartMjdTai, validityEndMjdTai) "
             f"VALUES {values}"
         ).result()
 
@@ -406,7 +391,7 @@ class FillValidityEndTestCase(unittest.TestCase):
             return
         values = ", ".join(f"({r[0]}, {r[1]}, {'NULL' if r[2] is None else r[2]}, {r[3]})" for r in rows)
         self.bq_client.query(
-            f"INSERT INTO `{self.staging_fqn}` "
+            f"INSERT INTO `{self.staging_table_fqn}` "
             f"(diaObjectId, validityStartMjdTai, validityEndMjdTai, apdb_replica_chunk) "
             f"VALUES {values}"
         ).result()
@@ -416,8 +401,8 @@ class FillValidityEndTestCase(unittest.TestCase):
         sql = SqlResource(
             "fill_diaobject_validity_end",
             format_args={
-                "target_table": self.target_table,
-                "staging_table": self.staging_table,
+                "target_table": self.internal_table_fqn,
+                "staging_table": self.staging_table_fqn,
             },
         ).sql
         self.bq_client.query(sql).result()
@@ -428,7 +413,7 @@ class FillValidityEndTestCase(unittest.TestCase):
         """
         rows = self.bq_client.query(
             f"SELECT diaObjectId, validityStartMjdTai, validityEndMjdTai "
-            f"FROM `{self.target_fqn}` ORDER BY diaObjectId, validityStartMjdTai"
+            f"FROM `{self.internal_table_fqn}` ORDER BY diaObjectId, validityStartMjdTai"
         ).result()
         return [dict(row) for row in rows]
 
