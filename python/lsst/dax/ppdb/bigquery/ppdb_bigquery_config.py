@@ -41,6 +41,7 @@ class DatasetType(StrEnum):
 
     STAGING = "staging"
     INTERNAL = "internal"
+    PROMOTION = "promotion"
     PUBLIC = "public"
 
 
@@ -55,6 +56,10 @@ class Datasets(BaseModel):
     """Name of the internal dataset containing the fully replicated and
     promoted data."""
 
+    promotion: str = f"{_PPDB_PREFIX}_promotion"
+    """Name of the promotion dataset used as a workspace for building new
+    internal tables."""
+
     public: str = f"{_PPDB_PREFIX}_public"
     """Name of the public dataset which is presented through the TAP
     interface."""
@@ -64,6 +69,8 @@ class Datasets(BaseModel):
         match dataset_type:
             case DatasetType.INTERNAL:
                 return self.internal
+            case DatasetType.PROMOTION:
+                return self.promotion
             case DatasetType.PUBLIC:
                 return self.public
             case DatasetType.STAGING:

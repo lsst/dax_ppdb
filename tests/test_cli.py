@@ -28,9 +28,7 @@ import unittest
 import yaml
 from google.cloud import bigquery
 
-from lsst.dax.ppdb.bigquery.ppdb_bigquery_config import (
-    DatasetType,
-)
+from lsst.dax.ppdb.bigquery.ppdb_bigquery_config import DatasetType
 from lsst.dax.ppdb.cli import ppdb_cli
 from lsst.dax.ppdb.tests._bigquery import (
     drop_datasets,
@@ -79,7 +77,13 @@ class CreateDatasetsTestCase(unittest.TestCase):
             dataset_fqn = self.config.fqn_for(dataset_type)
             self.client.get_dataset(dataset_fqn)
             tables = list(self.client.list_tables(dataset_fqn))
-            self.assertEqual(len(tables), 3)
+            if dataset_type != DatasetType.PROMOTION:
+                # The staging, internal, and public datasets should each have
+                # three tables created by default.
+                self.assertEqual(len(tables), 3)
+            else:
+                # Promotion dataset should have no tables created by default.
+                self.assertEqual(len(tables), 0)
 
 
 if __name__ == "__main__":

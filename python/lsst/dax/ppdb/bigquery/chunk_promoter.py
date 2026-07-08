@@ -73,8 +73,6 @@ class ChunkPromoter:
         ApdbTables.DiaForcedSource.value,
     )
 
-    _PROMOTED_TMP_SUFFIX = "_promoted_tmp"
-
     def __init__(
         self,
         ppdb: PpdbBigQuery,
@@ -116,13 +114,6 @@ class ChunkPromoter:
         """Table names to promote (`tuple` [`str`], read-only)."""
         return self._table_names
 
-    @classmethod
-    def _promoted_tmp_name(cls, table_name: str) -> str:
-        """Return the promoted temporary table name for a given base table
-        name.
-        """
-        return f"{table_name}{cls._PROMOTED_TMP_SUFFIX}"
-
     def promote_chunks(self, chunks: list[PpdbReplicaChunkExtended]) -> None:
         """Promote APDB replica chunks into production by executing a series of
         steps in BigQuery.
@@ -153,7 +144,7 @@ class ChunkPromoter:
         # Execute the promotion steps in order.
         try:
             # Copy prod tables to temp tables and insert staged data.
-            self._copy_to_promoted_tmp()
+            self._copy_staging_to_promotion()
 
             # Fill in validityEndMjdTai for DiaObjects in the temp table.
             self._fill_diaobject_validity_end()
@@ -162,7 +153,7 @@ class ChunkPromoter:
             self._apply_record_updates()
 
             # Promote the temp tables to prod using atomic table swaps.
-            self._promote_tmp_to_prod()
+            self._copy_promotion_to_internal()
 
             # Delete the staged chunks from the staging tables.
             self._delete_staged_chunks()
@@ -181,8 +172,8 @@ class ChunkPromoter:
 
         logging.info("Completed promotion of %d chunk(s)", len(chunks))
 
-    def _copy_to_promoted_tmp(self) -> None:
-        """Build temporary tables by cloning the current prod tables and
+    def _copy_staging_to_promotion(self) -> None:
+        """Build promotion tables by cloning the current internal tables and
         inserting staged rows for the promotable chunks.
         """
         job_cfg = bigquery.QueryJobConfig(
@@ -195,14 +186,17 @@ class ChunkPromoter:
             # Build fully qualified table names which will be used in the
             # queries.
             staging_table_fqn = self.table_refs.staging(table_name)
+            promotion_table_fqn = self.table_refs.promotion(table_name)
             internal_table_fqn = self.table_refs.internal(table_name)
-            tmp_table_fqn = self.table_refs.internal(self._promoted_tmp_name(table_name))
 
-            # Drop existing promoted tmp table, if it exists.
-            self._runner.run_job("drop_tmp", f"DROP TABLE IF EXISTS `{tmp_table_fqn}`")
+            # Drop existing promotion table, if it exists.
+            self._runner.run_job("drop_promotion_if_exists", f"DROP TABLE IF EXISTS `{promotion_table_fqn}`")
 
-            # Clone prod table structure and data (zero-copy).
-            self._runner.run_job("clone_prod", f"CREATE TABLE `{tmp_table_fqn}` CLONE `{internal_table_fqn}`")
+            # Clone the current internal table structure and data (zero-copy).
+            self._runner.run_job(
+                "clone_internal_to_promotion",
+                f"CREATE OR REPLACE TABLE `{promotion_table_fqn}` CLONE `{internal_table_fqn}`",
+            )
 
             # Build target column list for SQL statement from the internal
             # table's schema. This will include the geo_point column.
@@ -217,23 +211,20 @@ class ChunkPromoter:
                 for column_name in target_names
             )
 
-            # Insert staged rows into the promoted tmp table. If the staging
+            # Insert staged rows into the promotion table. If the staging
             # and internal schemas do not match, this will fail.
             sql = f"""
-            INSERT INTO `{tmp_table_fqn}` ({target_list_sql})
+            INSERT INTO `{promotion_table_fqn}` ({target_list_sql})
             SELECT {source_list_sql}
             FROM `{staging_table_fqn}` AS s
             WHERE s.apdb_replica_chunk IN UNNEST(@ids)
             """
-            logging.debug("SQL for inserting staged rows into %s: %s", tmp_table_fqn, sql)
-            self._runner.run_job("insert_staged_to_tmp", sql, job_config=job_cfg)
+            logging.debug("SQL for inserting staged rows into %s: %s", promotion_table_fqn, sql)
+            self._runner.run_job("insert_staged_to_promotion", sql, job_config=job_cfg)
 
     def _apply_record_updates(self) -> None:
-        """Apply record updates to the promoted temporary tables."""
-        updates_manager = UpdatesManager(
-            self._ppdb.config,
-            table_name_format="{}" + self._PROMOTED_TMP_SUFFIX,
-        )
+        """Apply record updates to the promotion tables."""
+        updates_manager = UpdatesManager(config=self._ppdb.config)
 
         # Apply the updates for the chunks. The manager will skip the process
         # entirely if there are no updates, so we don't need to check that
@@ -246,8 +237,7 @@ class ChunkPromoter:
         """
         job_name = "fill_diaobject_validity_end"
 
-        target_table = self._promoted_tmp_name(ApdbTables.DiaObject.value)
-        target_table_fqn = self.table_refs.internal(target_table)
+        target_table_fqn = self.table_refs.promotion(ApdbTables.DiaObject.value)
 
         staging_table = ApdbTables.DiaObject.value
         staging_table_fqn = self.table_refs.staging(staging_table)
@@ -273,29 +263,30 @@ class ChunkPromoter:
         else:
             logging.warning("Finished job '%s' but DML stats are not available", job_name)
 
-    def _promote_tmp_to_prod(self) -> None:
-        """Swap each prod table with its corresponding *_promoted_tmp by
-        replacing prod contents in a single atomic copy job. This preserves
+    def _copy_promotion_to_internal(self) -> None:
+        """Swap each internal table with its corresponding promotion table by
+        replacing internal contents in a single atomic copy job. This preserves
         schema, partitioning, and clustering with zero-copy when in the same
         dataset.
         """
         for table_name in self.table_names:
-            tmp_ref = self.table_refs.internal(self._promoted_tmp_name(table_name))
-            prod_ref = self.table_refs.internal(table_name)
+            promotion_ref = self.table_refs.promotion(table_name)
+            internal_ref = self.table_refs.internal(table_name)
 
-            # Ensure tmp exists.
+            # Ensure promotion table exists.
             try:
-                self._bq_client.get_table(tmp_ref)
+                self._bq_client.get_table(promotion_ref)
             except NotFound as e:
-                raise RuntimeError(f"Missing tmp table for promotion: {tmp_ref}") from e
+                raise RuntimeError(f"Missing promotion table: {promotion_ref}") from e
 
-            # Perform an atomic, zero-copy replacement of prod with temp.
+            # Perform an atomic, zero-copy replacement of internal with its
+            # corresponding promotion table.
             copy_cfg = bigquery.CopyJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
             job = self._bq_client.copy_table(
-                tmp_ref, prod_ref, job_config=copy_cfg, location=self._runner.location
+                promotion_ref, internal_ref, job_config=copy_cfg, location=self._runner.location
             )
             job.result()
-            QueryRunner.log_job(job, "promote_tmp_to_prod")
+            QueryRunner.log_job(job, "copy_promotion_to_internal")
 
     def _delete_staged_chunks(self) -> None:
         """Delete only rows for the promoted replica chunk IDs from each
@@ -327,11 +318,11 @@ class ChunkPromoter:
 
     def _cleanup(self) -> None:
         """Cleanup state after executing the promotion."""
-        # Delete the tmp tables.
+        # Delete the promotion tables.
         for table_name in self.table_names:
-            tmp_ref = self.table_refs.internal(self._promoted_tmp_name(table_name))
-            self._bq_client.delete_table(tmp_ref, not_found_ok=True)
-            logging.debug("Dropped %s (if it existed)", tmp_ref)
+            promotion_ref = self.table_refs.promotion(table_name)
+            self._bq_client.delete_table(promotion_ref, not_found_ok=True)
+            logging.debug("Dropped %s (if it existed)", promotion_ref)
 
         # Reset the chunk list.
         self._promotable_chunks = []

@@ -76,6 +76,7 @@ class DatasetBuilderTestMixin:
             project_id="test-project",
             datasets=Datasets(
                 internal="test_dataset_builder_internal",
+                promotion="test_dataset_builder_promotion",
                 public="test_dataset_builder_public",
                 staging="test_dataset_builder_staging",
             ),
@@ -685,6 +686,7 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
         suffix = uuid.uuid4().hex[:8]
         self.datasets = Datasets(
             internal=f"test_dataset_builder_internal_{suffix}",
+            promotion=f"test_dataset_builder_promotion_{suffix}",
             public=f"test_dataset_builder_public_{suffix}",
             staging=f"test_dataset_builder_staging_{suffix}",
         )

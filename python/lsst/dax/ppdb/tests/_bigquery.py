@@ -111,6 +111,7 @@ def make_bigquery_config(
         datasets=Datasets(
             staging=f"{test_name}_staging_{unique_id}",
             internal=f"{test_name}_internal_{unique_id}",
+            promotion=f"{test_name}_promotion_{unique_id}",
             public=f"{test_name}_public_{unique_id}",
         ),
         sql=PpdbSqlBaseConfig(

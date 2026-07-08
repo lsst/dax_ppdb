@@ -53,6 +53,21 @@ class TableRefs:
         """
         return self._config.fqn_for(DatasetType.STAGING, table_name)
 
+    def promotion(self, table_name: str) -> str:
+        """Return the fully qualified promotion table reference.
+
+        Parameters
+        ----------
+        table_name
+            Name of the table.
+
+        Returns
+        -------
+        `str`
+            Fully qualified promotion table reference.
+        """
+        return self._config.fqn_for(DatasetType.PROMOTION, table_name)
+
     def internal(self, table_name: str) -> str:
         """Return the fully qualified internal table reference.
 

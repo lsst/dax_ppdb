@@ -58,7 +58,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
     related classes including the ChunkUploader.
     """
 
-    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+    dataset_types = (DatasetType.PROMOTION, DatasetType.STAGING)
 
     def setUp(self):
         super().setUp()
@@ -73,7 +73,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         create_datasets(self.config, self.dataset_types)
 
         # Create the test tables in BigQuery.
-        self._create_test_tables(self.config, DatasetType.INTERNAL)
+        self._create_test_tables(self.config, DatasetType.PROMOTION)
 
         # Create the test GCS bucket.
         create_bucket(self.config)
@@ -231,7 +231,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         client = bigquery.Client()
 
         # Verify DiaSource updates.
-        dia_source_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaSource")
+        dia_source_fqn = self.ppdb.config.fqn_for(DatasetType.PROMOTION, "DiaSource")
         rows = client.query(
             f"""
             SELECT
@@ -276,7 +276,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         self.assertIsNone(dia_sources[100004]["timeWithdrawnMjdTai"])
 
         # Verify DiaForcedSource updates.
-        dia_forced_source_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaForcedSource")
+        dia_forced_source_fqn = self.ppdb.config.fqn_for(DatasetType.PROMOTION, "DiaForcedSource")
         rows = client.query(
             f"""
             SELECT
@@ -313,7 +313,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
         )
 
         # Verify DiaObject updates.
-        dia_object_fqn = self.ppdb.config.fqn_for(DatasetType.INTERNAL, "DiaObject")
+        dia_object_fqn = self.ppdb.config.fqn_for(DatasetType.PROMOTION, "DiaObject")
         rows = client.query(
             f"""
             SELECT

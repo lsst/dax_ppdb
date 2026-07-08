@@ -42,12 +42,6 @@ from .updates_merger import (
 )
 from .updates_table import UpdatesTable
 
-_DEFAULT_MERGERS: tuple[UpdatesMerger, ...] = (
-    DiaObjectUpdatesMerger(),
-    DiaSourceUpdatesMerger(),
-    DiaForcedSourceUpdatesMerger(),
-)
-
 _LOG = logging.getLogger(__name__)
 
 
@@ -65,6 +59,10 @@ class UpdatesManager:
     ----------
     config
         Configuration for the PPDB BigQuery interface.
+    target_dataset_fqn
+        Fully qualified name of the dataset containing the target tables to
+        merge updates into, or `None` to use the promotion dataset from the
+        configuration.
     mergers
         Merger instances to apply, or `None` to use the default set of mergers
         for the standard target tables.
@@ -73,25 +71,30 @@ class UpdatesManager:
     def __init__(
         self,
         config: PpdbBigQueryConfig,
+        target_dataset_fqn: str | None = None,
         mergers: Sequence[UpdatesMerger] | None = None,
     ) -> None:
         # Get some necessary setup information from the config.
         project_id = config.project_id
         bucket_name = config.bucket_name
 
-        # Merger instances for handling each target table. Fall back to the
-        # default set of mergers if none were provided.
-        if mergers:
+        # Set the merger instances for handling each target table, falling back
+        # to a default set of mergers if none were provided.
+        if mergers is not None:
             self._mergers = tuple(mergers)
         else:
-            self._mergers = _DEFAULT_MERGERS
+            self._mergers = (
+                DiaObjectUpdatesMerger(),
+                DiaSourceUpdatesMerger(),
+                DiaForcedSourceUpdatesMerger(),
+            )
 
         # Setup the updates table interface.
         self._bq_client = bigquery.Client()
         self._updates_table = UpdatesTable(
             self._bq_client,
             project_id,
-            config.datasets.staging,
+            config.datasets.promotion,
         )
 
         # Setup the GCS client and bucket.
@@ -99,7 +102,11 @@ class UpdatesManager:
         self._bucket = self._gcs_client.bucket(bucket_name)
 
         # Set the target dataset FQN for the mergers to use.
-        self._target_dataset_fqn = config.fqn_for(DatasetType.INTERNAL)
+        if target_dataset_fqn is None:
+            # By default, use the promotion dataset as the merge target.
+            self._target_dataset_fqn = config.fqn_for(DatasetType.PROMOTION)
+        else:
+            self._target_dataset_fqn = target_dataset_fqn
 
     def apply_updates(self, replica_chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
         """Apply update records from replica chunk data to target tables in
@@ -152,6 +159,8 @@ class UpdatesManager:
         except Exception as e:
             raise UpdatesManagerError("Failed to merge updates into target tables") from e
 
+    # TODO: This method will be removed by DM-55338, as populating the updates
+    # table will be handled by the staging process.
     def _build_updates_table(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
         """Build the updates table by expanding the update records from the
         replica chunks and inserting them.
