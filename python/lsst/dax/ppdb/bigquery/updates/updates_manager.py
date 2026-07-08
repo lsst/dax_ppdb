@@ -42,10 +42,10 @@ from .updates_merger import (
 )
 from .updates_table import UpdatesTable
 
-_DEFAULT_MERGER_CLASSES: tuple[type[UpdatesMerger], ...] = (
-    DiaObjectUpdatesMerger,
-    DiaSourceUpdatesMerger,
-    DiaForcedSourceUpdatesMerger,
+_DEFAULT_MERGERS: tuple[UpdatesMerger, ...] = (
+    DiaObjectUpdatesMerger(),
+    DiaSourceUpdatesMerger(),
+    DiaForcedSourceUpdatesMerger(),
 )
 
 _LOG = logging.getLogger(__name__)
@@ -65,21 +65,26 @@ class UpdatesManager:
     ----------
     config
         Configuration for the PPDB BigQuery interface.
-    table_name_format
-        Optional format string for the target table names used by the mergers.
+    mergers
+        Merger instances to apply, or `None` to use the default set of mergers
+        for the standard target tables.
     """
 
     def __init__(
         self,
         config: PpdbBigQueryConfig,
-        table_name_format: str | None = None,
+        mergers: Sequence[UpdatesMerger] | None = None,
     ) -> None:
         # Get some necessary setup information from the config.
         project_id = config.project_id
         bucket_name = config.bucket_name
 
-        # Merger instances for handling each target table.
-        self._mergers = tuple(cls(table_name_format=table_name_format) for cls in _DEFAULT_MERGER_CLASSES)
+        # Merger instances for handling each target table. Fall back to the
+        # default set of mergers if none were provided.
+        if mergers:
+            self._mergers = tuple(mergers)
+        else:
+            self._mergers = _DEFAULT_MERGERS
 
         # Setup the updates table interface.
         self._bq_client = bigquery.Client()

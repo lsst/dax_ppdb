@@ -36,15 +36,6 @@ from ..sql_resource import SqlResource
 class UpdatesMerger:
     """Abstract base class for merging expanded update records into target
     tables in BigQuery.
-
-    Parameters
-    ----------
-    table_name_format
-        Optional format string for the target table name. The
-        class-level ``TABLE_NAME`` will be substituted into ``{}``
-        (e.g., ``"_{}_promoted_tmp"`` produces
-        ``"_DiaObject_promoted_tmp"``).
-        If not provided, ``TABLE_NAME`` is used as-is.
     """
 
     TABLE_NAME: str
@@ -56,17 +47,6 @@ class UpdatesMerger:
     """Base name of the SQL file (without .sql extension) containing the MERGE
     statement for this merger. The SQL file must be located in the
     ``lsst.dax.ppdb.config.sql`` package."""
-
-    def __init__(self, table_name_format: str | None = None) -> None:
-        if table_name_format:
-            self._target_table_name = table_name_format.format(self.TABLE_NAME)
-        else:
-            self._target_table_name = self.TABLE_NAME
-
-    @property
-    def target_table_name(self) -> str:
-        """Name of the target table to which this merger applies."""
-        return self._target_table_name
 
     def merge(
         self, *, client: bigquery.Client, updates_table_fqn: str, target_dataset_fqn: str
@@ -94,7 +74,7 @@ class UpdatesMerger:
             format_args={
                 "updates_table": updates_table_fqn,
                 "target_dataset": target_dataset_fqn,
-                "target_table": self.target_table_name,
+                "target_table": self.TABLE_NAME,
             },
         ).sql
         job = client.query(sql)
