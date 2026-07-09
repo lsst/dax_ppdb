@@ -21,6 +21,11 @@ jobs:
           # Need to clone everything for the git tags.
           fetch-depth: 0
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
       - uses: conda-incubator/setup-miniconda@v4
         with:
           python-version: ${{ matrix.python-version }}
@@ -63,12 +68,18 @@ jobs:
         run: |
           uv pip install -v --no-deps -e .
 
-      - name: Run tests
+      # - name: Run tests
+      #   shell: bash -l {0}
+      #   run: |
+      #     pytest -r a -v -n auto --cov=lsst.dax.ppdb \
+      #       --cov-report=xml --cov-report=term --cov-branch \
+      #       --junitxml=junit.xml -o junit_family=legacy
+
+      - name: Run tests (DEBUG)
         shell: bash -l {0}
         run: |
-          pytest -r a -v -n auto --cov=lsst.dax.ppdb \
-            --cov-report=xml --cov-report=term --cov-branch \
-            --junitxml=junit.xml -o junit_family=legacy
+          pytest -rA -v \
+            --log-cli-level=ERROR
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
