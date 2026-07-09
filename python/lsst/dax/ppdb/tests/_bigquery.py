@@ -350,10 +350,10 @@ def have_valid_google_credentials() -> bool:
         Raised for other transport or configuration failures.
     """
     try:
-        credentials, _ = google.auth.default()
+        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
         credentials.refresh(Request())
     except (DefaultCredentialsError, RefreshError):
-        logging.exception("Google credential validation failed")
+        _LOG.exception("Google credential validation failed")
         return False
 
     return True
