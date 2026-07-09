@@ -71,9 +71,17 @@ jobs:
       - name: Run tests
         shell: bash -l {0}
         run: |
-          pytest -r a -v -n auto --cov=lsst.dax.ppdb \
-            --cov-report=xml --cov-report=term --cov-branch \
-            --junitxml=junit.xml -o junit_family=legacy
+          pytest \
+            -v \
+            --log-cli-level WARNING \
+            -r a \
+            -n auto \
+            --cov=lsst.dax.ppdb \
+            --cov-report=xml \
+            --cov-report=term \
+            --cov-branch \
+            --junitxml=junit.xml \
+            -o junit_family=legacy
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
