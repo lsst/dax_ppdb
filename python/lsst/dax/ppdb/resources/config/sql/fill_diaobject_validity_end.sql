@@ -1,5 +1,5 @@
--- This SQL script fills in null validityEndMjTai values for DiaObject rows
--- in the target table, which will typically be the "promoted_tmp" version
+-- This SQL script fills in null validityEndMjdTai values for DiaObject rows
+-- in the target table, which is the DiaObject table in the promotion dataset
 -- containing the existing data plus updates from staging. It uses a MERGE
 -- statement to update the target table in place.
 MERGE `{target_table}` AS T

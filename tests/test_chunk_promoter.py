@@ -296,10 +296,10 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
                 rows = self._query_table(staging_table_fqn)
                 self.assertEqual(len(rows), 0, f"{staging_table_fqn} should be empty")
 
-        # Verify tmp tables were cleaned up.
+        # Verify promotion tables were cleaned up.
         for table_name in self.TABLE_NAMES:
-            tmp_ref = self.config.fqn_for(DatasetType.INTERNAL, f"{table_name}_promoted_tmp")
-            self.assertFalse(self._table_exists(tmp_ref), f"{tmp_ref} should not exist")
+            promotion_ref = self.config.fqn_for(DatasetType.PROMOTION, table_name)
+            self.assertFalse(self._table_exists(promotion_ref), f"{promotion_ref} should not exist")
 
         # Verify all chunks are marked PROMOTED.
         for chunk in self.ppdb.query_chunks():
@@ -327,7 +327,7 @@ class FillValidityEndTestCase(unittest.TestCase):
     scenarios.
     """
 
-    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+    dataset_types = (DatasetType.PROMOTION, DatasetType.STAGING)
 
     def setUp(self):
         # Create the PPDB BigQuery config.
@@ -340,15 +340,15 @@ class FillValidityEndTestCase(unittest.TestCase):
         self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
         # Build table FQNs for the test tables.
-        self.internal_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaObject_promoted_tmp")
+        self.target_table_fqn = self.config.fqn_for(DatasetType.PROMOTION, "DiaObject")
         self.staging_table_fqn = self.config.fqn_for(DatasetType.STAGING, "DiaObject")
 
         self.bq_client = bigquery.Client()
 
-        # Create target table (promoted_tmp).
+        # Create target table (promotion DiaObject).
         self.bq_client.query(
             f"""
-            CREATE TABLE `{self.internal_table_fqn}` (
+            CREATE TABLE `{self.target_table_fqn}` (
                 diaObjectId INT64,
                 validityStartMjdTai FLOAT64,
                 validityEndMjdTai FLOAT64
@@ -369,7 +369,7 @@ class FillValidityEndTestCase(unittest.TestCase):
         ).result()
 
     def _insert_target_rows(self, rows: list[tuple]) -> None:
-        """Insert rows into the internal table.
+        """Insert rows into the target table.
 
         Each row is (diaObjectId, validityStartMjdTai, validityEndMjdTai).
         """
@@ -377,7 +377,7 @@ class FillValidityEndTestCase(unittest.TestCase):
             return
         values = ", ".join(f"({r[0]}, {r[1]}, {'NULL' if r[2] is None else r[2]})" for r in rows)
         self.bq_client.query(
-            f"INSERT INTO `{self.internal_table_fqn}` (diaObjectId, validityStartMjdTai, validityEndMjdTai) "
+            f"INSERT INTO `{self.target_table_fqn}` (diaObjectId, validityStartMjdTai, validityEndMjdTai) "
             f"VALUES {values}"
         ).result()
 
@@ -401,7 +401,7 @@ class FillValidityEndTestCase(unittest.TestCase):
         sql = SqlResource(
             "fill_diaobject_validity_end",
             format_args={
-                "target_table": self.internal_table_fqn,
+                "target_table": self.target_table_fqn,
                 "staging_table": self.staging_table_fqn,
             },
         ).sql
@@ -413,7 +413,7 @@ class FillValidityEndTestCase(unittest.TestCase):
         """
         rows = self.bq_client.query(
             f"SELECT diaObjectId, validityStartMjdTai, validityEndMjdTai "
-            f"FROM `{self.internal_table_fqn}` ORDER BY diaObjectId, validityStartMjdTai"
+            f"FROM `{self.target_table_fqn}` ORDER BY diaObjectId, validityStartMjdTai"
         ).result()
         return [dict(row) for row in rows]
 

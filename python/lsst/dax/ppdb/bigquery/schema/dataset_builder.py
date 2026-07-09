@@ -253,6 +253,17 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
         ]
 
 
+class PromotionDatasetBuilder(BaseDatasetBuilder):
+    """Builder for the promotion dataset type.
+
+    This dataset type is used as a workspace for the promotion process. It does
+    not currently define any tables or views but uses copies of tables from
+    other datasets.
+    """
+
+    dataset_type = DatasetType.PROMOTION
+
+
 class PublicDatasetBuilder(BaseDatasetBuilder):
     """Builder for the public dataset type."""
 
@@ -351,6 +362,7 @@ class DatasetBuildManager:
         {
             StagingDatasetBuilder.dataset_type: StagingDatasetBuilder,
             InternalDatasetBuilder.dataset_type: InternalDatasetBuilder,
+            PromotionDatasetBuilder.dataset_type: PromotionDatasetBuilder,
             PublicDatasetBuilder.dataset_type: PublicDatasetBuilder,
         }
     )
