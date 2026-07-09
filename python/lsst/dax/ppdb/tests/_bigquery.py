@@ -353,6 +353,7 @@ def have_valid_google_credentials() -> bool:
         credentials, _ = google.auth.default()
         credentials.refresh(Request())
     except (DefaultCredentialsError, RefreshError):
+        logging.exception("Google credential validation failed")
         return False
 
     return True
