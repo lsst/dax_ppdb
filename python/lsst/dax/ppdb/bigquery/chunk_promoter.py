@@ -155,6 +155,10 @@ class ChunkPromoter:
             # Promote the temp tables to prod using atomic table swaps.
             self._copy_promotion_to_internal()
 
+            # Create the copy of the DiaObject table in the public dataset
+            # containing only the most recent versions.
+            self._create_diaobject_latest()
+
             # Delete the staged chunks from the staging tables.
             self._delete_staged_chunks()
 
@@ -287,6 +291,26 @@ class ChunkPromoter:
             )
             job.result()
             QueryRunner.log_job(job, "copy_promotion_to_internal")
+
+    def _create_diaobject_latest(self) -> None:
+        """Create the copy of the DiaObject table in the public dataset
+        containing only the most recent versions.
+        """
+        internal_table_fqn = self.table_refs.internal(ApdbTables.DiaObject.value)
+        public_table_fqn = self.table_refs.public(ApdbTables.DiaObject.value)
+
+        job_name = "create_diaobject_latest"
+
+        job = self._runner.run_job(
+            job_name,
+            f"""CREATE OR REPLACE TABLE `{public_table_fqn}`
+            CLUSTER BY geo_point AS
+            SELECT * EXCEPT (validityEndMjdTai)
+            FROM `{internal_table_fqn}`
+            WHERE validityEndMjdTai IS NULL""",
+        )
+        job.result()
+        QueryRunner.log_job(job, job_name)
 
     def _delete_staged_chunks(self) -> None:
         """Delete only rows for the promoted replica chunk IDs from each

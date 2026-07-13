@@ -164,6 +164,10 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             if parquet_path.exists():
                 self._load_parquet_to_table(parquet_path, internal_table_fqn)
                 self.bq_client.query(f"TRUNCATE TABLE `{internal_table_fqn}`").result()
+                # Add the expected geo_point column to the internal table.
+                self.bq_client.query(
+                    f"ALTER TABLE `{internal_table_fqn}` ADD COLUMN IF NOT EXISTS geo_point GEOGRAPHY"
+                ).result()
 
     def _load_chunk_to_staging(self, chunk: PpdbReplicaChunkExtended) -> None:
         """Load a chunk's parquet files into staging tables and add the
@@ -307,6 +311,35 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
         # Verify promoted data matches staging data with updates applied.
         self._verify_promoted_data(staging_rows, expanded_updates)
+
+        # Verify the public DiaObject table contains only the latest version of
+        # each DiaObject with the validityEndMjdTai column dropped.
+        public_table_fqn = self.config.fqn_for(DatasetType.PUBLIC, ApdbTables.DiaObject.value)
+        internal_table_fqn = self.config.fqn_for(DatasetType.INTERNAL, ApdbTables.DiaObject.value)
+        self.assertTrue(self._table_exists(public_table_fqn), f"{public_table_fqn} should exist")
+        public_field_names = [field.name for field in self.bq_client.get_table(public_table_fqn).schema]
+        self.assertNotIn("validityEndMjdTai", public_field_names)
+        latest_rows = [
+            {name: value for name, value in row.items() if name != "validityEndMjdTai"}
+            for row in self._query_table(internal_table_fqn)
+            if row["validityEndMjdTai"] is None
+        ]
+        public_rows = self._query_table(public_table_fqn)
+        self.assertEqual(len(public_rows), len(latest_rows))
+        self.assertEqual(
+            len({row["diaObjectId"] for row in public_rows}),
+            len(public_rows),
+            "Expected exactly one latest row per diaObjectId in public DiaObject",
+        )
+        self.assertEqual(
+            {row["diaObjectId"] for row in public_rows},
+            {row["diaObjectId"] for row in latest_rows},
+        )
+
+        expected_public = pd.DataFrame(latest_rows).sort_values("diaObjectId").reset_index(drop=True)
+        actual_public = pd.DataFrame(public_rows).sort_values("diaObjectId").reset_index(drop=True)
+        actual_public = actual_public[expected_public.columns]
+        pd.testing.assert_frame_equal(actual_public, expected_public)
 
         # Verify no promotable chunks remain after promotion.
         self.assertEqual(self.ppdb.get_promotable_chunks(), [])
