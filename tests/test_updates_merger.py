@@ -28,8 +28,8 @@ from lsst.dax.ppdb.bigquery.updates import (
     DiaForcedSourceUpdatesMerger,
     DiaObjectUpdatesMerger,
     DiaSourceUpdatesMerger,
-    UpdateRecordExpander,
-    UpdatesTable,
+    ExpandedUpdateRecord,
+    ExpandedUpdatesTable,
 )
 from lsst.dax.ppdb.tests import (
     create_datasets,
@@ -45,7 +45,7 @@ from lsst.dax.ppdb.tests._updates import _create_test_update_records
 class TestUpdatesMerger(unittest.TestCase):
     """Test UpdatesMerger functionality."""
 
-    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING)
+    dataset_types = (DatasetType.INTERNAL, DatasetType.STAGING, DatasetType.PROMOTION)
 
     def setUp(self):
         self.client = bigquery.Client()
@@ -56,6 +56,20 @@ class TestUpdatesMerger(unittest.TestCase):
         self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
         create_datasets(self.config, self.dataset_types)
+
+    def _build_latest_only(self) -> str:
+        """Build the expanded and latest-only updates tables from the test
+        update records and return the latest-only table FQN.
+        """
+        expanded_table = ExpandedUpdatesTable(self.client, self.config)
+        expanded_table.create()
+        update_records = _create_test_update_records()
+        expanded = []
+        for apdb_replica_chunk, record in update_records.records:
+            expanded.extend(ExpandedUpdateRecord.from_update_record(record, apdb_replica_chunk))
+        expanded_table.insert(expanded)
+        expanded_table.create_latest_only()
+        return expanded_table.latest_only_fqn
 
     def _create_target_table(self):
         schema = [
@@ -81,19 +95,14 @@ class TestUpdatesMerger(unittest.TestCase):
 
     def test_merge_diaobject(self):
         self._create_target_table()
-        updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
-        updates_table.create()
-        update_records = _create_test_update_records()
-        expanded = UpdateRecordExpander.expand_updates(update_records, 0)
-        updates_table.insert(expanded)
-        updates_table.create_latest_only()
+        latest_only_fqn = self._build_latest_only()
         table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaObject")
         query = f"SELECT * FROM `{table_fqn}` ORDER BY diaObjectId"
         before = {r.diaObjectId: r for r in self.client.query(query).result()}
         merger = DiaObjectUpdatesMerger()
         merger.merge(
             client=self.client,
-            updates_table_fqn=updates_table.latest_only_table_fqn,
+            updates_table_fqn=latest_only_fqn,
             target_dataset_fqn=self.config.fqn_for(DatasetType.INTERNAL),
         )
         after = {r.diaObjectId: r for r in self.client.query(query).result()}
@@ -152,19 +161,14 @@ class TestUpdatesMerger(unittest.TestCase):
         )
         job.result()
 
-        updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
-        updates_table.create()
-        update_records = _create_test_update_records()
-        expanded = UpdateRecordExpander.expand_updates(update_records, 0)
-        updates_table.insert(expanded)
-        updates_table.create_latest_only()
+        latest_only_fqn = self._build_latest_only()
 
         query = f"SELECT * FROM `{table_fqn}` ORDER BY diaSourceId"
         before = {r.diaSourceId: r for r in self.client.query(query).result()}
         merger = DiaSourceUpdatesMerger()
         merger.merge(
             client=self.client,
-            updates_table_fqn=updates_table.latest_only_table_fqn,
+            updates_table_fqn=latest_only_fqn,
             target_dataset_fqn=self.config.fqn_for(DatasetType.INTERNAL),
         )
         after = {r.diaSourceId: r for r in self.client.query(query).result()}
@@ -198,19 +202,14 @@ class TestUpdatesMerger(unittest.TestCase):
         )
         job.result()
 
-        updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
-        updates_table.create()
-        update_records = _create_test_update_records()
-        expanded = UpdateRecordExpander.expand_updates(update_records, 0)
-        updates_table.insert(expanded)
-        updates_table.create_latest_only()
+        latest_only_fqn = self._build_latest_only()
 
         query = f"SELECT * FROM `{table_fqn}` ORDER BY diaObjectId, visit, detector"
         before = {(r.diaObjectId, r.visit, r.detector): r for r in self.client.query(query).result()}
         merger = DiaForcedSourceUpdatesMerger()
         merger.merge(
             client=self.client,
-            updates_table_fqn=updates_table.latest_only_table_fqn,
+            updates_table_fqn=latest_only_fqn,
             target_dataset_fqn=self.config.fqn_for(DatasetType.INTERNAL),
         )
         after = {(r.diaObjectId, r.visit, r.detector): r for r in self.client.query(query).result()}
@@ -223,15 +222,15 @@ class TestUpdatesMerger(unittest.TestCase):
 
     def test_merge_no_updates(self):
         self._create_target_table()
-        updates_table = UpdatesTable(self.client, self.config.project_id, self.config.datasets.staging)
-        updates_table.create()
-        updates_table.create_latest_only()
+        expanded_table = ExpandedUpdatesTable(self.client, self.config)
+        expanded_table.create()
+        expanded_table.create_latest_only()
         table_fqn = self.config.fqn_for(DatasetType.INTERNAL, "DiaObject")
         before = {r.diaObjectId: r for r in self.client.query(f"SELECT * FROM `{table_fqn}`").result()}
         merger = DiaObjectUpdatesMerger()
         merger.merge(
             client=self.client,
-            updates_table_fqn=updates_table.latest_only_table_fqn,
+            updates_table_fqn=expanded_table.latest_only_fqn,
             target_dataset_fqn=self.config.fqn_for(DatasetType.INTERNAL),
         )
         after = {r.diaObjectId: r for r in self.client.query(f"SELECT * FROM `{table_fqn}`").result()}

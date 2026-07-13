@@ -22,5 +22,4 @@
 from .expanded_update_record import *
 from .updates_merger import *
 from .update_records import *
-from .update_record_expander import *
-from .updates_table import *
+from .expanded_updates_table import *

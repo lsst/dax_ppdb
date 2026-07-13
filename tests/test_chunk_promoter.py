@@ -38,7 +38,7 @@ from lsst.dax.ppdb.bigquery import (
     PpdbReplicaChunkExtended,
 )
 from lsst.dax.ppdb.bigquery.sql_resource import SqlResource
-from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecordExpander, UpdateRecords
+from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import (
     PostgresMixin,
@@ -126,7 +126,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         for chunk in self.ppdb.query_chunks():
             chunk_dir = self.ppdb.config.chunk_dir(chunk.id)
             manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
-            status = ChunkStatus.UPLOADED if manifest.has_table_data else ChunkStatus.STAGED
+            status = ChunkStatus.STAGED if manifest.is_empty_chunk else ChunkStatus.UPLOADED
             gcs_prefix = posixpath.join(self.ppdb.config.object_prefix, str(chunk.id))
             gcs_uri = f"gs://{self.config.bucket_name}/{gcs_prefix}"
 
@@ -187,6 +187,16 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
                     f"apdb_replica_chunk IS NULL"
                 ).result()
 
+    def _load_updates_to_staging(self) -> None:
+        """Load each chunk's updates parquet into the staging ``updates``
+        table, simulating the Dataflow staging of the updates file.
+        """
+        updates_table_fqn = self.config.fqn_for(DatasetType.STAGING, "updates")
+        for chunk in self.ppdb.query_chunks():
+            update_path = self.ppdb.config.chunk_dir(chunk.id) / UpdateRecords.PARQUET_FILE_NAME
+            if update_path.exists():
+                self._load_parquet_to_table(update_path, updates_table_fqn)
+
     def _query_table(self, table_fqn: str) -> list[dict]:
         """Query all rows from a BQ table."""
         rows = list(self.bq_client.query(f"SELECT * FROM `{table_fqn}`").result())
@@ -207,7 +217,8 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             update_path = self.ppdb.config.chunk_dir(chunk.id) / UpdateRecords.PARQUET_FILE_NAME
             if update_path.exists():
                 update_records = UpdateRecords.from_parquet_file(update_path)
-                expanded.extend(UpdateRecordExpander.expand_updates(update_records, chunk.id))
+                for apdb_replica_chunk, record in update_records.records:
+                    expanded.extend(ExpandedUpdateRecord.from_update_record(record, apdb_replica_chunk))
         return expanded
 
     def _verify_promoted_data(
@@ -277,6 +288,9 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         for chunk in data_chunks:
             self._load_chunk_to_staging(chunk)
             self.ppdb.update_chunks([chunk.with_new_status(ChunkStatus.STAGED)], fields={"status"})
+
+        # Stage the raw update records into the staging updates table.
+        self._load_updates_to_staging()
 
         # Snapshot the staged rows per table before promotion.
         staging_rows: dict[str, list[dict]] = {}

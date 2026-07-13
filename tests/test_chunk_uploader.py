@@ -82,12 +82,12 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
             ).run()
 
         # Retrieve the update records file.
-        blobs = list(self.bucket.list_blobs(match_glob="**/update_records.parquet"))
+        blobs = list(self.bucket.list_blobs(match_glob=f"**/{UpdateRecords.PARQUET_FILE_NAME}"))
         update_records_files = [b.name for b in blobs]
         self.assertEqual(
             len(update_records_files),
             1,
-            f"Expected exactly one update_records.parquet file in GCS, found "
+            f"Expected exactly one {UpdateRecords.PARQUET_FILE_NAME} file in GCS, found "
             f"{len(update_records_files)}: {update_records_files}",
         )
 
@@ -126,7 +126,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
 
         self.assertIsNotNone(
             matched_chunk,
-            f"Expected update_records.parquet to be under one of the update chunks, but got "
+            f"Expected {UpdateRecords.PARQUET_FILE_NAME} to be under one of the update chunks, but got "
             f"{update_records_files}",
         )
 

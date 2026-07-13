@@ -77,9 +77,11 @@ class CreateDatasetsTestCase(unittest.TestCase):
             dataset_fqn = self.config.fqn_for(dataset_type)
             self.client.get_dataset(dataset_fqn)
             tables = list(self.client.list_tables(dataset_fqn))
-            if dataset_type != DatasetType.PROMOTION:
-                # The staging, internal, and public datasets should each have
-                # three tables created by default.
+            if dataset_type == DatasetType.STAGING:
+                # Staging has the three DIA tables plus the raw updates table.
+                self.assertEqual(len(tables), 4)
+            elif dataset_type != DatasetType.PROMOTION:
+                # The internal and public datasets each have three tables.
                 self.assertEqual(len(tables), 3)
             else:
                 # Promotion dataset should have no tables created by default.

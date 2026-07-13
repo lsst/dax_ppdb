@@ -781,7 +781,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             The directory containing the chunk's data.
         """
         update_records = UpdateRecords(
-            records=list(apdb_update_records),
+            records=[(replica_chunk.id, record) for record in apdb_update_records],
         )
         parquet_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
         update_records.write_parquet_file(parquet_path)

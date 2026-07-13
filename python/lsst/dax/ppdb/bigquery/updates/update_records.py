@@ -39,45 +39,54 @@ class UpdateRecords:
     Parameters
     ----------
     records
-        List of APDB update records.
+        List of ``(apdb_replica_chunk, record)`` pairs, associating each APDB
+        update record with the replica chunk to which it belongs. The chunk id
+        is stored per row so that files for multiple chunks can be
+        concatenated.
     """
 
-    PARQUET_FILE_NAME: ClassVar[str] = "update_records.parquet"
+    PARQUET_FILE_NAME: ClassVar[str] = "updates.parquet"
     """Name of the Parquet file with the updates."""
 
     _PARQUET_SCHEMA: ClassVar[pyarrow.Schema] = pyarrow.schema(
         [
             pyarrow.field("update_time_ns", pyarrow.int64()),
-            pyarrow.field("update_order", pyarrow.int32()),
+            pyarrow.field("update_order", pyarrow.int64()),
             pyarrow.field("json_payload", pyarrow.string()),
+            pyarrow.field("apdb_replica_chunk", pyarrow.int64()),
         ]
     )
 
-    def __init__(self, records: list[ApdbUpdateRecord]) -> None:
+    def __init__(self, records: list[tuple[int, ApdbUpdateRecord]]) -> None:
         self.records = records
 
     def write_parquet_file(self, path: Path) -> None:
         """Write the update records to a Parquet file.
 
-        Each record is stored with ``update_time_ns``, ``update_order``, and
-        ``json_payload`` columns, where ``json_payload`` contains the
-        serialized record data.
+        Each record is stored with ``update_time_ns``, ``update_order``,
+        ``json_payload``, and ``apdb_replica_chunk`` columns, where
+        ``json_payload`` contains the serialized record data and
+        ``apdb_replica_chunk`` identifies the source replica chunk.
 
         Parameters
         ----------
         path
             Destination Parquet file path.
         """
+        apdb_replica_chunks: list[int] = []
         update_times: list[int] = []
         update_orders: list[int] = []
         json_payloads: list[str] = []
-        for record in self.records:
+
+        for apdb_replica_chunk, record in self.records:
+            apdb_replica_chunks.append(apdb_replica_chunk)
             update_times.append(record.update_time_ns)
             update_orders.append(record.update_order)
             json_payloads.append(record.to_json())
 
         table = pyarrow.table(
             {
+                "apdb_replica_chunk": apdb_replica_chunks,
                 "update_time_ns": update_times,
                 "update_order": update_orders,
                 "json_payload": json_payloads,
@@ -118,13 +127,14 @@ class UpdateRecords:
             The deserialized update records.
         """
         table = parquet.read_table(BytesIO(data), schema=cls._PARQUET_SCHEMA)
-        records: list[ApdbUpdateRecord] = []
-        for update_time_ns, update_order, json_payload in zip(
+        records: list[tuple[int, ApdbUpdateRecord]] = []
+        for update_time_ns, update_order, json_payload, apdb_replica_chunk in zip(
             table.column("update_time_ns").to_pylist(),
             table.column("update_order").to_pylist(),
             table.column("json_payload").to_pylist(),
+            table.column("apdb_replica_chunk").to_pylist(),
             strict=True,
         ):
             record = ApdbUpdateRecord.from_json(update_time_ns, update_order, json_payload)
-            records.append(record)
+            records.append((apdb_replica_chunk, record))
         return cls(records=records)

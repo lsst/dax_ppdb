@@ -230,8 +230,9 @@ class ChunkUploader:
         if not upload_file_list and not manifest.is_empty_chunk:
             raise ChunkUploadError(chunk_id, f"No files found to upload in {chunk_dir} for non-empty chunk")
 
+        gcs_uri = posixpath.join(self.config.bucket_name, gcs_prefix)
         try:
-            # 1) Upload the parquet files to GCS for non-empty chunks.
+            # 1) Upload the parquet files to GCS if there are any.
             if upload_file_list:
                 gcs_names = {
                     file_path: posixpath.join(gcs_prefix, file_path.name) for file_path in upload_file_list
@@ -251,8 +252,7 @@ class ChunkUploader:
                 except* UploadError as eg:
                     raise ChunkUploadError(chunk_id, f"{len(eg.exceptions)} upload(s) failed") from eg
 
-            # 2) Upload manifest, even for empty chunks.
-            gcs_uri = posixpath.join(self.config.bucket_name, gcs_prefix)
+            # 2) Upload the manifest JSON file, even for empty chunks.
             try:
                 self._storage.upload_from_string(
                     posixpath.join(gcs_prefix, manifest_path.name),
@@ -261,13 +261,11 @@ class ChunkUploader:
             except UploadError as e:
                 raise ChunkUploadError(chunk_id, "Manifest upload failed") from e
 
-            # Next two steps are inapplicable to empty chunks.
             if not manifest.is_empty_chunk:
-                # 3) Update the status and GCS URI in the database, marking
-                # chunks with no table data as "staged" since they don't need
-                # to go through the staging process in Dataflow.
-                status = ChunkStatus.UPLOADED if manifest.has_table_data else ChunkStatus.STAGED
-                updated_replica_chunk = replica_chunk.with_new_status(status).with_new_gcs_uri(
+                # 3) Update the database record for the chunk, setting status
+                # to 'uploaded' and populating the GCS URI.
+                new_status = ChunkStatus.UPLOADED
+                updated_replica_chunk = replica_chunk.with_new_status(new_status).with_new_gcs_uri(
                     f"gs://{gcs_uri}"
                 )
                 try:
@@ -275,19 +273,18 @@ class ChunkUploader:
                     _LOG.info(
                         "Updated replica chunk %d in database with status '%s' and GCS URI: %s",
                         chunk_id,
-                        status,
+                        new_status,
                         gcs_uri,
                     )
                 except Exception as e:
                     raise ChunkUploadError(chunk_id, "Failed to update replica chunk in database") from e
 
                 # 4) Publish Pub/Sub event to trigger the Dataflow staging
-                # job for chunks with table data (skipped for updates-only).
-                if manifest.has_table_data:
-                    try:
-                        self._post_to_stage_chunk_topic(gcs_uri, chunk_id)
-                    except Exception as e:
-                        raise ChunkUploadError(chunk_id, "Failed to publish staging message") from e
+                # job for the chunk.
+                try:
+                    self._post_to_stage_chunk_topic(gcs_uri, chunk_id)
+                except Exception as e:
+                    raise ChunkUploadError(chunk_id, "Failed to publish staging message") from e
 
         except ChunkUploadError as err:
             try:

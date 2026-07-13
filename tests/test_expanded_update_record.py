@@ -31,12 +31,12 @@ from lsst.dax.apdb import (
     ApdbWithdrawDiaForcedSourceRecord,
     ApdbWithdrawDiaSourceRecord,
 )
-from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecordExpander, UpdateRecords
+from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecords
 from lsst.dax.ppdb.tests._updates import _create_test_update_records
 
 
-class UpdateRecordExpanderTestCase(unittest.TestCase):
-    """Test UpdateRecordExpander functionality."""
+class ExpandedUpdateRecordTestCase(unittest.TestCase):
+    """Test ExpandedUpdateRecord.from_update_record functionality."""
 
     def setUp(self) -> None:
         """Set up test fixtures."""
@@ -48,11 +48,9 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
         self.replica_chunk_id = 12345
 
     def test_reassign_diasource_to_diaobject(self) -> None:
-        """Test expand_single_record with
+        """Test from_update_record with
         ApdbReassignDiaSourceToDiaObjectRecord.
         """
-        from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecordExpander
-
         record = ApdbReassignDiaSourceToDiaObjectRecord(
             update_time_ns=self.update_time_ns,
             update_order=0,
@@ -63,7 +61,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
             midpointMjdTai=60000.0,
         )
 
-        expanded = UpdateRecordExpander.expand_single_record(record, self.replica_chunk_id)
+        expanded = ExpandedUpdateRecord.from_update_record(record, self.replica_chunk_id)
 
         # Should expand to 1 record (diaObjectId)
         self.assertEqual(len(expanded), 1)
@@ -74,12 +72,12 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
         self.assertEqual(expanded_record.record_id, (100001,))
         self.assertEqual(expanded_record.field_name, "diaObjectId")
         self.assertEqual(expanded_record.field_value, 300001)
-        self.assertEqual(expanded_record.replica_chunk_id, self.replica_chunk_id)
+        self.assertEqual(expanded_record.apdb_replica_chunk, self.replica_chunk_id)
         self.assertEqual(expanded_record.update_order, 0)
         self.assertEqual(expanded_record.update_time_ns, self.update_time_ns)
 
     def test_reassign_diasource_to_ssobject(self) -> None:
-        """Test expand_single_record with
+        """Test from_update_record with
         ApdbReassignDiaSourceToSSObjectRecord.
         """
         record = ApdbReassignDiaSourceToSSObjectRecord(
@@ -93,7 +91,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
             midpointMjdTai=60000.0,
         )
 
-        expanded = UpdateRecordExpander.expand_single_record(record, self.replica_chunk_id)
+        expanded = ExpandedUpdateRecord.from_update_record(record, self.replica_chunk_id)
 
         # Should expand to 2 records (ssObjectId and ssObjectReassocTimeMjdTai)
         self.assertEqual(len(expanded), 2)
@@ -105,7 +103,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
         self.assertEqual(first_record.record_id, (100001,))
         self.assertEqual(first_record.field_name, "ssObjectId")
         self.assertEqual(first_record.field_value, 2001)
-        self.assertEqual(first_record.replica_chunk_id, self.replica_chunk_id)
+        self.assertEqual(first_record.apdb_replica_chunk, self.replica_chunk_id)
         self.assertEqual(first_record.update_order, 0)
         self.assertEqual(first_record.update_time_ns, self.update_time_ns)
 
@@ -117,7 +115,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
         self.assertEqual(second_record.field_value, float(self.update_time.tai.mjd))
 
     def test_withdraw_diasource(self) -> None:
-        """Test expand_single_record with ApdbWithdrawDiaSourceRecord."""
+        """Test from_update_record with ApdbWithdrawDiaSourceRecord."""
         record = ApdbWithdrawDiaSourceRecord(
             update_time_ns=self.update_time_ns,
             update_order=2,
@@ -128,7 +126,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
             midpointMjdTai=60000.0,
         )
 
-        expanded = UpdateRecordExpander.expand_single_record(record, self.replica_chunk_id)
+        expanded = ExpandedUpdateRecord.from_update_record(record, self.replica_chunk_id)
 
         # Should expand to 1 record (timeWithdrawnMjdTai)
         self.assertEqual(len(expanded), 1)
@@ -140,7 +138,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
         self.assertEqual(expanded_record.field_value, self.update_time.tai.mjd)
 
     def test_update_n_dia_sources(self) -> None:
-        """Test expand_single_record with ApdbUpdateNDiaSourcesRecord."""
+        """Test from_update_record with ApdbUpdateNDiaSourcesRecord."""
         record = ApdbUpdateNDiaSourcesRecord(
             update_time_ns=self.update_time_ns,
             update_order=5,
@@ -150,7 +148,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
             dec=-30.0,
         )
 
-        expanded = UpdateRecordExpander.expand_single_record(record, self.replica_chunk_id)
+        expanded = ExpandedUpdateRecord.from_update_record(record, self.replica_chunk_id)
 
         # Should expand to 1 record (nDiaSources)
         self.assertEqual(len(expanded), 1)
@@ -162,7 +160,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
         self.assertEqual(expanded_record.field_value, 10)
 
     def test_close_diaobject_validity(self) -> None:
-        """Test expand_single_record with ApdbCloseDiaObjectValidityRecord."""
+        """Test from_update_record with ApdbCloseDiaObjectValidityRecord."""
         record = ApdbCloseDiaObjectValidityRecord(
             update_time_ns=self.update_time_ns,
             update_order=4,
@@ -173,7 +171,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
             dec=-30.0,
         )
 
-        expanded = UpdateRecordExpander.expand_single_record(record, self.replica_chunk_id)
+        expanded = ExpandedUpdateRecord.from_update_record(record, self.replica_chunk_id)
 
         # Should expand to 2 records (validityEndMjdTai and nDiaSources)
         self.assertEqual(len(expanded), 2)
@@ -194,7 +192,7 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
         self.assertEqual(second_record.field_value, 5)
 
     def test_withdraw_diaforcedsource(self) -> None:
-        """Test expand_single_record with ApdbWithdrawDiaForcedSourceRecord."""
+        """Test from_update_record with ApdbWithdrawDiaForcedSourceRecord."""
         record = ApdbWithdrawDiaForcedSourceRecord(
             update_time_ns=self.update_time_ns,
             update_order=2,
@@ -207,30 +205,32 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
             midpointMjdTai=60000.0,
         )
 
-        expanded = UpdateRecordExpander.expand_single_record(record, self.replica_chunk_id)
+        expanded = ExpandedUpdateRecord.from_update_record(record, self.replica_chunk_id)
 
         # Should expand to 1 record (timeWithdrawnMjdTai)
         self.assertEqual(len(expanded), 1)
 
         expanded_record = expanded[0]
         self.assertEqual(expanded_record.table_name, "DiaForcedSource")
-        # The record ID should be a list of the composite key components
-        # [diaObjectId, visit, detector] for BigQuery compatibility.
+        # The record ID should be the composite key components
+        # (diaObjectId, visit, detector) for BigQuery compatibility.
         expected_record_id = (200001, 12345, 42)
         self.assertEqual(expanded_record.record_id, expected_record_id)
         self.assertEqual(expanded_record.field_name, "timeWithdrawnMjdTai")
         self.assertEqual(expanded_record.field_value, self.update_time.tai.mjd)
 
     def test_update_records_all(self) -> None:
-        """Test the full expand_updates method with multiple record types."""
-        update_records = _create_test_update_records()
-        expanded = UpdateRecordExpander.expand_updates(update_records, self.replica_chunk_id)
+        """Test expanding a full set of update records of multiple types."""
+        update_records = _create_test_update_records(self.replica_chunk_id)
+        expanded: list[ExpandedUpdateRecord] = []
+        for apdb_replica_chunk, record in update_records.records:
+            expanded.extend(ExpandedUpdateRecord.from_update_record(record, apdb_replica_chunk))
 
         self.assertEqual(len(expanded), 10)
 
-        # Verify that all expanded records have correct the replica_chunk_id.
+        # Verify that all expanded records have the correct apdb_replica_chunk.
         for record in expanded:
-            self.assertEqual(record.replica_chunk_id, self.replica_chunk_id)
+            self.assertEqual(record.apdb_replica_chunk, self.replica_chunk_id)
 
         test_update_time_ns = 1640995200000000000
         test_mjd_tai = 59580.0
@@ -277,10 +277,11 @@ class UpdateRecordExpanderTestCase(unittest.TestCase):
                 self.assertEqual(expanded[i].update_time_ns, update_time_ns)
 
     def test_empty_records(self) -> None:
-        """Test expand_updates with empty records list."""
+        """Test that expanding an empty set of records yields nothing."""
         empty_update_records = UpdateRecords(records=[])
-
-        expanded = UpdateRecordExpander.expand_updates(empty_update_records, self.replica_chunk_id)
+        expanded: list[ExpandedUpdateRecord] = []
+        for apdb_replica_chunk, record in empty_update_records.records:
+            expanded.extend(ExpandedUpdateRecord.from_update_record(record, apdb_replica_chunk))
         self.assertEqual(len(expanded), 0)
 
 

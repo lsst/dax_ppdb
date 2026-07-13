@@ -86,14 +86,15 @@ class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
 
         self.assertEqual(len(update_records.records), 3, "Unexpected number of update records deserialized")
 
-        for record in update_records.records:
+        for apdb_replica_chunk, record in update_records.records:
+            self.assertEqual(apdb_replica_chunk, 1614600000)
             self.assertIsInstance(
                 record,
                 apdbUpdateRecord.ApdbUpdateRecord,
                 "Deserialized record is not an instance of ApdbUpdateRecord",
             )
 
-        update_record = update_records.records[0]
+        update_record = update_records.records[0][1]
         self.assertIsInstance(
             update_record,
             apdbUpdateRecord.ApdbReassignDiaSourceToSSObjectRecord,
@@ -141,7 +142,7 @@ class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
             "Unexpected dec in deserialized ApdbReassignDiaSourceToSSObjectRecord, should not be 0.0",
         )
 
-        update_record = update_records.records[1]
+        update_record = update_records.records[1][1]
         self.assertIsInstance(
             update_record,
             apdbUpdateRecord.ApdbCloseDiaObjectValidityRecord,
@@ -182,7 +183,7 @@ class UpdateRecordsTestCase(PostgresMixin, unittest.TestCase):
             "Unexpected nDiaSources in deserialized ApdbCloseDiaObjectValidityRecord, expected None",
         )
 
-        update_record = update_records.records[2]
+        update_record = update_records.records[2][1]
         self.assertIsInstance(
             update_record,
             apdbUpdateRecord.ApdbWithdrawDiaForcedSourceRecord,

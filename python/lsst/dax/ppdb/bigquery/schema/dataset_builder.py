@@ -217,6 +217,18 @@ class StagingDatasetBuilder(BaseDatasetBuilder):
             )
             _update_schema_fields(table, apdb_replica_chunk_field)
 
+        # Add the table which will hold the raw update records.
+        updates_table = bigquery.Table(
+            self._config.fqn_for(self.dataset_type, "updates"),
+            schema=[
+                bigquery.SchemaField("apdb_replica_chunk", "INT64", mode="REQUIRED"),
+                bigquery.SchemaField("update_time_ns", "INT64", mode="REQUIRED"),
+                bigquery.SchemaField("update_order", "INT64", mode="REQUIRED"),
+                bigquery.SchemaField("json_payload", "STRING", mode="REQUIRED"),
+            ],
+        )
+        tables.append(updates_table)
+
         return tables
 
 

@@ -33,7 +33,7 @@ from lsst.dax.apdb import (
 from ..bigquery.updates import UpdateRecords
 
 
-def _create_test_update_records() -> UpdateRecords:
+def _create_test_update_records(apdb_replica_chunk: int = 0) -> UpdateRecords:
     """Create test UpdateRecords with sample ApdbUpdateRecord instances."""
     records: list[ApdbUpdateRecord] = []
 
@@ -149,5 +149,5 @@ def _create_test_update_records() -> UpdateRecords:
     )
 
     return UpdateRecords(
-        records=records,
+        records=[(apdb_replica_chunk, record) for record in records],
     )

@@ -174,13 +174,6 @@ class Manifest(BaseModel):
         return len(self.files) == 0
 
     @property
-    def has_table_data(self) -> bool:
-        """`True` if the chunk contains any parquet files with table data,
-        `False` otherwise (`bool`).
-        """
-        return any(name != UpdateRecords.PARQUET_FILE_NAME for name in self.files)
-
-    @property
     def has_update_records(self) -> bool:
         """`True` if the chunk contains the update records parquet file,
         `False` otherwise (`bool`).

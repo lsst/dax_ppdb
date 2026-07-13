@@ -41,6 +41,7 @@ from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .query_runner import QueryRunner
 from .sql_resource import SqlResource
 from .table_refs import TableRefs
+from .updates.expanded_updates_table import ExpandedUpdatesTable
 from .updates.updates_manager import UpdatesManager
 
 
@@ -72,6 +73,8 @@ class ChunkPromoter:
         ApdbTables.DiaSource.value,
         ApdbTables.DiaForcedSource.value,
     )
+
+    _UPDATES_TABLE_NAME = "updates"
 
     def __init__(
         self,
@@ -322,7 +325,9 @@ class ChunkPromoter:
             ]
         )
 
-        for table_name in self.table_names:
+        # Include the updates table in the list of staging tables from which
+        # to delete the promoted chunks.
+        for table_name in (*self.table_names, self._UPDATES_TABLE_NAME):
             staging_table_fqn = self.table_refs.staging(table_name)
             try:
                 sql = f"DELETE FROM `{staging_table_fqn}` WHERE apdb_replica_chunk IN UNNEST(@ids)"
@@ -343,7 +348,11 @@ class ChunkPromoter:
     def _cleanup(self) -> None:
         """Cleanup state after executing the promotion."""
         # Delete the promotion tables.
-        for table_name in self.table_names:
+        for table_name in (
+            *self.table_names,
+            ExpandedUpdatesTable.EXPANDED_UPDATES_NAME,
+            ExpandedUpdatesTable.LATEST_ONLY_NAME,
+        ):
             promotion_ref = self.table_refs.promotion(table_name)
             self._bq_client.delete_table(promotion_ref, not_found_ok=True)
             logging.debug("Dropped %s (if it existed)", promotion_ref)
