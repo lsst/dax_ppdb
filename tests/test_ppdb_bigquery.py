@@ -27,6 +27,7 @@ import sqlalchemy
 
 from lsst.dax.ppdb import Ppdb
 from lsst.dax.ppdb.bigquery import ChunkStatus, PpdbBigQuery, PpdbReplicaChunkExtended
+from lsst.dax.ppdb.bigquery.ppdb_bigquery import UpdatableField
 from lsst.dax.ppdb.tests import PpdbTest
 from lsst.dax.ppdb.tests._bigquery import PostgresMixin, SqliteMixin
 
@@ -108,7 +109,7 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         """Test that update_chunks updates an existing chunk."""
         ppdb = self._make_ppdb()
         ppdb.insert_chunks([_make_chunk(1, ChunkStatus.EXPORTED)])
-        ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields={"status"})
+        ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields={UpdatableField.STATUS})
 
         result = ppdb.query_chunks()
         self.assertEqual(len(result), 1)
@@ -120,7 +121,7 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         chunk = _make_chunk(1, ChunkStatus.EXPORTED)
         ppdb.insert_chunks([chunk])
         updated = chunk.with_new_gcs_uri("gs://bucket/path")
-        ppdb.update_chunks([updated], fields={"gcs_uri"})
+        ppdb.update_chunks([updated], fields={UpdatableField.GCS_URI})
 
         result = ppdb.query_chunks()
         self.assertEqual(len(result), 1)
@@ -134,7 +135,7 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         ppdb.insert_chunks([chunk])
 
         updated = chunk.with_new_status(ChunkStatus.STAGED).with_new_gcs_uri("gs://bucket/path")
-        ppdb.update_chunks([updated], fields={"status"})
+        ppdb.update_chunks([updated], fields={UpdatableField.STATUS})
 
         result = ppdb.query_chunks()
         self.assertEqual(result[0].status, ChunkStatus.STAGED)
@@ -144,19 +145,13 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         """Test that update_chunks raises on empty chunks list."""
         ppdb = self._make_ppdb()
         with self.assertRaises(ValueError):
-            ppdb.update_chunks([], fields={"status"})
+            ppdb.update_chunks([], fields={UpdatableField.STATUS})
 
     def test_update_chunks_empty_fields_raises(self) -> None:
         """Test that update_chunks raises on empty fields set."""
         ppdb = self._make_ppdb()
         with self.assertRaises(ValueError):
             ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields=set())
-
-    def test_update_chunks_invalid_fields_raises(self) -> None:
-        """Test that update_chunks rejects an invalid field name."""
-        ppdb = self._make_ppdb()
-        with self.assertRaises(ValueError):
-            ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields={"bad_field"})
 
     def test_insert_chunks_duplicate_raises(self) -> None:
         """Test that insert_chunks raises on duplicate chunk ID."""
@@ -169,7 +164,7 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         """Test that update_chunks raises on a non-existent chunk ID."""
         ppdb = self._make_ppdb()
         with self.assertRaises(LookupError):
-            ppdb.update_chunks([_make_chunk(99, ChunkStatus.STAGED)], fields={"status"})
+            ppdb.update_chunks([_make_chunk(99, ChunkStatus.STAGED)], fields={UpdatableField.STATUS})
 
     def test_query_chunks_with_filter(self) -> None:
         """Test query_chunks with a WHERE clause."""

@@ -37,6 +37,7 @@ from lsst.dax.ppdb.bigquery import (
     PpdbBigQuery,
     PpdbReplicaChunkExtended,
 )
+from lsst.dax.ppdb.bigquery.ppdb_bigquery import UpdatableField
 from lsst.dax.ppdb.bigquery.sql_resource import SqlResource
 from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecords
 from lsst.dax.ppdb.replicator import Replicator
@@ -126,7 +127,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         for chunk in self.ppdb.query_chunks():
             chunk_dir = self.ppdb.config.chunk_dir(chunk.id)
             manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
-            status = ChunkStatus.STAGED if manifest.is_empty_chunk else ChunkStatus.UPLOADED
+            status = ChunkStatus.SKIPPED if manifest.is_empty_chunk else ChunkStatus.UPLOADED
             gcs_prefix = posixpath.join(self.ppdb.config.object_prefix, str(chunk.id))
             gcs_uri = f"gs://{self.config.bucket_name}/{gcs_prefix}"
 
@@ -136,7 +137,8 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
                 blob.upload_from_filename(str(update_records_path))
 
             self.ppdb.update_chunks(
-                [chunk.with_new_status(status).with_new_gcs_uri(gcs_uri)], fields={"status", "gcs_uri"}
+                [chunk.with_new_status(status).with_new_gcs_uri(gcs_uri)],
+                fields={UpdatableField.STATUS, UpdatableField.GCS_URI},
             )
 
     def _load_parquet_to_table(self, parquet_path: Path, table_fqn: str) -> None:

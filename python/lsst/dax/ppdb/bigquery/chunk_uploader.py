@@ -35,7 +35,7 @@ from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
 from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
 from .manifest import Manifest
-from .ppdb_bigquery import PpdbBigQuery
+from .ppdb_bigquery import PpdbBigQuery, UpdatableField
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 
@@ -269,7 +269,9 @@ class ChunkUploader:
                     f"gs://{gcs_uri}"
                 )
                 try:
-                    self._ppdb.update_chunks([updated_replica_chunk], fields={"status", "gcs_uri"})
+                    self._ppdb.update_chunks(
+                        [updated_replica_chunk], fields={UpdatableField.STATUS, UpdatableField.GCS_URI}
+                    )
                     _LOG.info(
                         "Updated replica chunk %d in database with status '%s' and GCS URI: %s",
                         chunk_id,

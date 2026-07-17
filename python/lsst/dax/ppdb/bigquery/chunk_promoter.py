@@ -35,7 +35,7 @@ from google.cloud import bigquery
 
 from lsst.dax.apdb import ApdbTables
 
-from .ppdb_bigquery import PpdbBigQuery
+from .ppdb_bigquery import PpdbBigQuery, UpdatableField
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .query_runner import QueryRunner
@@ -343,7 +343,7 @@ class ChunkPromoter:
     def _mark_chunks_promoted(self) -> None:
         """Mark the replica chunks as promoted in the database."""
         promoted = [chunk.with_new_status(ChunkStatus.PROMOTED) for chunk in self.promotable_chunks]
-        self._ppdb.update_chunks(promoted, fields={"status"})
+        self._ppdb.update_chunks(promoted, fields={UpdatableField.STATUS})
 
     def _cleanup(self) -> None:
         """Cleanup state after executing the promotion."""
