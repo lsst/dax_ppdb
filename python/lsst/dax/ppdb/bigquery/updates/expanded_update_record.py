@@ -27,7 +27,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from lsst.dax.apdb.apdbUpdateRecord import ApdbUpdateRecord
+from lsst.dax.apdb import ApdbUpdateRecord
 
 
 class ExpandedUpdateRecord(BaseModel):
@@ -97,7 +97,7 @@ class ExpandedUpdateRecord(BaseModel):
         `list` [ `ExpandedUpdateRecord` ]
             One expanded record per field being updated.
         """
-        table_name = update_record.apdb_table.name
+        table_name = update_record.apdb_table.value
         record_id_values = tuple(value for _, value in update_record.record_id())
         return [
             cls(

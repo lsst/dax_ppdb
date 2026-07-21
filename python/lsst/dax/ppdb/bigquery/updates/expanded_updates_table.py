@@ -35,7 +35,7 @@ from .expanded_update_record import ExpandedUpdateRecord
 class ExpandedUpdatesTable:
     """Manage the BigQuery tables holding expanded update records.
 
-    This manages two related tables in the promotion dataset: the
+    This class manages two related tables in the promotion dataset: the
     ``expanded_updates`` table, which contains one row per updated field, and
     the ``latest_only`` table, which is derived from it and contains only the
     latest update for each field.
@@ -48,8 +48,8 @@ class ExpandedUpdatesTable:
         Configuration for the PPDB BigQuery interface.
     """
 
-    EXPANDED_UPDATES_NAME: str = "expanded_updates"
-    LATEST_ONLY_NAME: str = "latest_only"
+    _EXPANDED_UPDATES_NAME: str = "expanded_updates"
+    _LATEST_ONLY_NAME: str = "latest_only"
 
     def __init__(
         self,
@@ -57,8 +57,8 @@ class ExpandedUpdatesTable:
         config: PpdbBigQueryConfig,
     ) -> None:
         self._client: bigquery.Client = client
-        self._expanded_updates_fqn = config.fqn_for(DatasetType.PROMOTION, self.EXPANDED_UPDATES_NAME)
-        self._latest_only_fqn = config.fqn_for(DatasetType.PROMOTION, self.LATEST_ONLY_NAME)
+        self._expanded_updates_fqn = config.fqn_for(DatasetType.PROMOTION, self._EXPANDED_UPDATES_NAME)
+        self._latest_only_fqn = config.fqn_for(DatasetType.PROMOTION, self._LATEST_ONLY_NAME)
 
     @property
     def expanded_updates_fqn(self) -> str:
@@ -202,3 +202,8 @@ class ExpandedUpdatesTable:
 
         job = self._client.query(query)
         job.result()
+
+    def cleanup(self) -> None:
+        """Delete the expanded updates and latest-only tables."""
+        for table_fqn in (self._expanded_updates_fqn, self._latest_only_fqn):
+            self._client.delete_table(table_fqn, not_found_ok=True)

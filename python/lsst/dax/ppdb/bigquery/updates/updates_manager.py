@@ -269,3 +269,7 @@ class UpdatesManager:
             updated,
             deleted,
         )
+
+    def cleanup(self) -> None:
+        """Perform any necessary cleanup after applying updates."""
+        self._expanded_updates_table.cleanup()

@@ -41,7 +41,6 @@ from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .query_runner import QueryRunner
 from .sql_resource import SqlResource
 from .table_refs import TableRefs
-from .updates.expanded_updates_table import ExpandedUpdatesTable
 from .updates.updates_manager import UpdatesManager
 
 
@@ -82,16 +81,14 @@ class ChunkPromoter:
         table_names: Sequence[str] | None = None,
     ):
         self._ppdb = ppdb
-
-        self._runner = QueryRunner(self.config.project_id, self.config.datasets.internal)
-
         self._table_names = tuple(table_names) if table_names is not None else self._DEFAULT_TABLE_NAMES
         if len(self._table_names) == 0:
             raise ChunkPromotionError("table_names must not be empty")
 
-        self._table_refs = TableRefs(self.config)
-
         self._bq_client = bigquery.Client(project=self.config.project_id)
+        self._runner = QueryRunner(self.config.project_id, self.config.datasets.internal)
+        self._table_refs = TableRefs(self.config)
+        self._updates_manager = UpdatesManager(self.config)
 
         self._promotable_chunks: list[PpdbReplicaChunkExtended] = []
 
@@ -153,7 +150,7 @@ class ChunkPromoter:
             self._fill_diaobject_validity_end()
 
             # Apply record updates to the temp tables.
-            self._apply_record_updates()
+            self._updates_manager.apply_updates(self.promotable_chunks)
 
             # Promote the temp tables to prod using atomic table swaps.
             self._copy_promotion_to_internal()
@@ -228,15 +225,6 @@ class ChunkPromoter:
             """
             logging.debug("SQL for inserting staged rows into %s: %s", promotion_table_fqn, sql)
             self._runner.run_job("insert_staged_to_promotion", sql, job_config=job_cfg)
-
-    def _apply_record_updates(self) -> None:
-        """Apply record updates to the promotion tables."""
-        updates_manager = UpdatesManager(config=self._ppdb.config)
-
-        # Apply the updates for the chunks. The manager will skip the process
-        # entirely if there are no updates, so we don't need to check that
-        # here.
-        updates_manager.apply_updates(self.promotable_chunks)
 
     def _fill_diaobject_validity_end(self) -> None:
         """Fill null ``validityEndMjdTai`` values for promoted DiaObject
@@ -348,14 +336,13 @@ class ChunkPromoter:
     def _cleanup(self) -> None:
         """Cleanup state after executing the promotion."""
         # Delete the promotion tables.
-        for table_name in (
-            *self.table_names,
-            ExpandedUpdatesTable.EXPANDED_UPDATES_NAME,
-            ExpandedUpdatesTable.LATEST_ONLY_NAME,
-        ):
+        for table_name in self.table_names:
             promotion_ref = self.table_refs.promotion(table_name)
             self._bq_client.delete_table(promotion_ref, not_found_ok=True)
             logging.debug("Dropped %s (if it existed)", promotion_ref)
+
+        # Cleanup the updates manager.
+        self._updates_manager.cleanup()
 
         # Reset the chunk list.
         self._promotable_chunks = []
