@@ -293,8 +293,15 @@ class StagingDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
 
         tables = builder.build_tables()
 
-        self.assertEqual({table.table_id for table in tables}, self.EXPECTED_TABLES)
+        self.assertEqual(
+            {table.table_id for table in tables},
+            self.EXPECTED_TABLES | {"updates"},
+        )
         for table in tables:
+            if table.table_id == "updates":
+                # The raw updates table is not one of the DIA tables that the
+                # builder adds apdb_replica_chunk to.
+                continue
             chunk_field = next(field for field in table.schema if field.name == "apdb_replica_chunk")
             self.assertEqual(chunk_field.field_type, "INT64")
             self.assertEqual(chunk_field.mode, "REQUIRED")
@@ -719,7 +726,8 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
 
         self.assertEqual(len(internal_tables), 3)
         self.assertEqual(len(public_tables), 3)
-        self.assertEqual(len(staging_tables), 3)
+        # Staging has the three DIA tables plus the raw updates table.
+        self.assertEqual(len(staging_tables), 4)
 
         # Public dataset should have a properly structured DiaObject table.
         public_dia_object = self.client.get_table(

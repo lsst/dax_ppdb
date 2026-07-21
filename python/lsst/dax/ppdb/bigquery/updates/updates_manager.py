@@ -24,23 +24,22 @@ from __future__ import annotations
 __all__ = ["UpdatesManager", "UpdatesManagerError"]
 
 import logging
-import posixpath
-import urllib
 from collections.abc import Sequence
 
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
+
+from lsst.dax.apdb.apdbUpdateRecord import ApdbUpdateRecord
 
 from ..ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
 from ..ppdb_replica_chunk_extended import PpdbReplicaChunkExtended
-from .update_record_expander import UpdateRecordExpander
-from .update_records import UpdateRecords
+from .expanded_update_record import ExpandedUpdateRecord
+from .expanded_updates_table import ExpandedUpdatesTable
 from .updates_merger import (
     DiaForcedSourceUpdatesMerger,
     DiaObjectUpdatesMerger,
     DiaSourceUpdatesMerger,
     UpdatesMerger,
 )
-from .updates_table import UpdatesTable
 
 _LOG = logging.getLogger(__name__)
 
@@ -51,9 +50,13 @@ class UpdatesManagerError(Exception):
 
 class UpdatesManager:
     """Class responsible for managing the process of applying updates to the
-    PPDB database, including expanding them into a generic format from JSON and
-    inserting into the updates table, selecting only the latest updates to a
-    new table, and, finally, merging the updates into target BigQuery tables.
+    PPDB database.
+
+    Raw update records are staged into the ``updates`` table in the staging
+    dataset by the Dataflow staging job. This manager reads those raw records,
+    expands them into field-level rows in the ``expanded_updates`` table in the
+    promotion dataset, selects only the latest update for each field into the
+    ``latest_only`` table, and finally merges those into the target tables.
 
     Parameters
     ----------
@@ -74,9 +77,7 @@ class UpdatesManager:
         target_dataset_fqn: str | None = None,
         mergers: Sequence[UpdatesMerger] | None = None,
     ) -> None:
-        # Get some necessary setup information from the config.
-        project_id = config.project_id
-        bucket_name = config.bucket_name
+        self._updates_table_fqn = config.fqn_for(DatasetType.STAGING, "updates")
 
         # Set the merger instances for handling each target table, falling back
         # to a default set of mergers if none were provided.
@@ -89,17 +90,11 @@ class UpdatesManager:
                 DiaForcedSourceUpdatesMerger(),
             )
 
-        # Setup the updates table interface.
         self._bq_client = bigquery.Client()
-        self._updates_table = UpdatesTable(
-            self._bq_client,
-            project_id,
-            config.datasets.promotion,
-        )
 
-        # Setup the GCS client and bucket.
-        self._gcs_client = storage.Client()
-        self._bucket = self._gcs_client.bucket(bucket_name)
+        # This is the table that will be used to store the expanded update
+        # records and generate the latest only updates table.
+        self._expanded_updates_table = ExpandedUpdatesTable(self._bq_client, config)
 
         # Set the target dataset FQN for the mergers to use.
         if target_dataset_fqn is None:
@@ -135,97 +130,88 @@ class UpdatesManager:
         total_update_count = sum(chunk.update_count for chunk in update_chunks)
         _LOG.info("Processing %d update records from %d chunks", total_update_count, len(update_chunks))
 
-        # Recreate the updates table.
+        # Read the raw update records from the staging table and expand them
+        # into the promotion expanded updates table.
         try:
-            self._updates_table.recreate()
+            self._build_expanded_updates_table(update_chunks)
         except Exception as e:
-            raise UpdatesManagerError("Failed to recreate updates table") from e
-
-        # Build the table with the expanded update records.
-        try:
-            self._build_updates_table(update_chunks)
-        except Exception as e:
-            raise UpdatesManagerError("Failed to build updates table") from e
+            raise UpdatesManagerError("Failed to build expanded updates table") from e
 
         # Select only the latest update records into a new table.
         try:
-            self._updates_table.create_latest_only()
+            self._expanded_updates_table.create_latest_only()
         except Exception as e:
             raise UpdatesManagerError("Failed to create latest-only updates table") from e
 
         # Merge the latest-only updates into the target tables.
         try:
-            self._merge_updates(self._updates_table.latest_only_table_fqn)
+            self._merge_updates(self._expanded_updates_table.latest_only_fqn)
         except Exception as e:
             raise UpdatesManagerError("Failed to merge updates into target tables") from e
 
-    # TODO: This method will be removed by DM-55338, as populating the updates
-    # table will be handled by the staging process.
-    def _build_updates_table(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
-        """Build the updates table by expanding the update records from the
-        replica chunks and inserting them.
+    def _build_expanded_updates_table(self, chunks: Sequence[PpdbReplicaChunkExtended]) -> None:
+        """Read raw update records for the given chunks from the staging
+        updates table, expand them, and load them into the promotion expanded
+        updates table.
 
         Parameters
         ----------
         chunks
             Replica chunks with update_count > 0.
         """
-        for chunk in chunks:
-            # A null value for the GCS URI should not be possible under
-            # normal circumstances but check anyways before proceeding so that
-            # strange errors are not encountered later.
-            if chunk.gcs_uri is None:
-                raise UpdatesManagerError(f"Replica chunk {chunk.id} does not have a GCS URI")
+        chunk_ids = [chunk.id for chunk in chunks]
+        raw_records = self._read_staged_updates(chunk_ids)
 
-            try:
-                # Parse the GCS URI.
-                parsed_uri = urllib.parse.urlparse(chunk.gcs_uri)
+        expanded_records: list[ExpandedUpdateRecord] = []
+        for apdb_replica_chunk, record in raw_records:
+            expanded_records.extend(ExpandedUpdateRecord.from_update_record(record, apdb_replica_chunk))
 
-                # Create the GCS bucket.
-                bucket_name = parsed_uri.netloc
-                bucket = self._gcs_client.bucket(bucket_name)
+        _LOG.info(
+            "Expanded %d raw update records into %d field-level records",
+            len(raw_records),
+            len(expanded_records),
+        )
 
-                # Get the object prefix from the URI path, stripping any
-                # leading slash.
-                chunk_prefix = parsed_uri.path.lstrip("/")
+        # Create the new expanded updates table, dropping any existing one.
+        self._expanded_updates_table.create(drop_if_exists=True)
 
-                if chunk_prefix == "":
-                    raise ValueError(f"GCS URI '{chunk.gcs_uri}' does not contain an object prefix")
+        # Insert the expanded records into the new table.
+        self._expanded_updates_table.insert(expanded_records)
 
-            except Exception as e:
-                raise UpdatesManagerError(
-                    f"Failed to parse GCS URI '{chunk.gcs_uri}' for replica chunk {chunk.id}"
-                ) from e
+    def _read_staged_updates(self, apdb_replica_chunks: Sequence[int]) -> list[tuple[int, ApdbUpdateRecord]]:
+        """Read staged update records for the given replica chunks.
 
-            # Download the parquet file containing the update records from the
-            # bucket.
-            try:
-                object_name = posixpath.join(chunk_prefix, UpdateRecords.PARQUET_FILE_NAME)
-                if not bucket.blob(object_name).exists():
-                    raise ValueError(f"GCS object '{object_name}' does not exist in bucket '{bucket_name}'")
-                blob = bucket.blob(object_name)
-                content = blob.download_as_bytes()
-            except Exception as e:
-                raise UpdatesManagerError(
-                    f"Failed to download update records for replica chunk {chunk.id} "
-                    f"from GCS URI '{chunk.gcs_uri}'"
-                ) from e
+        Parameters
+        ----------
+        apdb_replica_chunks
+            Replica chunk IDs whose update records should be read.
 
-            # Expand the update records into the appropriate format and insert
-            # them into the updates table.
-            try:
-                update_records = UpdateRecords.from_parquet_bytes(content)
-                if not update_records:
-                    raise ValueError(
-                        f"Empty file downloaded from GCS URI '{chunk.gcs_uri}' for replica chunk {chunk.id}"
-                    )
-                expanded_update_records = UpdateRecordExpander.expand_updates(update_records, chunk.id)
-                self._updates_table.insert(expanded_update_records)
-            except Exception as e:
-                raise UpdatesManagerError(
-                    f"Failed to build updates table for replica chunk {chunk.id} "
-                    f"from GCS URI '{chunk.gcs_uri}'"
-                ) from e
+        Returns
+        -------
+        `list` [ `tuple` [ `int`, `ApdbUpdateRecord` ] ]
+            Pairs of ``(apdb_replica_chunk, record)`` for each row, with the
+            record reconstructed from its stored JSON payload.
+        """
+        if not apdb_replica_chunks:
+            return []
+
+        query = f"""
+        SELECT update_time_ns, update_order, json_payload, apdb_replica_chunk
+        FROM `{self._updates_table_fqn}`
+        WHERE apdb_replica_chunk IN UNNEST(@ids)
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[bigquery.ArrayQueryParameter("ids", "INT64", list(apdb_replica_chunks))]
+        )
+        rows = self._bq_client.query(query, job_config=job_config).result()
+
+        records: list[tuple[int, ApdbUpdateRecord]] = []
+        for row in rows:
+            record = ApdbUpdateRecord.from_json(
+                row["update_time_ns"], row["update_order"], row["json_payload"]
+            )
+            records.append((row["apdb_replica_chunk"], record))
+        return records
 
     def _merge_updates(self, target_table_fqn: str) -> None:
         """Merge the latest-only updates into the target tables using the
@@ -253,7 +239,7 @@ class UpdatesManager:
             except Exception as e:
                 raise UpdatesManagerError(f"Failed to merge updates using {type(merger).__name__}") from e
 
-    def _log_job_stats(self, job: bigquery.job.QueryJob, target_table_fqn: str) -> None:
+    def _log_job_stats(self, job: bigquery.QueryJob, target_table_fqn: str) -> None:
         """Log relevant statistics for the merge operation from a BigQuery job.
 
         Parameters
@@ -283,3 +269,7 @@ class UpdatesManager:
             updated,
             deleted,
         )
+
+    def cleanup(self) -> None:
+        """Perform any necessary cleanup after applying updates."""
+        self._expanded_updates_table.cleanup()

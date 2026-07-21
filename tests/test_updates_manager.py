@@ -39,6 +39,7 @@ from lsst.dax.ppdb.bigquery import (
     PpdbBigQueryConfig,
 )
 from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
+from lsst.dax.ppdb.bigquery.updates import UpdateRecords
 from lsst.dax.ppdb.bigquery.updates.updates_manager import UpdatesManager
 from lsst.dax.ppdb.tests._bigquery import (
     PostgresMixin,
@@ -208,7 +209,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             objects=DummyApdbTableData(),
             sources=DummyApdbTableData(),
             forced_sources=DummyApdbTableData(),
-            update_records=update_records.records,
+            update_records=[record for _, record in update_records.records],
             update=True,
         )
 
@@ -220,6 +221,21 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
                 exit_on_empty=True,
                 exit_on_error=True,
             ).run()
+
+        # Stage the raw update records into the staging updates table,
+        # simulating the Dataflow staging of the updates file.
+        staging_client = bigquery.Client()
+        updates_parquet = self.ppdb.config.chunk_dir(test_replica_chunk_id) / UpdateRecords.PARQUET_FILE_NAME
+        with open(updates_parquet, "rb") as f:
+            load_job = staging_client.load_table_from_file(
+                f,
+                self.config.fqn_for(DatasetType.STAGING, "updates"),
+                job_config=bigquery.LoadJobConfig(
+                    source_format=bigquery.SourceFormat.PARQUET,
+                    write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+                ),
+            )
+            load_job.result()
 
         # Apply the updates to the target tables using the UpdatesManager.
         updates_manager = UpdatesManager(self.ppdb.config)

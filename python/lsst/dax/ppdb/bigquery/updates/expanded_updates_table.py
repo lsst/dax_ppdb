@@ -21,58 +21,54 @@
 
 from __future__ import annotations
 
-__all__ = ["UpdatesTable"]
+__all__ = ["ExpandedUpdatesTable"]
 
 from collections.abc import Iterable
 from typing import Any
 
 from google.cloud import bigquery
 
+from ..ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
 from .expanded_update_record import ExpandedUpdateRecord
 
 
-class UpdatesTable:
-    """Manage the BigQuery table used for inserting expanded update records
-    which contain one update per row.
+class ExpandedUpdatesTable:
+    """Manage the BigQuery tables holding expanded update records.
+
+    This class manages two related tables in the promotion dataset: the
+    ``expanded_updates`` table, which contains one row per updated field, and
+    the ``latest_only`` table, which is derived from it and contains only the
+    latest update for each field.
 
     Parameters
     ----------
     client
         BigQuery client.
-    project_id
-        Google Cloud project ID.
-    dataset_id
-        BigQuery dataset ID.
-    table_name
-        Name of the updates table. Defaults to ``"updates"``.
-    latest_only_table_name
-        Name of the latest-only updates table. Defaults to
-        ``"updates_latest_only"``.
+    config
+        Configuration for the PPDB BigQuery interface.
     """
 
-    _DEFAULT_TABLE_NAME: str = "updates"
-    _DEFAULT_LATEST_ONLY_TABLE_NAME: str = "updates_latest_only"
+    _EXPANDED_UPDATES_NAME: str = "expanded_updates"
+    _LATEST_ONLY_NAME: str = "latest_only"
 
     def __init__(
         self,
         client: bigquery.Client,
-        project_id: str,
-        dataset_id: str,
-        table_name: str | None = None,
-        latest_only_table_name: str | None = None,
+        config: PpdbBigQueryConfig,
     ) -> None:
         self._client: bigquery.Client = client
-        table_name = table_name or self._DEFAULT_TABLE_NAME
-        latest_only_table_name = latest_only_table_name or self._DEFAULT_LATEST_ONLY_TABLE_NAME
-        self._table_fqn = f"{project_id}.{dataset_id}.{table_name}"
-        self._latest_only_table_fqn = f"{project_id}.{dataset_id}.{latest_only_table_name}"
+        self._expanded_updates_fqn = config.fqn_for(DatasetType.PROMOTION, self._EXPANDED_UPDATES_NAME)
+        self._latest_only_fqn = config.fqn_for(DatasetType.PROMOTION, self._LATEST_ONLY_NAME)
 
     @property
-    def latest_only_table_fqn(self) -> str:
-        """Fully-qualified BigQuery latest-only table name in the form
-        ``"project.dataset.table"`` (`str`, read-only).
-        """
-        return self._latest_only_table_fqn
+    def expanded_updates_fqn(self) -> str:
+        """Fully-qualified expanded updates table name (`str`, read-only)."""
+        return self._expanded_updates_fqn
+
+    @property
+    def latest_only_fqn(self) -> str:
+        """Fully-qualified latest-only table name (`str`, read-only)."""
+        return self._latest_only_fqn
 
     @staticmethod
     def _make_record_key(record_id: Iterable[int]) -> str:
@@ -90,15 +86,13 @@ class UpdatesTable:
         """
         return "-".join(str(x) for x in record_id)
 
-    @property
-    def table_fqn(self) -> str:
-        """Fully-qualified BigQuery table name in the form
-        ``"project.dataset.table"`` (`str`, read-only).
-        """
-        return self._table_fqn
+    def create(self, drop_if_exists: bool = False) -> bigquery.Table:
+        """Create the expanded updates table.
 
-    def create(self) -> bigquery.Table:
-        """Create the updates table.
+        Parameters
+        ----------
+        drop_if_exists
+            If True, drop the table if it already exists before creating it.
 
         Returns
         -------
@@ -108,51 +102,30 @@ class UpdatesTable:
         Raises
         ------
         google.api_core.exceptions.Conflict
-            Raised if the table already exists.
-
-        Notes
-        -----
-        Schema:
-
-        - table_name: STRING (REQUIRED)
-        - record_id: ARRAY<INT64> (REQUIRED)
-        - record_key: STRING (REQUIRED)
-        - field_name: STRING (REQUIRED)
-        - value_json: JSON (REQUIRED)
-        - replica_chunk_id: INT64 (REQUIRED)
-        - update_order: INT64 (REQUIRED)
-        - update_time_ns: INT64 (REQUIRED)
+            Raised if the table already exists and ``drop_if_exists`` is False.
         """
+        if drop_if_exists:
+            self._client.delete_table(self._expanded_updates_fqn, not_found_ok=True)
         schema: list[bigquery.SchemaField] = [
+            bigquery.SchemaField("apdb_replica_chunk", "INT64", mode="REQUIRED"),
             bigquery.SchemaField("table_name", "STRING", mode="REQUIRED"),
             bigquery.SchemaField("record_id", "INT64", mode="REPEATED"),
             bigquery.SchemaField("record_key", "STRING", mode="REQUIRED"),
             bigquery.SchemaField("field_name", "STRING", mode="REQUIRED"),
             bigquery.SchemaField("value_json", "JSON", mode="REQUIRED"),
-            bigquery.SchemaField("replica_chunk_id", "INT64", mode="REQUIRED"),
             bigquery.SchemaField("update_order", "INT64", mode="REQUIRED"),
             bigquery.SchemaField("update_time_ns", "INT64", mode="REQUIRED"),
         ]
-
-        table = bigquery.Table(self._table_fqn, schema=schema)
+        table = bigquery.Table(self.expanded_updates_fqn, schema=schema)
         return self._client.create_table(table)
 
-    def drop(self) -> None:
-        """Drop the table if it exists."""
-        self._client.delete_table(self._table_fqn, not_found_ok=True)
-
-    def recreate(self) -> None:
-        """Drop the table if it exists and then create it."""
-        self.drop()
-        self.create()
-
     def insert(self, records: Iterable[ExpandedUpdateRecord]) -> bigquery.LoadJob:
-        """Insert `ExpandedUpdateRecord` rows into the updates table.
+        """Insert `ExpandedUpdateRecord` rows into the expanded updates table.
 
         Parameters
         ----------
         records
-            Iterable of update records to insert.
+            Iterable of expanded update records to insert.
 
         Returns
         -------
@@ -171,12 +144,12 @@ class UpdatesTable:
         """
         rows: list[dict[str, Any]] = [
             {
+                "apdb_replica_chunk": r.apdb_replica_chunk,
                 "table_name": r.table_name,
                 "record_id": r.record_id,
                 "record_key": self._make_record_key(r.record_id),
                 "field_name": r.field_name,
                 "value_json": r.field_value,
-                "replica_chunk_id": r.replica_chunk_id,
                 "update_order": r.update_order,
                 "update_time_ns": r.update_time_ns,
             }
@@ -185,7 +158,7 @@ class UpdatesTable:
 
         job = self._client.load_table_from_json(
             rows,
-            self._table_fqn,
+            self._expanded_updates_fqn,
             job_config=bigquery.LoadJobConfig(
                 write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
             ),
@@ -199,18 +172,18 @@ class UpdatesTable:
 
     def create_latest_only(self) -> None:
         """Select only the latest update for each unique
-        ``(table_name, record_id, field_name)`` combination and write them to a
-        new table.
+        ``(table_name, record_key, field_name)`` combination and write them to
+        the latest-only table.
 
         Notes
         -----
         This keeps only the latest record with an update on an identical
-        ``(table_name, record_id, field_name)``, based on the descending
-        ordering of ``replica_chunk_id``, ``update_time_ns``, and
+        ``(table_name, record_key, field_name)``, based on the descending
+        ordering of ``apdb_replica_chunk``, ``update_time_ns``, and
         ``update_order``.
         """
         query = f"""
-        CREATE OR REPLACE TABLE `{self._latest_only_table_fqn}`
+        CREATE OR REPLACE TABLE `{self._latest_only_fqn}`
         AS
         SELECT * EXCEPT(row_num)
         FROM (
@@ -218,14 +191,19 @@ class UpdatesTable:
                 ROW_NUMBER() OVER (
                     PARTITION BY table_name, record_key, field_name
                     ORDER BY
-                        replica_chunk_id DESC,
+                        apdb_replica_chunk DESC,
                         update_time_ns DESC,
                         update_order DESC
                 ) as row_num
-            FROM `{self._table_fqn}`
+            FROM `{self._expanded_updates_fqn}`
         )
         WHERE row_num = 1
         """
 
         job = self._client.query(query)
         job.result()
+
+    def cleanup(self) -> None:
+        """Delete the expanded updates and latest-only tables."""
+        for table_fqn in (self._expanded_updates_fqn, self._latest_only_fqn):
+            self._client.delete_table(table_fqn, not_found_ok=True)

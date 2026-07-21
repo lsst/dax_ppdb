@@ -617,7 +617,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         with self._engine.begin() as connection:
             connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
 
-    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[str]) -> int:
+    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[UpdatableField]) -> int:
         """Update one or more existing replica chunks in the
         ``PpdbReplicaChunk`` table.
 
@@ -627,8 +627,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             Replica chunks with updated values. Each chunk must already
             exist in the table.
         fields
-            Set of field names to update. Only ``"status"`` and
-            ``"gcs_uri"`` are allowed.
+            Set of field names to update.
 
         Raises
         ------
@@ -642,11 +641,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ValueError("chunks must not be empty")
         if not fields:
             raise ValueError("fields must not be empty")
-        invalid = {field for field in fields if field not in UpdatableField}
-        if invalid:
-            raise ValueError(
-                f"Invalid fields for update: {invalid}. Allowed: {sorted(f.value for f in UpdatableField)}"
-            )
         table = self.chunk_table
         updated_count = 0
         with self._engine.begin() as connection:
@@ -781,7 +775,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             The directory containing the chunk's data.
         """
         update_records = UpdateRecords(
-            records=list(apdb_update_records),
+            records=[(replica_chunk.id, record) for record in apdb_update_records],
         )
         parquet_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
         update_records.write_parquet_file(parquet_path)

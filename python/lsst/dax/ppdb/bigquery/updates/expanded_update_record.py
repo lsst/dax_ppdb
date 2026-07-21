@@ -27,6 +27,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from lsst.dax.apdb import ApdbUpdateRecord
+
 
 class ExpandedUpdateRecord(BaseModel):
     """A single normalized (expanded) update row.
@@ -62,7 +64,7 @@ class ExpandedUpdateRecord(BaseModel):
         description=("New value for the field."),
     )
 
-    replica_chunk_id: int = Field(
+    apdb_replica_chunk: int = Field(
         ...,
         ge=0,
         description=("Source replica chunk identifier associated with this update."),
@@ -76,3 +78,36 @@ class ExpandedUpdateRecord(BaseModel):
     update_order: int = Field(
         description=("Ordering value within the replica chunk or update batch."),
     )
+
+    @classmethod
+    def from_update_record(
+        cls, update_record: ApdbUpdateRecord, apdb_replica_chunk: int
+    ) -> list[ExpandedUpdateRecord]:
+        """Expand a single APDB update record into field-level update rows.
+
+        Parameters
+        ----------
+        update_record
+            The APDB update record to expand.
+        apdb_replica_chunk
+            The replica chunk ID associated with this update record.
+
+        Returns
+        -------
+        `list` [ `ExpandedUpdateRecord` ]
+            One expanded record per field being updated.
+        """
+        table_name = update_record.apdb_table.value
+        record_id_values = tuple(value for _, value in update_record.record_id())
+        return [
+            cls(
+                table_name=table_name,
+                record_id=record_id_values,
+                field_name=field_name,
+                field_value=field_value,
+                apdb_replica_chunk=apdb_replica_chunk,
+                update_order=update_record.update_order,
+                update_time_ns=update_record.update_time_ns,
+            )
+            for field_name, field_value in update_record.record_payload()
+        ]
