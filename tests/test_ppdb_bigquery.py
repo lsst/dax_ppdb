@@ -19,11 +19,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import os
 import unittest
 import uuid
+from unittest import mock
 
 import astropy.time
 import sqlalchemy
+import yaml
 
 from lsst.dax.ppdb import Ppdb
 from lsst.dax.ppdb.bigquery import ChunkStatus, PpdbBigQuery, PpdbReplicaChunkExtended
@@ -326,3 +329,78 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
 
         result = ppdb.get_promotable_chunks()
         self.assertEqual(len(result), 0)
+
+
+class DbUrlFromEnvTestCase(unittest.TestCase):
+    """Tests for building the database URL from environment variables."""
+
+    def test_db_url_from_env_missing_user_raises(self) -> None:
+        """Test that a missing ``DB_USER`` raises ``OSError``."""
+        with mock.patch.dict(os.environ, {"DB_NAME": "ppdb-chunk-tracking"}, clear=True):
+            with self.assertRaisesRegex(OSError, "DB_USER"):
+                PpdbBigQuery._db_url_from_env()
+
+    def test_db_url_from_env_missing_name_raises(self) -> None:
+        """Test that a missing ``DB_NAME`` raises ``OSError``."""
+        with mock.patch.dict(os.environ, {"DB_USER": "test-user"}, clear=True):
+            with self.assertRaisesRegex(OSError, "DB_NAME"):
+                PpdbBigQuery._db_url_from_env()
+
+    def test_db_url_from_env_builds_url(self) -> None:
+        """Test that the URL is built when all required variables are set."""
+        env = {
+            "DB_USER": "usdf-replication@my-project.iam",
+            "DB_HOST": "db.example.com",
+            "DB_PORT": "6543",
+            "DB_NAME": "ppdb-chunk-tracking",
+            "DB_SSLMODE": "require",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            db_url = PpdbBigQuery._db_url_from_env()
+
+        self.assertEqual(
+            db_url,
+            "postgresql+psycopg2://usdf-replication%40my-project.iam@db.example.com:6543"
+            "/ppdb-chunk-tracking?sslmode=require",
+        )
+
+
+@unittest.skipUnless(testing is not None, "testing.postgresql module not found")
+class FromEnvPostgresTestCase(PostgresMixin, unittest.TestCase):
+    """Test ``from_env`` building the database URL from the individual
+    ``DB_*`` environment variables against a real Postgres database.
+    """
+
+    def test_from_env_use_db_env_vars(self) -> None:
+        """Test that ``from_env(use_db_env_vars=True)`` connects using a URL
+        built from the environment, overriding the configured ``db_url``.
+        """
+        # Initialise the PPDB schema in the test Postgres server.
+        config = self.make_instance(test_name="from_env")
+
+        # Capture the real connection parameters, then replace the configured
+        # URL with a bogus one to prove the environment override is used.
+        server_url = sqlalchemy.make_url(self.server.url())
+        config.sql.db_url = "postgresql+psycopg://invalid-host:5432/nonexistent"
+
+        # Serialize the configuration to a file for ``PPDB_CONFIG_URI``.
+        config_path = os.path.join(self.tempdir, "ppdb_config.yaml")
+        config_dict = config.model_dump(exclude_unset=True, exclude_defaults=True)
+        config_dict["implementation_type"] = "bigquery"
+        with open(config_path, "w") as config_file:
+            yaml.dump(config_dict, config_file)
+
+        env = {
+            "PPDB_CONFIG_URI": config_path,
+            "DB_USER": server_url.username,
+            "DB_HOST": server_url.host,
+            "DB_PORT": str(server_url.port),
+            "DB_NAME": server_url.database,
+            "DB_SSLMODE": "disable",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            ppdb = PpdbBigQuery.from_env(use_db_env_vars=True)
+
+        # A successful query proves the environment-derived URL connected to
+        # the real database rather than the bogus configured one.
+        self.assertEqual(ppdb.get_replica_chunks(), [])
