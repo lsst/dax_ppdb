@@ -102,6 +102,10 @@ class ConfigValidationError(Exception):
     """Indicates an error validating the configuration."""
 
 
+class PpdbBigQueryError(Exception):
+    """Indicates an error specific to PPDB BigQuery operations."""
+
+
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
     """Provides management operations for the BigQuery-based PPDB.
 
@@ -178,7 +182,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             logging.info("PPDB_CONFIG_URI: %s", ppdb_config_uri)
         else:
             raise OSError("PPDB_CONFIG_URI is not set in the environment")
-        config = PpdbBigQueryConfig.from_uri(ppdb_config_uri)
+        try:
+            config = PpdbBigQueryConfig.from_uri(ppdb_config_uri)
+        except Exception as e:
+            raise PpdbBigQueryError(f"Failed to load PPDB config from URI: {ppdb_config_uri}") from e
         if not isinstance(config, PpdbBigQueryConfig):
             raise ValueError(f"Config from environment has wrong type: {type(config)}")
         if use_db_env_vars:
