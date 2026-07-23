@@ -102,6 +102,10 @@ class ConfigValidationError(Exception):
     """Indicates an error validating the configuration."""
 
 
+class PpdbBigQueryError(Exception):
+    """Indicates an error specific to PPDB BigQuery operations."""
+
+
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
     """Provides management operations for the BigQuery-based PPDB.
 
@@ -149,24 +153,77 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     # ----------------------------------------------------------------------
 
     @classmethod
-    def from_env(cls) -> PpdbBigQuery:
+    def from_env(cls, use_db_env_vars: bool = False) -> PpdbBigQuery:
         """Create an instance of this class from a config pointed to by an
         environment variable.
+
+        Parameters
+        ----------
+        use_db_env_vars
+            If `True`, override the database URL from the configuration file
+            with one built from the individual ``DB_*`` environment variables
+            (see `_db_url_from_env`). The configuration file itself is not
+            modified.
 
         Returns
         -------
         `PpdbBigQuery`
             An instance of the PPDB BigQuery interface.
+
+        Raises
+        ------
+        OSError
+            Raised if ``PPDB_CONFIG_URI`` is not set in the environment.
+        ValueError
+            Raised if the configuration is not for a BigQuery PPDB.
         """
         ppdb_config_uri = os.environ.get("PPDB_CONFIG_URI", None)
         if ppdb_config_uri:
             logging.info("PPDB_CONFIG_URI: %s", ppdb_config_uri)
         else:
             raise OSError("PPDB_CONFIG_URI is not set in the environment")
-        ppdb = Ppdb.from_uri(ppdb_config_uri)
-        if not isinstance(ppdb, PpdbBigQuery):
-            raise ValueError(f"Ppdb from environment has wrong type: {type(ppdb)}")
-        return ppdb
+        try:
+            config = PpdbBigQueryConfig.from_uri(ppdb_config_uri)
+        except Exception as e:
+            raise PpdbBigQueryError(f"Failed to load PPDB config from URI: {ppdb_config_uri}") from e
+        if not isinstance(config, PpdbBigQueryConfig):
+            raise ValueError(f"Config from environment has wrong type: {type(config)}")
+        if use_db_env_vars:
+            config.sql.db_url = cls._db_url_from_env()
+        return cls(config)
+
+    @classmethod
+    def _db_url_from_env(cls) -> str:
+        """Build a database URL from individual environment variables.
+
+        Returns
+        -------
+        `str`
+            SQLAlchemy database URL constructed from the ``DB_USER``,
+            ``DB_HOST``, ``DB_PORT``, ``DB_NAME`` and ``DB_SSLMODE``
+            environment variables. Any password is supplied separately by the
+            password provider and is therefore not included here.
+
+        Raises
+        ------
+        OSError
+            Raised if ``DB_USER`` or ``DB_NAME`` is not set in the environment.
+        """
+        username = os.environ.get("DB_USER")
+        if not username:
+            raise OSError("DB_USER is not set in the environment")
+        database = os.environ.get("DB_NAME")
+        if not database:
+            raise OSError("DB_NAME is not set in the environment")
+        url = sqlalchemy.URL.create(
+            drivername="postgresql+psycopg2",
+            username=username,
+            host=os.environ.get("DB_HOST", "127.0.0.1"),
+            port=int(os.environ.get("DB_PORT", "5432")),
+            database=database,
+            query={"sslmode": os.environ.get("DB_SSLMODE", "disable")},
+        )
+        return url.render_as_string(hide_password=False)
 
     @classmethod
     def init_bigquery(
