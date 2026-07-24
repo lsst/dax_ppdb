@@ -35,6 +35,8 @@ import astropy.time
 import felis
 import sqlalchemy
 from google.cloud import secretmanager
+from google.cloud.sql.connector import Connector
+from sqlalchemy.engine.interfaces import DBAPIConnection
 
 from lsst.dax.apdb import (
     ApdbMetadata,
@@ -109,6 +111,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     ----------
     config
         Configuration object with BigQuery and SQL database parameters.
+
+    Notes
+    -----
+    Whether the SQLAlchemy engine uses the Cloud SQL Python Connector is
+    controlled by the ``CLOUDSQL_ENABLED`` environment variable; see
+    `is_cloudsql_enabled` and `make_engine`.
     """
 
     # ----------------------------------------------------------------------
@@ -122,8 +130,14 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         # Delegate SQL initialisation (schema load, engine, metadata, version
         # checks) to the base class, passing the optional password provider.
+        # Whether the Cloud SQL Connector is used is determined from the
+        # environment (see `is_cloudsql_enabled`) inside `make_engine`.
         password_provider = self._make_password_provider(config.project_id)
-        PpdbSqlBase.__init__(self, config.sql, password_provider=password_provider)
+        PpdbSqlBase.__init__(
+            self,
+            config.sql,
+            password_provider=password_provider,
+        )
 
         self._config = config
 
@@ -157,16 +171,28 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         -------
         `PpdbBigQuery`
             An instance of the PPDB BigQuery interface.
+
+        Raises
+        ------
+        OSError
+            Raised if ``PPDB_CONFIG_URI`` is not set in the environment.
+        ValueError
+            Raised if the configuration is not for a BigQuery PPDB.
+
+        Notes
+        -----
+        Whether the Cloud SQL Python Connector is used is controlled by the
+        ``CLOUDSQL_ENABLED`` environment variable; see `is_cloudsql_enabled`.
         """
         ppdb_config_uri = os.environ.get("PPDB_CONFIG_URI", None)
         if ppdb_config_uri:
             logging.info("PPDB_CONFIG_URI: %s", ppdb_config_uri)
         else:
             raise OSError("PPDB_CONFIG_URI is not set in the environment")
-        ppdb = Ppdb.from_uri(ppdb_config_uri)
-        if not isinstance(ppdb, PpdbBigQuery):
-            raise ValueError(f"Ppdb from environment has wrong type: {type(ppdb)}")
-        return ppdb
+        config = PpdbBigQueryConfig.from_uri(ppdb_config_uri)
+        if not isinstance(config, PpdbBigQueryConfig):
+            raise ValueError(f"Config from environment has wrong type: {type(config)}")
+        return cls(config)
 
     @classmethod
     def init_bigquery(
@@ -327,6 +353,142 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                 check_dataset_exists(config.project_id, dataset_name)
             except Exception as e:
                 raise ConfigValidationError(f"Failed to validate BigQuery dataset: {dataset_name}") from e
+
+    # ----------------------------------------------------------------------
+    # Engine creation
+    # ----------------------------------------------------------------------
+
+    @classmethod
+    def is_cloudsql_enabled(cls) -> bool:
+        """Return whether the Cloud SQL Python Connector is enabled.
+
+        Returns
+        -------
+        `bool`
+            `True` if the ``CLOUDSQL_ENABLED`` environment variable is set to
+            ``"true"`` (case-insensitive), `False` otherwise.
+        """
+        return os.environ.get("CLOUDSQL_ENABLED", "false").lower() == "true"
+
+    @classmethod
+    def make_engine(
+        cls,
+        config: PpdbSqlBaseConfig,
+        *,
+        password_provider: PasswordProvider | None = None,
+    ) -> sqlalchemy.engine.Engine:
+        """Make a SQLAlchemy engine, optionally using the Cloud SQL Connector.
+
+        Whether the Cloud SQL Python Connector is used is determined by the
+        ``CLOUDSQL_ENABLED`` environment variable (see `is_cloudsql_enabled`).
+        When enabled, the connection parameters are read from the environment:
+
+        - ``CLOUDSQL_INSTANCE_CONNECTION_NAME``: instance connection name in
+          the form ``project:region:instance`` (required).
+        - ``CLOUDSQL_USER``: database user or IAM principal (required).
+        - ``CLOUDSQL_DB_NAME``: database name (required).
+        - ``CLOUDSQL_DRIVERNAME``: Cloud SQL Connector database driver.
+          Defaults to ``pg8000``.
+        - ``CLOUDSQL_IP_TYPE``: IP type used to reach the instance, one of
+          ``private`` (default), ``public``, or ``psc``.
+
+        Authentication uses automatic IAM database authentication unless
+        ``password_provider`` is given, in which case password authentication
+        is used.
+
+        Parameters
+        ----------
+        config
+            Configuration object with SQL parameters.
+        password_provider
+            If provided, the password returned by
+            ``password_provider.get_password()`` is used for authentication.
+
+        Returns
+        -------
+        `sqlalchemy.engine.Engine`
+            The SQLAlchemy engine.
+        """
+        if cls.is_cloudsql_enabled():
+            return cls._make_connector_engine(password_provider=password_provider)
+        return super().make_engine(config, password_provider=password_provider)
+
+    @classmethod
+    def _make_connector_engine(
+        cls,
+        *,
+        password_provider: PasswordProvider | None = None,
+    ) -> sqlalchemy.engine.Engine:
+        """Create a SQLAlchemy engine using the Cloud SQL Python Connector.
+
+        The connection parameters are read from the environment; see
+        `make_engine` for the environment variables that are used.
+
+        Parameters
+        ----------
+        password_provider
+            If provided, its password is used for password authentication and
+            automatic IAM database authentication is disabled. If not
+            provided, automatic IAM database authentication is used.
+
+        Returns
+        -------
+        `sqlalchemy.engine.Engine`
+            The SQLAlchemy engine backed by the Cloud SQL Connector.
+
+        Raises
+        ------
+        OSError
+            Raised if a required environment variable is not set.
+
+        Notes
+        -----
+        The connector is created with a lazy refresh strategy, which is
+        recommended for serverless environments such as Cloud Run and Cloud
+        Functions where CPU may be throttled between requests. A reference to
+        the connector is retained by the returned engine's connection factory,
+        so it remains alive for the lifetime of the engine.
+        """
+        instance_connection_name = os.environ.get("CLOUDSQL_INSTANCE_CONNECTION_NAME")
+        if not instance_connection_name:
+            raise OSError("CLOUDSQL_INSTANCE_CONNECTION_NAME is not set in the environment")
+        db_user = os.environ.get("CLOUDSQL_USER")
+        if not db_user:
+            raise OSError("CLOUDSQL_USER is not set in the environment")
+        db_name = os.environ.get("CLOUDSQL_DB_NAME")
+        if not db_name:
+            raise OSError("CLOUDSQL_DB_NAME is not set in the environment")
+        driver = os.environ.get("CLOUDSQL_DRIVERNAME", "pg8000")
+
+        # The IP type may be overridden via the environment; it defaults to
+        # private, which is the recommended production configuration.
+        ip_type = os.environ.get("CLOUDSQL_IP_TYPE", "private").lower()
+        if ip_type not in ("private", "public", "psc"):
+            raise OSError(
+                f"Invalid CLOUDSQL_IP_TYPE value: {ip_type!r} (expected 'private', 'public', or 'psc')"
+            )
+        connect_kwargs: dict[str, str | bool] = {"user": db_user, "db": db_name, "ip_type": ip_type}
+        if password_provider is not None:
+            connect_kwargs["password"] = password_provider.get_password()
+            connect_kwargs["enable_iam_auth"] = False
+            _LOG.info("Using password authentication for Cloud SQL Connector")
+        else:
+            connect_kwargs["enable_iam_auth"] = True
+            _LOG.info("Using IAM authentication for Cloud SQL Connector")
+
+        # Lazy refresh is recommended for serverless environments where CPU may
+        # be throttled between requests.
+        connector = Connector(refresh_strategy="lazy")
+
+        def getconn() -> DBAPIConnection:
+            return connector.connect(instance_connection_name, driver, **connect_kwargs)
+
+        _LOG.info(
+            "Creating Cloud SQL Connector engine for %s (driver=%s)",
+            instance_connection_name,
+            driver,
+        )
+        return sqlalchemy.create_engine(f"postgresql+{driver}://", creator=getconn)
 
     # ----------------------------------------------------------------------
     # SQL schema and versioning class methods
