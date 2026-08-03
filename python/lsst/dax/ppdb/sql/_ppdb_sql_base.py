@@ -129,6 +129,12 @@ class PpdbSqlBase:
     ----------
     config
         Configuration object.
+    password_provider
+        Optional provider used to inject the database password into the
+        connection URL.
+    **engine_kwargs
+        Additional keyword arguments forwarded to `make_engine`. Subclasses
+        may use these to customize how the engine is created.
 
     Notes
     -----
@@ -142,12 +148,17 @@ class PpdbSqlBase:
     meta_schema_version_key = "version:schema"
     """Name of the metadata key to store Felis schema version number."""
 
-    def __init__(self, config: PpdbSqlBaseConfig, password_provider: PasswordProvider | None = None) -> None:
+    def __init__(
+        self,
+        config: PpdbSqlBaseConfig,
+        password_provider: PasswordProvider | None = None,
+        **engine_kwargs: Any,
+    ) -> None:
         self._sa_metadata, self._schema_version = self.read_schema(
             config.felis_path, config.schema_name, config.felis_schema, config.db_url
         )
 
-        self._engine = self.make_engine(config, password_provider=password_provider)
+        self._engine = self.make_engine(config, password_provider=password_provider, **engine_kwargs)
         sa_metadata = sqlalchemy.MetaData(schema=config.schema_name)
 
         meta_table = sqlalchemy.schema.Table("metadata", sa_metadata, autoload_with=self._engine)
