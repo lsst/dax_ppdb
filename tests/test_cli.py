@@ -81,8 +81,9 @@ class CreateDatasetsTestCase(unittest.TestCase):
                 # Staging has the three DIA tables plus the raw updates table.
                 self.assertEqual(len(tables), 4)
             elif dataset_type != DatasetType.PROMOTION:
-                # The internal and public datasets each have three tables.
-                self.assertEqual(len(tables), 3)
+                # The internal and public datasets each have the three DIA
+                # tables/views plus the five SSO tables/views.
+                self.assertEqual(len(tables), 8)
             else:
                 # Promotion dataset should have no tables created by default.
                 self.assertEqual(len(tables), 0)
