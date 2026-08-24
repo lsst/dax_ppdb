@@ -48,23 +48,10 @@ from pydantic import BaseModel
 from lsst.dax.apdb import ApdbTables
 
 from ..ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
+from .constants import DIA_TABLES, SSO_TABLES
 from .felis_converter import FelisConverter
 
 _LOG = logging.getLogger(__name__)
-
-_DIA_TABLES: tuple[str, ...] = (
-    ApdbTables.DiaObject.value,
-    ApdbTables.DiaSource.value,
-    ApdbTables.DiaForcedSource.value,
-)
-
-_SSO_TABLES: tuple[str, ...] = (
-    "SSSource",
-    "SSObject",
-    "numbered_identifications",
-    "current_identifications",
-    "mpc_orbits",
-)
 
 
 def _update_schema_fields(table: bigquery.Table, *new_fields: bigquery.SchemaField) -> None:
@@ -257,7 +244,7 @@ class StagingDatasetBuilder(BaseDatasetBuilder):
     def build_tables(self) -> list[bigquery.Table]:
         """Create BigQuery tables for the staging dataset type."""
         # Get the base DIA table definitions.
-        tables = self._convert_tables(_DIA_TABLES)
+        tables = self._convert_tables(DIA_TABLES)
 
         # Add the apdb_replica_chunk field to each staging table.
         for table in tables:
@@ -289,7 +276,7 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
 
     def _build_dia_tables(self) -> list[bigquery.Table]:
         # Convert the base DIA tables.
-        tables = self._convert_tables(_DIA_TABLES)
+        tables = self._convert_tables(DIA_TABLES)
 
         # Add an internal geography column for spatial query optimization to
         # each internal DIA table and set clustering on that column.
@@ -306,7 +293,7 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
 
     def build_tables(self) -> list[bigquery.Table]:
         """Create BigQuery tables for the internal dataset type."""
-        return self._build_dia_tables() + self._convert_tables(_SSO_TABLES)
+        return self._build_dia_tables() + self._convert_tables(SSO_TABLES)
 
     def build_search_indexes(self) -> list[SearchIndexDefinition]:
         """Create search indexes for the internal dataset type."""
@@ -315,7 +302,7 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
                 table_name=table_name,
                 field_data_types=(("diaObjectId", SearchIndexDataType.INT64),),
             )
-            for table_name in _DIA_TABLES
+            for table_name in DIA_TABLES
         ]
 
 
@@ -379,7 +366,7 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
         """Create BigQuery views for the public dataset type."""
         return [
             self._create_explicit_view(table_name)
-            for table_name in (ApdbTables.DiaSource.value, ApdbTables.DiaForcedSource.value, *_SSO_TABLES)
+            for table_name in (ApdbTables.DiaSource.value, ApdbTables.DiaForcedSource.value, *SSO_TABLES)
         ]
 
     def build_search_indexes(self) -> list[SearchIndexDefinition]:
