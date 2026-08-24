@@ -35,9 +35,8 @@ from lsst.dax.ppdb.bigquery.ppdb_bigquery_config import (
     DatasetType,
     PpdbBigQueryConfig,
 )
+from lsst.dax.ppdb.bigquery.schema.constants import DIA_TABLES, SSO_TABLES
 from lsst.dax.ppdb.bigquery.schema.dataset_builder import (
-    _DIA_TABLES,
-    _SSO_TABLES,
     BaseDatasetBuilder,
     DatasetBuilder,
     DatasetBuilderError,
@@ -66,7 +65,7 @@ class DatasetBuilderTestMixin:
 
     BIGQUERY_CLIENT_PATCH = "lsst.dax.ppdb.bigquery.schema.dataset_builder.bigquery.Client"
     EXPECTED_DIA_TABLES = {"DiaObject", "DiaSource", "DiaForcedSource"}
-    EXPECTED_PUBLIC_VIEWS = ("DiaSource", "DiaForcedSource", *_SSO_TABLES)
+    EXPECTED_PUBLIC_VIEWS = ("DiaSource", "DiaForcedSource", *SSO_TABLES)
 
     def setUp(self) -> None:
         """Test case setup including schema, converter, and standard config
@@ -246,7 +245,7 @@ class InternalDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase)
         tables = builder.build_tables()
 
         # Check that the DIA tables have the geo_point field and clustering.
-        dia_tables = [table for table in tables if table.table_id in _DIA_TABLES]
+        dia_tables = [table for table in tables if table.table_id in DIA_TABLES]
         for table in dia_tables:
             geo_point = next(field for field in table.schema if field.name == "geo_point")
             self.assertEqual(geo_point.field_type, "GEOGRAPHY")
