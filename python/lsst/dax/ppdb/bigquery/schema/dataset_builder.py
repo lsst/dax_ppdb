@@ -35,7 +35,7 @@ __all__ = [
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from enum import Enum
 from types import MappingProxyType
 from typing import ClassVar
@@ -56,6 +56,14 @@ _DIA_TABLES: tuple[str, ...] = (
     ApdbTables.DiaObject.value,
     ApdbTables.DiaSource.value,
     ApdbTables.DiaForcedSource.value,
+)
+
+_SSO_TABLES: tuple[str, ...] = (
+    "SSSource",
+    "SSObject",
+    "numbered_identifications",
+    "current_identifications",
+    "mpc_orbits",
 )
 
 
@@ -204,6 +212,29 @@ class DatasetBuilder(ABC):
             "build_search_indexes() must be implemented by subclasses of DatasetBuilder."
         )
 
+    def _convert_tables(self, table_names: Sequence[str]) -> list[bigquery.Table]:
+        """Convert a list of Felis table names to BigQuery table objects.
+
+        Parameters
+        ----------
+        table_names
+            Collection of Felis table names to convert.
+
+        Returns
+        -------
+        `list` [`google.cloud.bigquery.Table`]
+            BigQuery table objects corresponding to the provided Felis table
+            names.
+
+        Notes
+        -----
+        This is a utility method that should not be overridden by subclasses.
+        """
+        return self._converter.convert_tables(
+            table_names,
+            dataset_fqn=self._config.fqn_for(self.dataset_type),
+        )
+
 
 class BaseDatasetBuilder(DatasetBuilder):
     """Base implementation of DatasetBuilder with no-op optional methods."""
@@ -226,10 +257,7 @@ class StagingDatasetBuilder(BaseDatasetBuilder):
     def build_tables(self) -> list[bigquery.Table]:
         """Create BigQuery tables for the staging dataset type."""
         # Get the base DIA table definitions.
-        tables = self._converter.convert_tables(
-            _DIA_TABLES,
-            dataset_fqn=self._config.fqn_for(self.dataset_type),
-        )
+        tables = self._convert_tables(_DIA_TABLES)
 
         # Add the apdb_replica_chunk field to each staging table.
         for table in tables:
@@ -259,16 +287,12 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
 
     dataset_type = DatasetType.INTERNAL
 
-    def build_tables(self) -> list[bigquery.Table]:
-        """Create BigQuery tables for the internal dataset type."""
+    def _build_dia_tables(self) -> list[bigquery.Table]:
         # Convert the base DIA tables.
-        tables = self._converter.convert_tables(
-            _DIA_TABLES,
-            dataset_fqn=self._config.fqn_for(self.dataset_type),
-        )
+        tables = self._convert_tables(_DIA_TABLES)
 
         # Add an internal geography column for spatial query optimization to
-        # each internal table and set clustering on that column.
+        # each internal DIA table and set clustering on that column.
         for table in tables:
             geo_point_field = _geo_point_field()
             _update_schema_fields(table, geo_point_field)
@@ -279,6 +303,10 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
         _update_schema_fields(dia_object_table, _validity_end_mjd_tai_field())
 
         return tables
+
+    def build_tables(self) -> list[bigquery.Table]:
+        """Create BigQuery tables for the internal dataset type."""
+        return self._build_dia_tables() + self._convert_tables(_SSO_TABLES)
 
     def build_search_indexes(self) -> list[SearchIndexDefinition]:
         """Create search indexes for the internal dataset type."""
@@ -338,10 +366,7 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
         excludes validityEndMjdTai from DiaObject, so no column removal is
         needed here.
         """
-        (dia_object_table,) = self._converter.convert_tables(
-            [ApdbTables.DiaObject.value],
-            dataset_fqn=self._config.fqn_for(self.dataset_type),
-        )
+        (dia_object_table,) = self._convert_tables([ApdbTables.DiaObject.value])
 
         # Add geography column and clustering for spatial query optimization.
         geo_point_field = _geo_point_field()
@@ -354,7 +379,7 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
         """Create BigQuery views for the public dataset type."""
         return [
             self._create_explicit_view(table_name)
-            for table_name in (ApdbTables.DiaSource.value, ApdbTables.DiaForcedSource.value)
+            for table_name in (ApdbTables.DiaSource.value, ApdbTables.DiaForcedSource.value, *_SSO_TABLES)
         ]
 
     def build_search_indexes(self) -> list[SearchIndexDefinition]:
