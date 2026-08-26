@@ -91,6 +91,30 @@ def _geo_point_field() -> bigquery.SchemaField:
     )
 
 
+def _validity_end_mjd_tai_field() -> bigquery.SchemaField:
+    """Create a BigQuery schema field for the validityEndMjdTai column used in
+    the internal copy of the DiaObject table which stores all record versions.
+    """
+    return bigquery.SchemaField(
+        "validityEndMjdTai",
+        "FLOAT64",
+        mode="NULLABLE",
+        description="The MJD TAI at which this record is no longer valid; null if still valid.",
+    )
+
+
+def _apdb_replica_chunk_field() -> bigquery.SchemaField:
+    """Create a BigQuery schema field for the apdb_replica_chunk column used in
+    staging tables.
+    """
+    return bigquery.SchemaField(
+        "apdb_replica_chunk",
+        "INT64",
+        mode="REQUIRED",
+        description="APDB replica chunk this row belongs to.",
+    )
+
+
 class DatasetBuilderError(RuntimeError):
     """Raised when dataset builder operations fail."""
 
@@ -209,13 +233,11 @@ class StagingDatasetBuilder(BaseDatasetBuilder):
 
         # Add the apdb_replica_chunk field to each staging table.
         for table in tables:
-            apdb_replica_chunk_field = bigquery.SchemaField(
-                "apdb_replica_chunk",
-                "INT64",
-                mode="REQUIRED",
-                description="APDB replica chunk this row belongs to.",
-            )
-            _update_schema_fields(table, apdb_replica_chunk_field)
+            _update_schema_fields(table, _apdb_replica_chunk_field())
+
+        # Add the validityEndMjdTai field to the DiaObject table.
+        dia_object_table = next(table for table in tables if table.table_id == ApdbTables.DiaObject.value)
+        _update_schema_fields(dia_object_table, _validity_end_mjd_tai_field())
 
         # Add the table which will hold the raw update records.
         updates_table = bigquery.Table(
@@ -251,6 +273,10 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
             geo_point_field = _geo_point_field()
             _update_schema_fields(table, geo_point_field)
             table.clustering_fields = [geo_point_field.name]
+
+        # Add the validityEndMjdTai field to the DiaObject table.
+        dia_object_table = next(table for table in tables if table.table_id == ApdbTables.DiaObject.value)
+        _update_schema_fields(dia_object_table, _validity_end_mjd_tai_field())
 
         return tables
 
@@ -305,25 +331,17 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
         Notes
         -----
         DiaObject is defined using a table rather than a view in this dataset,
-        because using ``validityEndMjdTai IS NULL`` as a filter in a plain view
+        because filtering on ``validityEndMjdTai IS NULL`` in a plain view
         definition would be inefficient. A materialized view would also be
         cumbersome, as its references would be invalidated by table swap
-        operations during the promotion process.
+        operations during the promotion process. The source schema already
+        excludes validityEndMjdTai from DiaObject, so no column removal is
+        needed here.
         """
         (dia_object_table,) = self._converter.convert_tables(
             [ApdbTables.DiaObject.value],
             dataset_fqn=self._config.fqn_for(self.dataset_type),
         )
-
-        # Omit the validityEndMjdTai column from the table definition, as it
-        # will always be null.
-        if not any(field.name == "validityEndMjdTai" for field in dia_object_table.schema):
-            raise DatasetBuilderError(
-                f"Expected column validityEndMjdTai not found in table {dia_object_table.table_id}."
-            )
-        dia_object_table.schema = [
-            field for field in dia_object_table.schema if field.name != "validityEndMjdTai"
-        ]
 
         # Add geography column and clustering for spatial query optimization.
         geo_point_field = _geo_point_field()
