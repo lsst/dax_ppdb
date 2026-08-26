@@ -36,6 +36,8 @@ from lsst.dax.ppdb.bigquery.ppdb_bigquery_config import (
     PpdbBigQueryConfig,
 )
 from lsst.dax.ppdb.bigquery.schema.dataset_builder import (
+    _DIA_TABLES,
+    _SSO_TABLES,
     BaseDatasetBuilder,
     DatasetBuilder,
     DatasetBuilderError,
@@ -63,8 +65,8 @@ class DatasetBuilderTestMixin:
     """Shared setup and helpers for dataset builder unit tests."""
 
     BIGQUERY_CLIENT_PATCH = "lsst.dax.ppdb.bigquery.schema.dataset_builder.bigquery.Client"
-    EXPECTED_TABLES = {"DiaObject", "DiaSource", "DiaForcedSource"}
-    EXPECTED_VIEWS = ["DiaSource", "DiaForcedSource"]
+    EXPECTED_DIA_TABLES = {"DiaObject", "DiaSource", "DiaForcedSource"}
+    EXPECTED_PUBLIC_VIEWS = ("DiaSource", "DiaForcedSource", *_SSO_TABLES)
 
     def setUp(self) -> None:
         """Test case setup including schema, converter, and standard config
@@ -179,10 +181,9 @@ class PublicDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
         self.assertNotIn("validityEndMjdTai", field_names)
         self.assertIn("geo_point", field_names)
 
+        # There is an additional geo_point column in the BigQuery table.
         source_table = self.converter.find_table(ApdbTables.DiaObject.value)
-        # The source schema already excludes validityEndMjdTai, so only
-        # geo_point is added on top of it.
-        self.assertEqual(len(field_names), len(source_table.columns) + 1)
+        self.assertEqual(len(source_table.columns) + 1, len(field_names))
 
     def test_creates_explicit_views(self) -> None:
         """Test that PublicDatasetBuilder creates explicit views with fully
@@ -194,8 +195,8 @@ class PublicDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
 
         views = builder.build_views()
 
-        self.assertEqual([view.table_id for view in views], self.EXPECTED_VIEWS)
-        for view_name, view in zip(self.EXPECTED_VIEWS, views, strict=True):
+        self.assertEqual(tuple(view.table_id for view in views), self.EXPECTED_PUBLIC_VIEWS)
+        for view_name, view in zip(self.EXPECTED_PUBLIC_VIEWS, views, strict=True):
             # Views must always have a materialized SQL query.
             self.assertTrue(view.view_query and view.view_query.strip())
 
@@ -244,8 +245,9 @@ class InternalDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase)
 
         tables = builder.build_tables()
 
-        self.assertEqual({table.table_id for table in tables}, self.EXPECTED_TABLES)
-        for table in tables:
+        # Check that the DIA tables have the geo_point field and clustering.
+        dia_tables = [table for table in tables if table.table_id in _DIA_TABLES]
+        for table in dia_tables:
             geo_point = next(field for field in table.schema if field.name == "geo_point")
             self.assertEqual(geo_point.field_type, "GEOGRAPHY")
             self.assertEqual(geo_point.mode, "REQUIRED")
@@ -260,7 +262,7 @@ class InternalDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase)
         self.assertEqual(len(definitions), 3)
         self.assertEqual(
             {definition.table_name for definition in definitions},
-            self.EXPECTED_TABLES,
+            self.EXPECTED_DIA_TABLES,
         )
         for definition in definitions:
             self.assertEqual(
@@ -283,7 +285,7 @@ class StagingDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
 
         self.assertEqual(
             {table.table_id for table in tables},
-            self.EXPECTED_TABLES | {"updates"},
+            self.EXPECTED_DIA_TABLES | {"updates"},
         )
         for table in tables:
             if table.table_id == "updates":
@@ -712,8 +714,11 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
         public_tables = list(self.client.list_tables(f"{self.project_id}.{self.datasets.public}"))
         staging_tables = list(self.client.list_tables(f"{self.project_id}.{self.datasets.staging}"))
 
-        self.assertEqual(len(internal_tables), 3)
-        self.assertEqual(len(public_tables), 3)
+        # Internal and public datasets should have three DIA tables plus the
+        # five SSO tables.
+        self.assertEqual(len(internal_tables), 8)
+        self.assertEqual(len(public_tables), 8)
+
         # Staging has the three DIA tables plus the raw updates table.
         self.assertEqual(len(staging_tables), 4)
 
