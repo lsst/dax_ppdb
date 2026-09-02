@@ -6,7 +6,7 @@ pyarrow
 pydantic >=2,<3
 pyyaml >= 5.1
 sqlalchemy
-psycopg2
+psycopg2-binary
 cloud-sql-python-connector[pg8000]
 testing.postgresql
 
