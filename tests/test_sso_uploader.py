@@ -225,6 +225,7 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
             pubsub_topic="",
+            append_unique_prefix=False,
         )
         uploader = SSOUploader(config, self.file_map)
         uploader.upload()
@@ -244,6 +245,7 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
             pubsub_topic=_TEST_PUBSUB_TOPIC,
+            append_unique_prefix=False,
         )
         uploader = SSOUploader(config, self.file_map)
 
@@ -281,12 +283,104 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
             pubsub_topic="",
+            append_unique_prefix=False,
         )
         uploader = SSOUploader(config, self.file_map)
         uploader.upload()
 
         with self.assertRaises(SSOUploadError):
             uploader.upload()
+
+
+class SSOUploaderUniquePrefixTestCase(unittest.TestCase):
+    """Test that SSOUploader appends a unique, time-based path segment to
+    object_prefix by default, and that this can be disabled.
+
+    The Google Cloud Storage and Pub/Sub clients are mocked so these tests
+    do not require valid Google credentials.
+    """
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+
+        self.config = make_bigquery_config(test_name="test_sso_uploader_unique_prefix")
+        self.file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
+
+        self.blobs_by_name: dict[str, Mock] = {}
+        bucket = Mock()
+        bucket.blob.side_effect = lambda name: self.blobs_by_name.setdefault(name, Mock())
+        self.bucket = bucket
+
+    def _make_uploader(self, pubsub_topic: str = "", append_unique_prefix: bool = True) -> SSOUploader:
+        config = SSOUploaderConfg(
+            bucket_name=self.config.bucket_name,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+            pubsub_topic=pubsub_topic,
+            append_unique_prefix=append_unique_prefix,
+        )
+        return SSOUploader(config, self.file_map)
+
+    def test_upload_appends_unique_prefix_by_default(self) -> None:
+        """Test that a unique path segment is appended to object_prefix for
+        every uploaded file when append_unique_prefix is enabled (the
+        default).
+        """
+        uploader = self._make_uploader()
+        with (
+            patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls,
+            patch(
+                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                return_value="20260902T000000000",
+            ),
+        ):
+            mock_client_cls.return_value.bucket.return_value = self.bucket
+            uploader.upload()
+
+        expected_prefix = posixpath.join(_TEST_OBJECT_PREFIX, "20260902T000000000")
+        for table_name in SSO_TABLES:
+            object_name = posixpath.join(expected_prefix, f"{table_name}.parquet")
+            self.blobs_by_name[object_name].upload_from_filename.assert_called_once()
+
+    def test_unique_prefix_consistent_across_files_and_message(self) -> None:
+        """Test that all uploaded files and the Pub/Sub message share the
+        same unique prefix generated during a single upload() call.
+        """
+        uploader = self._make_uploader(pubsub_topic=_TEST_PUBSUB_TOPIC)
+        mock_future = Mock()
+        with (
+            patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls,
+            patch(
+                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                return_value="20260902T000000000",
+            ) as mock_generate_prefix,
+            patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+        ):
+            mock_client_cls.return_value.bucket.return_value = self.bucket
+            mock_publisher_cls.return_value.publish.return_value = mock_future
+
+            uploader.upload()
+
+        mock_generate_prefix.assert_called_once()
+        expected_prefix = posixpath.join(_TEST_OBJECT_PREFIX, "20260902T000000000")
+
+        _, published_bytes = mock_publisher_cls.return_value.publish.call_args[0]
+        message = json.loads(published_bytes.decode("utf-8"))
+        self.assertEqual(message["object_prefix"], expected_prefix)
+
+    def test_disable_unique_prefix(self) -> None:
+        """Test that object_prefix is used as-is, with no appended path
+        segment, when append_unique_prefix is disabled.
+        """
+        uploader = self._make_uploader(append_unique_prefix=False)
+        with patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls:
+            mock_client_cls.return_value.bucket.return_value = self.bucket
+            uploader.upload()
+
+        for table_name in SSO_TABLES:
+            object_name = posixpath.join(_TEST_OBJECT_PREFIX, f"{table_name}.parquet")
+            self.blobs_by_name[object_name].upload_from_filename.assert_called_once()
 
 
 class SSOUploaderCleanupTestCase(unittest.TestCase):
@@ -318,6 +412,7 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
             pubsub_topic=pubsub_topic,
+            append_unique_prefix=False,
         )
         return SSOUploader(config, self.file_map)
 

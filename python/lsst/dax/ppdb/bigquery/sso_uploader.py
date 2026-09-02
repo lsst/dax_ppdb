@@ -23,6 +23,7 @@ import json
 import logging
 import posixpath
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
 
@@ -69,6 +70,11 @@ class SSOUploaderConfg(BaseModel):
 
     allow_partial_upload: bool = False
     """Whether to allow partial uploads even if some SSO tables are missing."""
+
+    append_unique_prefix: bool = True
+    """Whether to append a unique, time-based path segment to object_prefix
+    for each upload, preventing silent overwrite of a previous run's data.
+    """
 
     @classmethod
     def from_json_file(cls, json_file: Path) -> Self:
@@ -199,10 +205,19 @@ class SSOUploader:
             uploading a file fails, or if publishing the Pub/Sub message
             fails. Any files uploaded during a failed attempt are removed
             from Google Cloud Storage before the error is raised.
+
+        Notes
+        -----
+        This method may only be called once per SSOUploader instance.
+        Subsequent calls will raise an SSOUploadError.
         """
         if self._uploaded:
             raise SSOUploadError("upload() has already been called on this SSOUploader instance")
         self._uploaded = True
+
+        object_prefix = self.config.object_prefix
+        if self.config.append_unique_prefix:
+            object_prefix = posixpath.join(object_prefix, self._generate_unique_prefix())
 
         client = Client()
         bucket = client.bucket(self.config.bucket_name)
@@ -210,7 +225,7 @@ class SSOUploader:
         uploaded_object_names: list[str] = []
         try:
             for table_name, file_path in self.file_map.items():
-                object_name = posixpath.join(self.config.object_prefix, f"{table_name}.parquet")
+                object_name = posixpath.join(object_prefix, f"{table_name}.parquet")
                 blob = bucket.blob(object_name)
                 try:
                     _LOG.info("Uploading %s to gs://%s/%s", file_path, self.config.bucket_name, object_name)
@@ -225,13 +240,21 @@ class SSOUploader:
                 "Uploaded %d SSO parquet files to gs://%s/%s",
                 len(self.file_map),
                 self.config.bucket_name,
-                self.config.object_prefix,
+                object_prefix,
             )
 
-            self._publish()
+            self._publish(object_prefix)
         except Exception:
             self._cleanup(bucket, uploaded_object_names)
             raise
+
+    @staticmethod
+    def _generate_unique_prefix() -> str:
+        """Generate a unique, lexicographically sortable path segment based
+        on the current UTC time, with millisecond precision.
+        """
+        # Drop last three digits for millisecond precision from microseconds.
+        return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")[:-3]
 
     def _cleanup(self, bucket: Bucket, object_names: list[str]) -> None:
         """Delete previously uploaded objects from Google Cloud Storage
@@ -256,9 +279,14 @@ class SSOUploader:
                     object_name,
                 )
 
-    def _publish(self) -> None:
-        """Publish a message to the specified Pub/Sub topic after successful
+    def _publish(self, object_prefix: str) -> None:
+        """Publish a message to the configured Pub/Sub topic after successful
         upload of SSO files.
+
+        Parameters
+        ----------
+        object_prefix
+            The effective object prefix used for the uploaded files.
 
         Raises
         ------
@@ -271,7 +299,7 @@ class SSOUploader:
 
         message_data = {
             "bucket": self.config.bucket_name,
-            "object_prefix": self.config.object_prefix,
+            "object_prefix": object_prefix,
             "uploaded_tables": list(self.file_map.keys()),
             "dataset_id": self.config.dataset_id,
         }
@@ -279,12 +307,18 @@ class SSOUploader:
         try:
             project_id = self.config.project_id
             if project_id is None:
+                # Get the project ID from the default credentials if not
+                # provided in the config.
                 _, project_id = google.auth.default()
-            assert project_id is not None, "Failed to determine Google Cloud project ID"
+            if project_id is None:
+                # If the project ID still can't be determined, raise an error.
+                raise SSOUploadError(
+                    "Google Cloud project ID could not be determined from the config or default credentials"
+                )
             publisher = pubsub_v1.PublisherClient()
             topic_path = publisher.topic_path(project_id, self.config.pubsub_topic)
             future = publisher.publish(topic_path, json.dumps(message_data).encode("utf-8"))
-            future.result()  # Wait for the publish call to complete
+            future.result()  # Wait for the publish call to complete.
             _LOG.info("Published message to Pub/Sub topic %s: %s", self.config.pubsub_topic, message_data)
         except (GoogleAPIError, GoogleAuthError) as e:
             raise SSOUploadError(
