@@ -35,6 +35,8 @@ from google.cloud import pubsub_v1
 from google.cloud.storage import Bucket, Client
 from pydantic import BaseModel
 
+from lsst.resources import ResourcePath, ResourcePathExpression
+
 from .ppdb_bigquery_config import Datasets
 from .schema.constants import SSO_TABLES
 
@@ -58,7 +60,7 @@ class SSOUploaderConfg(BaseModel):
     object_prefix: str = "sso"
     """Prefix for the uploaded objects in the bucket."""
 
-    pubsub_topic: str = "load-sso-topic"
+    pubsub_topic: str | None = "load-sso-topic"
     """Pub/Sub topic to publish a message to after successful upload."""
 
     project_id: str | None = None
@@ -78,13 +80,13 @@ class SSOUploaderConfg(BaseModel):
     """
 
     @classmethod
-    def from_yaml_file(cls, yaml_file: Path) -> Self:
-        """Load configuration from a YAML file.
+    def from_uri(cls, uri: ResourcePathExpression) -> Self:
+        """Load configuration from a URI.
 
         Parameters
         ----------
-        yaml_file
-            Path to the YAML configuration file.
+        uri
+            URI of the YAML configuration file.
 
         Returns
         -------
@@ -92,8 +94,7 @@ class SSOUploaderConfg(BaseModel):
             An instance of the configuration class populated with values from
             the YAML file.
         """
-        with open(yaml_file) as f:
-            config_data = yaml.safe_load(f)
+        config_data = yaml.safe_load(ResourcePath(uri).read())
         return cls(**config_data)
 
 
@@ -111,11 +112,11 @@ class SSOUploader:
 
     def __init__(
         self,
-        config: Path | SSOUploaderConfg,
+        config: ResourcePathExpression | SSOUploaderConfg,
         file_map: Mapping[str, Path],
     ) -> None:
-        if isinstance(config, Path):
-            config = SSOUploaderConfg.from_yaml_file(config)
+        if not isinstance(config, SSOUploaderConfg):
+            config = SSOUploaderConfg.from_uri(config)
         self._file_map = file_map
         self._config = config
         self._uploaded = False
