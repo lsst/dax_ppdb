@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from .ppdb_bigquery_config import Datasets
 from .schema.constants import SSO_TABLES
 
-__all__ = ["SSOUploadError", "SSOUploader"]
+__all__ = ["SSOUploadError", "SSOUploader", "SSOUploaderConfg"]
 
 _LOG = logging.getLogger(__name__)
 
