@@ -47,6 +47,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     _create_sql_subcommand(subparsers)
     _create_bigquery(subparsers)
     _create_datasets(subparsers)
+    _upload_sso_data(subparsers)
 
     args = parser.parse_args(argv)
     log_cli.process_args(args)
@@ -112,3 +113,17 @@ def _create_datasets(subparsers: argparse._SubParsersAction) -> None:
     )
 
     parser.set_defaults(method=scripts.create_datasets)
+
+
+def _upload_sso_data(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "upload-sso-data", help="Upload SSO parquet files to Google Cloud Storage and trigger BigQuery load."
+    )
+    parser.add_argument("config", help="URI to the YAML configuration file for the SSO uploader.")
+    parser.add_argument(
+        "--directory",
+        help="Directory containing the SSO parquet files.",
+        metavar="DIRECTORY",
+        default=".",
+    )
+    parser.set_defaults(method=scripts.upload_sso_data)

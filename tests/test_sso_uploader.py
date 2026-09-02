@@ -20,6 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import json
+import os
 import posixpath
 import tempfile
 import unittest
@@ -33,6 +34,7 @@ from google.api_core.exceptions import GoogleAPIError
 
 from lsst.dax.ppdb.bigquery.schema.constants import SSO_TABLES
 from lsst.dax.ppdb.bigquery.sso_uploader import SSOUploader, SSOUploaderConfg, SSOUploadError
+from lsst.dax.ppdb.cli import ppdb_cli
 from lsst.dax.ppdb.tests._bigquery import (
     create_bucket,
     delete_bucket,
@@ -149,16 +151,16 @@ class SSOUploaderConfgTestCase(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
 
-    def test_from_yaml_file(self) -> None:
+    def test_from_uri(self) -> None:
         """Test that configuration values are correctly loaded from a YAML
-        file.
+        file referenced by URI.
         """
         yaml_path = Path(self.tempdir.name) / "config.yaml"
         yaml_path.write_text(
             yaml.safe_dump({"bucket_name": _TEST_BUCKET_NAME, "object_prefix": _TEST_OBJECT_PREFIX})
         )
 
-        config = SSOUploaderConfg.from_yaml_file(yaml_path)
+        config = SSOUploaderConfg.from_uri(yaml_path)
 
         self.assertEqual(config.bucket_name, _TEST_BUCKET_NAME)
         self.assertEqual(config.object_prefix, _TEST_OBJECT_PREFIX)
@@ -498,6 +500,47 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
 
         self.assertIn("Upload failed", str(cm.exception.__cause__))
         self.blobs_by_name[self.object_names[0]].delete.assert_called_once()
+
+
+@unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
+class UploadSSODataCLITestCase(unittest.TestCase):
+    """Integration test for the ``ppdb-cli upload-sso-data`` command."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+
+        self.config = make_bigquery_config(test_name="test_cli_upload_sso_data")
+        self.bucket = create_bucket(self.config)
+        self.addCleanup(delete_bucket, self.bucket)
+
+        _make_file_map(Path(self.tempdir.name), SSO_TABLES)
+
+        self.config_path = os.path.join(self.tempdir.name, "sso_uploader_config.yaml")
+        with open(self.config_path, "w") as config_file:
+            yaml.dump(
+                {
+                    "bucket_name": self.config.bucket_name,
+                    "object_prefix": _TEST_OBJECT_PREFIX,
+                    # A null Pub/Sub topic disables the publish step, which is
+                    # not needed to verify the upload itself.
+                    "pubsub_topic": None,
+                    "append_unique_prefix": False,
+                },
+                config_file,
+            )
+
+    def test_upload_sso_data(self) -> None:
+        """Test that ``ppdb-cli upload-sso-data`` uploads SSO parquet files
+        from a directory to Google Cloud Storage.
+        """
+        argv = ["upload-sso-data", self.config_path, "--directory", self.tempdir.name]
+
+        ppdb_cli.main(argv)
+
+        for table_name in SSO_TABLES:
+            blob = self.bucket.blob(f"{_TEST_OBJECT_PREFIX}/{table_name}.parquet")
+            self.assertTrue(blob.exists(), f"Expected {table_name}.parquet to be uploaded")
 
 
 if __name__ == "__main__":

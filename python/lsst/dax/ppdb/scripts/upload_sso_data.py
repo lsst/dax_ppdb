@@ -1,4 +1,4 @@
-# This file is part of dax_ppdb
+# This file is part of dax_ppdb.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -19,11 +19,26 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from .create_bigquery import create_bigquery
-from .create_datasets import create_datasets
-from .create_sql import create_sql
-from .replication_list_chunks_apdb import replication_list_chunks_apdb
-from .replication_list_chunks_ppdb import replication_list_chunks_ppdb
-from .replication_run import replication_run
-from .upload_chunks_run import upload_chunks_run
-from .upload_sso_data import upload_sso_data
+import logging
+from pathlib import Path
+
+from ..bigquery.sso_uploader import SSOUploader, SSOUploaderConfg
+
+_LOG = logging.getLogger(__name__)
+
+
+def upload_sso_data(config: str, directory: str) -> None:
+    """Upload SSO parquet files from a directory to Google Cloud Storage.
+
+    Parameters
+    ----------
+    config
+        URI to the YAML configuration file for the SSO uploader.
+    directory
+        Path to the directory containing the SSO parquet files.
+    """
+    sso_config = SSOUploaderConfg.from_uri(config)
+    uploader = SSOUploader.from_directory(Path(directory), sso_config)
+    _LOG.info("Starting SSO data upload from directory: %s", directory)
+    uploader.upload()
+    _LOG.info("SSO data upload complete.")
