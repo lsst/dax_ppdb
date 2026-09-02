@@ -24,13 +24,16 @@ import logging
 import posixpath
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Self
 
 import google.auth
 from google.api_core.exceptions import GoogleAPIError
 from google.auth.exceptions import GoogleAuthError
 from google.cloud import pubsub_v1
 from google.cloud.storage import Bucket, Client
+from pydantic import BaseModel
 
+from .ppdb_bigquery_config import Datasets
 from .schema.constants import SSO_TABLES
 
 __all__ = ["SSOUploadError", "SSOUploader"]
@@ -44,43 +47,84 @@ class SSOUploadError(RuntimeError):
     """
 
 
+class SSOUploaderConfg(BaseModel):
+    """Configuration for the SSOUploader class."""
+
+    bucket_name: str
+    """Target bucket for uploading the SSO parquet files."""
+
+    object_prefix: str = "sso"
+    """Prefix for the uploaded objects in the bucket."""
+
+    pubsub_topic: str = "load-sso-topic"
+    """Pub/Sub topic to publish a message to after successful upload."""
+
+    project_id: str | None = None
+    """Google Cloud project ID. If not provided, the project ID from the
+    default credentials will be used.
+    """
+
+    dataset_id: str = Datasets().internal
+    """BigQuery dataset ID associated with the uploaded SSO files."""
+
+    allow_partial_upload: bool = False
+    """Whether to allow partial uploads even if some SSO tables are missing."""
+
+    @classmethod
+    def from_json_file(cls, json_file: Path) -> Self:
+        """Load configuration from a JSON file.
+
+        Parameters
+        ----------
+        json_file
+            Path to the JSON configuration file.
+
+        Returns
+        -------
+        Self
+            An instance of the configuration class populated with values from
+            the JSON file.
+        """
+        with open(json_file) as f:
+            config_data = json.load(f)
+        return cls(**config_data)
+
+
 class SSOUploader:
     """Class to upload SSO data to Google Cloud Storage for ingest into
     BigQuery.
 
     Parameters
     ----------
+    config
+        Configuration for the SSO uploader.
     file_map
         A mapping of SSO table names to the corresponding parquet file paths.
-    bucket_name
-        The target Google Cloud Storage bucket for uploading the parquet files.
-    object_prefix
-        The prefix to use for the uploaded objects in the bucket.
-    allow_partial_upload
-        Whether to allow partial uploads even if some SSO tables are missing.
-    pubsub_topic
-        The Pub/Sub topic to publish a message to after successful upload. This
-        may be ommitted if no message is to be published.
     """
 
     def __init__(
         self,
+        config: Path | SSOUploaderConfg,
         file_map: Mapping[str, Path],
-        bucket_name: str,
-        object_prefix: str,
-        dataset_id: str,
-        allow_partial_upload: bool = False,
-        pubsub_topic: str | None = None,
     ) -> None:
+        if isinstance(config, Path):
+            config = SSOUploaderConfg.from_json_file(config)
+        self._file_map = file_map
+        self._config = config
         try:
-            self._check_file_map(file_map, allow_partial_upload=allow_partial_upload)
+            self._check_file_map(self.file_map, allow_partial_upload=config.allow_partial_upload)
         except ValueError as e:
             raise SSOUploadError(f"Invalid file_map: {e}") from e
-        self.file_map = file_map
-        self.bucket_name = bucket_name
-        self.object_prefix = object_prefix
-        self.pubsub_topic = pubsub_topic
-        self.dataset_id = dataset_id
+
+    @property
+    def config(self) -> SSOUploaderConfg:
+        """Return the configuration for the SSO uploader."""
+        return self._config
+
+    @property
+    def file_map(self) -> Mapping[str, Path]:
+        """Return the mapping of SSO table names to parquet file paths."""
+        return self._file_map
 
     @classmethod
     def _check_file_map(cls, file_map: Mapping[str, Path], allow_partial_upload: bool = False) -> None:
@@ -130,27 +174,27 @@ class SSOUploader:
             from Google Cloud Storage before the error is raised.
         """
         client = Client()
-        bucket = client.bucket(self.bucket_name)
+        bucket = client.bucket(self.config.bucket_name)
 
         uploaded_object_names: list[str] = []
         try:
             for table_name, file_path in self.file_map.items():
-                object_name = posixpath.join(self.object_prefix, f"{table_name}.parquet")
+                object_name = posixpath.join(self.config.object_prefix, f"{table_name}.parquet")
                 blob = bucket.blob(object_name)
                 try:
-                    _LOG.info("Uploading %s to gs://%s/%s", file_path, self.bucket_name, object_name)
+                    _LOG.info("Uploading %s to gs://%s/%s", file_path, self.config.bucket_name, object_name)
                     blob.upload_from_filename(str(file_path))
                 except (GoogleAPIError, OSError) as e:
                     raise SSOUploadError(
-                        f"Failed to upload {file_path} to gs://{self.bucket_name}/{object_name}"
+                        f"Failed to upload {file_path} to gs://{self.config.bucket_name}/{object_name}"
                     ) from e
                 uploaded_object_names.append(object_name)
 
             _LOG.info(
                 "Uploaded %d SSO parquet files to gs://%s/%s",
                 len(self.file_map),
-                self.bucket_name,
-                self.object_prefix,
+                self.config.bucket_name,
+                self.config.object_prefix,
             )
 
             self._publish()
@@ -173,11 +217,11 @@ class SSOUploader:
         for object_name in object_names:
             try:
                 bucket.blob(object_name).delete()
-                _LOG.info("Deleted gs://%s/%s during cleanup", self.bucket_name, object_name)
+                _LOG.info("Deleted gs://%s/%s during cleanup", self.config.bucket_name, object_name)
             except GoogleAPIError:
                 _LOG.exception(
                     "Failed to delete gs://%s/%s during cleanup; manual removal may be required",
-                    self.bucket_name,
+                    self.config.bucket_name,
                     object_name,
                 )
 
@@ -190,26 +234,26 @@ class SSOUploader:
         SSOUploadError
             Raised if publishing the message fails.
         """
-        if not self.pubsub_topic:
+        if not self.config.pubsub_topic:
             _LOG.warning("No Pub/Sub topic specified; skipping publish step.")
             return
 
         message_data = {
-            "bucket": self.bucket_name,
-            "object_prefix": self.object_prefix,
+            "bucket": self.config.bucket_name,
+            "object_prefix": self.config.object_prefix,
             "uploaded_tables": list(self.file_map.keys()),
-            "dataset_id": self.dataset_id,
+            "dataset_id": self.config.dataset_id,
         }
 
         try:
             _, project_id = google.auth.default()
             assert project_id is not None, "Failed to determine Google Cloud project ID"
             publisher = pubsub_v1.PublisherClient()
-            topic_path = publisher.topic_path(project_id, self.pubsub_topic)
+            topic_path = publisher.topic_path(project_id, self.config.pubsub_topic)
             future = publisher.publish(topic_path, json.dumps(message_data).encode("utf-8"))
             future.result()  # Wait for the publish call to complete
-            _LOG.info("Published message to Pub/Sub topic %s: %s", self.pubsub_topic, message_data)
+            _LOG.info("Published message to Pub/Sub topic %s: %s", self.config.pubsub_topic, message_data)
         except (GoogleAPIError, GoogleAuthError) as e:
             raise SSOUploadError(
-                f"Failed to publish message to Pub/Sub topic {self.pubsub_topic}: {message_data}"
+                f"Failed to publish message to Pub/Sub topic {self.config.pubsub_topic}: {message_data}"
             ) from e

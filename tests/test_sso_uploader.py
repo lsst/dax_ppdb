@@ -31,7 +31,7 @@ import google.auth
 from google.api_core.exceptions import GoogleAPIError
 
 from lsst.dax.ppdb.bigquery.schema.constants import SSO_TABLES
-from lsst.dax.ppdb.bigquery.sso_uploader import SSOUploader, SSOUploadError
+from lsst.dax.ppdb.bigquery.sso_uploader import SSOUploader, SSOUploaderConfg, SSOUploadError
 from lsst.dax.ppdb.tests._bigquery import (
     create_bucket,
     delete_bucket,
@@ -76,8 +76,13 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map["NotATable"] = Path(self.tempdir.name) / "NotATable.parquet"
         file_map["NotATable"].touch()
+        config = SSOUploaderConfg(
+            bucket_name=_TEST_BUCKET_NAME,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+        )
         with self.assertRaises(SSOUploadError):
-            SSOUploader(file_map, _TEST_BUCKET_NAME, _TEST_OBJECT_PREFIX, self.config.datasets.internal)
+            SSOUploader(config, file_map)
 
     def test_missing_file(self) -> None:
         """Test that a file_map pointing at a nonexistent file is
@@ -85,8 +90,13 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map[SSO_TABLES[0]] = Path(self.tempdir.name) / "does_not_exist.parquet"
+        config = SSOUploaderConfg(
+            bucket_name=_TEST_BUCKET_NAME,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+        )
         with self.assertRaises(SSOUploadError):
-            SSOUploader(file_map, _TEST_BUCKET_NAME, _TEST_OBJECT_PREFIX, self.config.datasets.internal)
+            SSOUploader(config, file_map)
 
     def test_duplicate_paths(self) -> None:
         """Test that a file_map with two tables pointing at the same file
@@ -94,36 +104,41 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map[SSO_TABLES[1]] = file_map[SSO_TABLES[0]]
+        config = SSOUploaderConfg(
+            bucket_name=_TEST_BUCKET_NAME,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+        )
         with self.assertRaises(SSOUploadError):
-            SSOUploader(file_map, _TEST_BUCKET_NAME, _TEST_OBJECT_PREFIX, self.config.datasets.internal)
+            SSOUploader(config, file_map)
 
     def test_missing_tables_rejected_when_partial_upload_disallowed(self) -> None:
         """Test that a file_map missing some SSO tables is rejected when
         allow_partial_upload is False.
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES[:-1])
+        config = SSOUploaderConfg(
+            bucket_name=_TEST_BUCKET_NAME,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+            allow_partial_upload=False,
+        )
         with self.assertRaises(SSOUploadError):
-            SSOUploader(
-                file_map,
-                _TEST_BUCKET_NAME,
-                _TEST_OBJECT_PREFIX,
-                self.config.datasets.internal,
-                allow_partial_upload=False,
-            )
+            SSOUploader(config, file_map)
 
     def test_missing_tables_allowed_when_partial_upload_allowed(self) -> None:
         """Test that a file_map missing some SSO tables is accepted when
         allow_partial_upload is True.
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES[:-1])
-        uploader = SSOUploader(
-            file_map,
-            _TEST_BUCKET_NAME,
-            _TEST_OBJECT_PREFIX,
-            self.config.datasets.internal,
+        config = SSOUploaderConfg(
+            bucket_name=_TEST_BUCKET_NAME,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
             allow_partial_upload=True,
         )
-        self.assertEqual(uploader.file_map, file_map)
+        uploader = SSOUploader(config, file_map)
+        self.assertEqual(uploader._file_map, file_map)
 
 
 @unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
@@ -146,9 +161,13 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
         """Test that files are uploaded to GCS and that the publish step is
         skipped when no pubsub_topic is configured.
         """
-        uploader = SSOUploader(
-            self.file_map, self.config.bucket_name, _TEST_OBJECT_PREFIX, self.config.datasets.internal
+        config = SSOUploaderConfg(
+            bucket_name=self.config.bucket_name,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+            pubsub_topic="",
         )
+        uploader = SSOUploader(config, self.file_map)
         uploader.upload()
 
         for table_name in SSO_TABLES:
@@ -161,13 +180,13 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
 
         The Pub/Sub publisher is mocked to avoid depending on a real topic.
         """
-        uploader = SSOUploader(
-            self.file_map,
-            self.config.bucket_name,
-            _TEST_OBJECT_PREFIX,
-            self.config.datasets.internal,
+        config = SSOUploaderConfg(
+            bucket_name=self.config.bucket_name,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
             pubsub_topic=_TEST_PUBSUB_TOPIC,
         )
+        uploader = SSOUploader(config, self.file_map)
 
         _, project_id = google.auth.default()
         expected_topic_path = f"projects/{project_id}/topics/{_TEST_PUBSUB_TOPIC}"
@@ -218,14 +237,14 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
         bucket.blob.side_effect = lambda name: self.blobs_by_name[name]
         self.bucket = bucket
 
-    def _make_uploader(self, pubsub_topic: str | None = None) -> SSOUploader:
-        return SSOUploader(
-            self.file_map,
-            self.config.bucket_name,
-            _TEST_OBJECT_PREFIX,
-            self.config.datasets.internal,
+    def _make_uploader(self, pubsub_topic: str = "") -> SSOUploader:
+        config = SSOUploaderConfg(
+            bucket_name=self.config.bucket_name,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
             pubsub_topic=pubsub_topic,
         )
+        return SSOUploader(config, self.file_map)
 
     def test_upload_failure_cleans_up_previously_uploaded_files(self) -> None:
         """Test that files uploaded before an upload failure are deleted
