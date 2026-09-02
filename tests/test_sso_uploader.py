@@ -28,6 +28,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import google.auth
+import yaml
 from google.api_core.exceptions import GoogleAPIError
 
 from lsst.dax.ppdb.bigquery.schema.constants import SSO_TABLES
@@ -139,6 +140,28 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         )
         uploader = SSOUploader(config, file_map)
         self.assertEqual(uploader._file_map, file_map)
+
+
+class SSOUploaderConfgTestCase(unittest.TestCase):
+    """Test loading SSOUploaderConfg from a YAML file."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+
+    def test_from_yaml_file(self) -> None:
+        """Test that configuration values are correctly loaded from a YAML
+        file.
+        """
+        yaml_path = Path(self.tempdir.name) / "config.yaml"
+        yaml_path.write_text(
+            yaml.safe_dump({"bucket_name": _TEST_BUCKET_NAME, "object_prefix": _TEST_OBJECT_PREFIX})
+        )
+
+        config = SSOUploaderConfg.from_yaml_file(yaml_path)
+
+        self.assertEqual(config.bucket_name, _TEST_BUCKET_NAME)
+        self.assertEqual(config.object_prefix, _TEST_OBJECT_PREFIX)
 
 
 class SSOUploaderFromDirectoryTestCase(unittest.TestCase):

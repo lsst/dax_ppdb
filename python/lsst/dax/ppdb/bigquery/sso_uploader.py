@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Self
 
 import google.auth
+import yaml
 from google.api_core.exceptions import GoogleAPIError
 from google.auth.exceptions import GoogleAuthError
 from google.cloud import pubsub_v1
@@ -77,22 +78,22 @@ class SSOUploaderConfg(BaseModel):
     """
 
     @classmethod
-    def from_json_file(cls, json_file: Path) -> Self:
-        """Load configuration from a JSON file.
+    def from_yaml_file(cls, yaml_file: Path) -> Self:
+        """Load configuration from a YAML file.
 
         Parameters
         ----------
-        json_file
-            Path to the JSON configuration file.
+        yaml_file
+            Path to the YAML configuration file.
 
         Returns
         -------
         Self
             An instance of the configuration class populated with values from
-            the JSON file.
+            the YAML file.
         """
-        with open(json_file) as f:
-            config_data = json.load(f)
+        with open(yaml_file) as f:
+            config_data = yaml.safe_load(f)
         return cls(**config_data)
 
 
@@ -114,7 +115,7 @@ class SSOUploader:
         file_map: Mapping[str, Path],
     ) -> None:
         if isinstance(config, Path):
-            config = SSOUploaderConfg.from_json_file(config)
+            config = SSOUploaderConfg.from_yaml_file(config)
         self._file_map = file_map
         self._config = config
         self._uploaded = False
