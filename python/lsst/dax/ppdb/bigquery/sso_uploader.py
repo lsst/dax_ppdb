@@ -116,6 +116,31 @@ class SSOUploader:
         except ValueError as e:
             raise SSOUploadError(f"Invalid file_map: {e}") from e
 
+    @classmethod
+    def from_directory(
+        cls,
+        directory: Path,
+        config: SSOUploaderConfg,
+    ) -> Self:
+        """Build an SSOUploader by scanning a directory for parquet files
+        named `{table_name}.parquet` for each table in SSO_TABLES.
+
+        Parameters
+        ----------
+        directory
+            Path to the directory containing the parquet files.
+        config
+            Configuration for the SSO uploader.
+        """
+        if not directory.is_dir():
+            raise SSOUploadError(f"Provided path is not a directory: {directory}")
+        file_map = {
+            table_name: path
+            for table_name in SSO_TABLES
+            if (path := directory / f"{table_name}.parquet").is_file()
+        }
+        return cls(config, file_map)
+
     @property
     def config(self) -> SSOUploaderConfg:
         """Return the configuration for the SSO uploader."""
@@ -246,7 +271,9 @@ class SSOUploader:
         }
 
         try:
-            _, project_id = google.auth.default()
+            project_id = self.config.project_id
+            if project_id is None:
+                _, project_id = google.auth.default()
             assert project_id is not None, "Failed to determine Google Cloud project ID"
             publisher = pubsub_v1.PublisherClient()
             topic_path = publisher.topic_path(project_id, self.config.pubsub_topic)

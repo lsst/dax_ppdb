@@ -141,6 +141,65 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         self.assertEqual(uploader._file_map, file_map)
 
 
+class SSOUploaderFromDirectoryTestCase(unittest.TestCase):
+    """Test that SSOUploader.from_directory() correctly scans a directory
+    for conventionally named parquet files.
+    """
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+
+        self.config = make_bigquery_config(test_name="test_sso_uploader_from_directory")
+
+    def test_scans_directory_for_all_tables(self) -> None:
+        """Test that all SSO tables are found and unrelated files are
+        ignored when scanning the directory.
+        """
+        directory = Path(self.tempdir.name)
+        file_map = _make_file_map(directory, SSO_TABLES)
+        (directory / "not_a_table.parquet").touch()
+        (directory / "README.txt").touch()
+        config = SSOUploaderConfg(
+            bucket_name=_TEST_BUCKET_NAME,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+        )
+
+        uploader = SSOUploader.from_directory(directory, config)
+
+        self.assertEqual(uploader.file_map, file_map)
+
+    def test_missing_tables_rejected_when_partial_upload_disallowed(self) -> None:
+        """Test that a directory missing some SSO table files is rejected
+        when allow_partial_upload is False.
+        """
+        directory = Path(self.tempdir.name)
+        _make_file_map(directory, SSO_TABLES[:-1])
+        config = SSOUploaderConfg(
+            bucket_name=_TEST_BUCKET_NAME,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+            allow_partial_upload=False,
+        )
+
+        with self.assertRaises(SSOUploadError):
+            SSOUploader.from_directory(directory, config)
+
+    def test_rejects_non_directory_path(self) -> None:
+        """Test that a non-directory path is rejected."""
+        not_a_directory = Path(self.tempdir.name) / "not_a_directory.parquet"
+        not_a_directory.touch()
+        config = SSOUploaderConfg(
+            bucket_name=_TEST_BUCKET_NAME,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+        )
+
+        with self.assertRaises(SSOUploadError):
+            SSOUploader.from_directory(not_a_directory, config)
+
+
 @unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
 class SSOUploaderUploadTestCase(unittest.TestCase):
     """Test that SSOUploader correctly uploads SSO parquet files to Google
