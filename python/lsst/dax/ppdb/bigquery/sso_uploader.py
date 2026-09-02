@@ -111,6 +111,7 @@ class SSOUploader:
             config = SSOUploaderConfg.from_json_file(config)
         self._file_map = file_map
         self._config = config
+        self._uploaded = False
         try:
             self._check_file_map(self.file_map, allow_partial_upload=config.allow_partial_upload)
         except ValueError as e:
@@ -194,10 +195,15 @@ class SSOUploader:
         Raises
         ------
         SSOUploadError
-            Raised if uploading a file or publishing the Pub/Sub message
-            fails. Any files uploaded during the failed attempt are removed
+            Raised if this uploader instance has already run once, if
+            uploading a file fails, or if publishing the Pub/Sub message
+            fails. Any files uploaded during a failed attempt are removed
             from Google Cloud Storage before the error is raised.
         """
+        if self._uploaded:
+            raise SSOUploadError("upload() has already been called on this SSOUploader instance")
+        self._uploaded = True
+
         client = Client()
         bucket = client.bucket(self.config.bucket_name)
 

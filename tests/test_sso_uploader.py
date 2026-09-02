@@ -272,6 +272,22 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
         self.assertEqual(message["object_prefix"], _TEST_OBJECT_PREFIX)
         self.assertEqual(set(message["uploaded_tables"]), set(SSO_TABLES))
 
+    def test_upload_raises_if_called_twice(self) -> None:
+        """Test that calling upload() a second time on the same instance
+        raises, since each instance is meant to be used for a single upload.
+        """
+        config = SSOUploaderConfg(
+            bucket_name=self.config.bucket_name,
+            object_prefix=_TEST_OBJECT_PREFIX,
+            dataset_id=self.config.datasets.internal,
+            pubsub_topic="",
+        )
+        uploader = SSOUploader(config, self.file_map)
+        uploader.upload()
+
+        with self.assertRaises(SSOUploadError):
+            uploader.upload()
+
 
 class SSOUploaderCleanupTestCase(unittest.TestCase):
     """Test that SSOUploader deletes previously uploaded files from Google
@@ -310,7 +326,9 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
         from GCS, and that files after the failure are never attempted.
         """
         failing_object_name = self.object_names[1]
-        self.blobs_by_name[failing_object_name].upload_from_filename.side_effect = GoogleAPIError("boom")
+        self.blobs_by_name[failing_object_name].upload_from_filename.side_effect = GoogleAPIError(
+            "Upload failed"
+        )
 
         uploader = self._make_uploader()
         with patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls:
@@ -335,7 +353,7 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
             patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
         ):
             mock_client_cls.return_value.bucket.return_value = self.bucket
-            mock_publisher_cls.return_value.publish.side_effect = GoogleAPIError("boom")
+            mock_publisher_cls.return_value.publish.side_effect = GoogleAPIError("Publish failed")
 
             with self.assertRaises(SSOUploadError):
                 uploader.upload()
@@ -350,9 +368,9 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
         """
         failing_object_name = self.object_names[1]
         self.blobs_by_name[failing_object_name].upload_from_filename.side_effect = GoogleAPIError(
-            "upload boom"
+            "Upload failed"
         )
-        self.blobs_by_name[self.object_names[0]].delete.side_effect = GoogleAPIError("delete boom")
+        self.blobs_by_name[self.object_names[0]].delete.side_effect = GoogleAPIError("Delete failed")
 
         uploader = self._make_uploader()
         with patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls:
@@ -360,7 +378,7 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
             with self.assertRaises(SSOUploadError) as cm:
                 uploader.upload()
 
-        self.assertIn("upload boom", str(cm.exception.__cause__))
+        self.assertIn("Upload failed", str(cm.exception.__cause__))
         self.blobs_by_name[self.object_names[0]].delete.assert_called_once()
 
 
