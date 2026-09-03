@@ -174,6 +174,9 @@ class SSOUploader:
             Whether to allow partial uploads even if some SSO tables are
             missing.
         """
+        if not file_map:
+            raise ValueError("file_map is empty; no SSO tables to upload.")
+
         # Check that table names are valid and point to existing parquet files.
         for table_name, parquet_path in file_map.items():
             if table_name not in SSO_TABLES:
