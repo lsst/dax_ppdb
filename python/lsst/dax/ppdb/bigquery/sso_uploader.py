@@ -40,7 +40,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 from .ppdb_bigquery_config import Datasets
 from .schema.constants import SSO_TABLES
 
-__all__ = ["SSOUploadError", "SSOUploader", "SSOUploaderConfg"]
+__all__ = ["SSOUploadError", "SSOUploader", "SSOUploaderConfig"]
 
 _LOG = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class SSOUploadError(RuntimeError):
     """
 
 
-class SSOUploaderConfg(BaseModel):
+class SSOUploaderConfig(BaseModel):
     """Configuration for the SSOUploader class."""
 
     bucket_name: str
@@ -112,11 +112,11 @@ class SSOUploader:
 
     def __init__(
         self,
-        config: ResourcePathExpression | SSOUploaderConfg,
+        config: ResourcePathExpression | SSOUploaderConfig,
         file_map: Mapping[str, Path],
     ) -> None:
-        if not isinstance(config, SSOUploaderConfg):
-            config = SSOUploaderConfg.from_uri(config)
+        if not isinstance(config, SSOUploaderConfig):
+            config = SSOUploaderConfig.from_uri(config)
         self._file_map = file_map
         self._config = config
         self._uploaded = False
@@ -129,7 +129,7 @@ class SSOUploader:
     def from_directory(
         cls,
         directory: Path,
-        config: SSOUploaderConfg,
+        config: SSOUploaderConfig,
     ) -> Self:
         """Build an SSOUploader by scanning a directory for parquet files
         named `{table_name}.parquet` for each table in SSO_TABLES.
@@ -151,7 +151,7 @@ class SSOUploader:
         return cls(config, file_map)
 
     @property
-    def config(self) -> SSOUploaderConfg:
+    def config(self) -> SSOUploaderConfig:
         """Return the configuration for the SSO uploader."""
         return self._config
 
