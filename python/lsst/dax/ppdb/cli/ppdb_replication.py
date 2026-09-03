@@ -23,6 +23,17 @@ from __future__ import annotations
 
 __all__ = ["main"]
 
+import os
+
+import sentry_sdk
+
+# Initialize Sentry (https://sentry.io) error reporting. Configuration should
+# be done with environment variables. Configuration options and their env vars
+# are described here:
+# https://docs.sentry.io/platforms/python/configuration/options/
+if os.environ.get("SENTRY_DSN"):
+    sentry_sdk.init()
+
 import argparse
 
 from lsst.dax.apdb import monitor
