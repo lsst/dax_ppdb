@@ -33,7 +33,7 @@ import yaml
 from google.api_core.exceptions import GoogleAPIError
 
 from lsst.dax.ppdb.bigquery.schema.constants import SSO_TABLES
-from lsst.dax.ppdb.bigquery.sso_uploader import SSOUploader, SSOUploaderConfg, SSOUploadError
+from lsst.dax.ppdb.bigquery.sso_uploader import SSOUploader, SSOUploaderConfig, SSOUploadError
 from lsst.dax.ppdb.cli import ppdb_cli
 from lsst.dax.ppdb.tests._bigquery import (
     create_bucket,
@@ -79,7 +79,7 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map["NotATable"] = Path(self.tempdir.name) / "NotATable.parquet"
         file_map["NotATable"].touch()
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -93,7 +93,7 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map[SSO_TABLES[0]] = Path(self.tempdir.name) / "does_not_exist.parquet"
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -107,7 +107,7 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map[SSO_TABLES[1]] = file_map[SSO_TABLES[0]]
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -120,7 +120,7 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         allow_partial_upload is False.
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES[:-1])
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -134,7 +134,7 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         allow_partial_upload is True.
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES[:-1])
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -144,8 +144,8 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         self.assertEqual(uploader._file_map, file_map)
 
 
-class SSOUploaderConfgTestCase(unittest.TestCase):
-    """Test loading SSOUploaderConfg from a YAML file."""
+class SSOUploaderConfigTestCase(unittest.TestCase):
+    """Test loading SSOUploaderConfig from a YAML file."""
 
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -160,7 +160,7 @@ class SSOUploaderConfgTestCase(unittest.TestCase):
             yaml.safe_dump({"bucket_name": _TEST_BUCKET_NAME, "object_prefix": _TEST_OBJECT_PREFIX})
         )
 
-        config = SSOUploaderConfg.from_uri(yaml_path)
+        config = SSOUploaderConfig.from_uri(yaml_path)
 
         self.assertEqual(config.bucket_name, _TEST_BUCKET_NAME)
         self.assertEqual(config.object_prefix, _TEST_OBJECT_PREFIX)
@@ -185,7 +185,7 @@ class SSOUploaderFromDirectoryTestCase(unittest.TestCase):
         file_map = _make_file_map(directory, SSO_TABLES)
         (directory / "not_a_table.parquet").touch()
         (directory / "README.txt").touch()
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -201,7 +201,7 @@ class SSOUploaderFromDirectoryTestCase(unittest.TestCase):
         """
         directory = Path(self.tempdir.name)
         _make_file_map(directory, SSO_TABLES[:-1])
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -215,7 +215,7 @@ class SSOUploaderFromDirectoryTestCase(unittest.TestCase):
         """Test that a non-directory path is rejected."""
         not_a_directory = Path(self.tempdir.name) / "not_a_directory.parquet"
         not_a_directory.touch()
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -245,7 +245,7 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
         """Test that files are uploaded to GCS and that the publish step is
         skipped when no pubsub_topic is configured.
         """
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=self.config.bucket_name,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -265,7 +265,7 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
 
         The Pub/Sub publisher is mocked to avoid depending on a real topic.
         """
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=self.config.bucket_name,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -303,7 +303,7 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
         """Test that calling upload() a second time on the same instance
         raises, since each instance is meant to be used for a single upload.
         """
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=self.config.bucket_name,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -338,7 +338,7 @@ class SSOUploaderUniquePrefixTestCase(unittest.TestCase):
         self.bucket = bucket
 
     def _make_uploader(self, pubsub_topic: str = "", append_unique_prefix: bool = True) -> SSOUploader:
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=self.config.bucket_name,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
@@ -432,7 +432,7 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
         self.bucket = bucket
 
     def _make_uploader(self, pubsub_topic: str = "") -> SSOUploader:
-        config = SSOUploaderConfg(
+        config = SSOUploaderConfig(
             bucket_name=self.config.bucket_name,
             object_prefix=_TEST_OBJECT_PREFIX,
             dataset_id=self.config.datasets.internal,
