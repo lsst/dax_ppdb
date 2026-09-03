@@ -21,10 +21,13 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 import uuid
 from unittest.mock import Mock, patch
 
+import yaml
 from felis import Schema
 from google.api_core.exceptions import Conflict
 from google.cloud import bigquery
@@ -35,6 +38,7 @@ from lsst.dax.ppdb.bigquery.ppdb_bigquery_config import (
     DatasetType,
     PpdbBigQueryConfig,
 )
+from lsst.dax.ppdb.bigquery.schema.constants import DIA_TABLES, SSO_TABLES
 from lsst.dax.ppdb.bigquery.schema.dataset_builder import (
     BaseDatasetBuilder,
     DatasetBuilder,
@@ -48,10 +52,12 @@ from lsst.dax.ppdb.bigquery.schema.dataset_builder import (
     _update_schema_fields,
 )
 from lsst.dax.ppdb.bigquery.schema.felis_converter import FelisConverter
+from lsst.dax.ppdb.cli import ppdb_cli
 from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
 from lsst.dax.ppdb.tests._bigquery import (
     drop_datasets,
     have_valid_google_credentials,
+    make_bigquery_config,
     search_indexes_enabled,
 )
 
@@ -63,8 +69,8 @@ class DatasetBuilderTestMixin:
     """Shared setup and helpers for dataset builder unit tests."""
 
     BIGQUERY_CLIENT_PATCH = "lsst.dax.ppdb.bigquery.schema.dataset_builder.bigquery.Client"
-    EXPECTED_TABLES = {"DiaObject", "DiaSource", "DiaForcedSource"}
-    EXPECTED_VIEWS = ["DiaSource", "DiaForcedSource"]
+    EXPECTED_DIA_TABLES = {"DiaObject", "DiaSource", "DiaForcedSource"}
+    EXPECTED_PUBLIC_VIEWS = ("DiaSource", "DiaForcedSource", *SSO_TABLES)
 
     def setUp(self) -> None:
         """Test case setup including schema, converter, and standard config
@@ -179,10 +185,9 @@ class PublicDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
         self.assertNotIn("validityEndMjdTai", field_names)
         self.assertIn("geo_point", field_names)
 
+        # There is an additional geo_point column in the BigQuery table.
         source_table = self.converter.find_table(ApdbTables.DiaObject.value)
-        # The source schema already excludes validityEndMjdTai, so only
-        # geo_point is added on top of it.
-        self.assertEqual(len(field_names), len(source_table.columns) + 1)
+        self.assertEqual(len(source_table.columns) + 1, len(field_names))
 
     def test_creates_explicit_views(self) -> None:
         """Test that PublicDatasetBuilder creates explicit views with fully
@@ -194,8 +199,8 @@ class PublicDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
 
         views = builder.build_views()
 
-        self.assertEqual([view.table_id for view in views], self.EXPECTED_VIEWS)
-        for view_name, view in zip(self.EXPECTED_VIEWS, views, strict=True):
+        self.assertEqual(tuple(view.table_id for view in views), self.EXPECTED_PUBLIC_VIEWS)
+        for view_name, view in zip(self.EXPECTED_PUBLIC_VIEWS, views, strict=True):
             # Views must always have a materialized SQL query.
             self.assertTrue(view.view_query and view.view_query.strip())
 
@@ -244,8 +249,9 @@ class InternalDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase)
 
         tables = builder.build_tables()
 
-        self.assertEqual({table.table_id for table in tables}, self.EXPECTED_TABLES)
-        for table in tables:
+        # Check that the DIA tables have the geo_point field and clustering.
+        dia_tables = [table for table in tables if table.table_id in DIA_TABLES]
+        for table in dia_tables:
             geo_point = next(field for field in table.schema if field.name == "geo_point")
             self.assertEqual(geo_point.field_type, "GEOGRAPHY")
             self.assertEqual(geo_point.mode, "REQUIRED")
@@ -260,7 +266,7 @@ class InternalDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase)
         self.assertEqual(len(definitions), 3)
         self.assertEqual(
             {definition.table_name for definition in definitions},
-            self.EXPECTED_TABLES,
+            self.EXPECTED_DIA_TABLES,
         )
         for definition in definitions:
             self.assertEqual(
@@ -283,7 +289,7 @@ class StagingDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
 
         self.assertEqual(
             {table.table_id for table in tables},
-            self.EXPECTED_TABLES | {"updates"},
+            self.EXPECTED_DIA_TABLES | {"updates"},
         )
         for table in tables:
             if table.table_id == "updates":
@@ -712,8 +718,11 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
         public_tables = list(self.client.list_tables(f"{self.project_id}.{self.datasets.public}"))
         staging_tables = list(self.client.list_tables(f"{self.project_id}.{self.datasets.staging}"))
 
-        self.assertEqual(len(internal_tables), 3)
-        self.assertEqual(len(public_tables), 3)
+        # Internal and public datasets should have three DIA tables plus the
+        # five SSO tables.
+        self.assertEqual(len(internal_tables), 8)
+        self.assertEqual(len(public_tables), 8)
+
         # Staging has the three DIA tables plus the raw updates table.
         self.assertEqual(len(staging_tables), 4)
 
@@ -795,6 +804,57 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
 
         self.assertGreaterEqual(len(internal_indexes), 3)
         self.assertGreaterEqual(len(public_indexes), 1)
+
+
+@unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
+class CreateDatasetsTestCase(unittest.TestCase):
+    """Integration tests for the ``ppdb-cli create-datasets`` command."""
+
+    def setUp(self) -> None:
+        self.client = bigquery.Client()
+
+        self.config = make_bigquery_config(test_name="test_cli_create_datasets")
+
+        # Serialize the configuration to a YAML file that the CLI can load.
+        self.tempdir = tempfile.mkdtemp()
+        self.config_path = os.path.join(self.tempdir, "ppdb_config.yaml")
+        config_dict = self.config.model_dump(exclude_unset=True, exclude_defaults=True)
+        config_dict["implementation_type"] = "bigquery"
+        with open(self.config_path, "w") as config_file:
+            yaml.dump(config_dict, config_file)
+
+        # Add cleanup of datasets after test.
+        self.addCleanup(drop_datasets, self.config)
+
+    def test_create_datasets(self) -> None:
+        """Test that ``ppdb-cli create-datasets`` creates the BigQuery
+        datasets described by the configuration file.
+        """
+        argv = ["create-datasets", self.config_path]
+
+        # Avoid exhausting BigQuery search index creation quotas unless
+        # explicitly enabled for the test run.
+        if not search_indexes_enabled():
+            argv.append("--disable-search-indexes")
+
+        ppdb_cli.main(argv)
+
+        # Verify that the datasets were created in BigQuery with the correct
+        # number of tables.
+        for dataset_type in DatasetType:
+            dataset_fqn = self.config.fqn_for(dataset_type)
+            self.client.get_dataset(dataset_fqn)
+            tables = list(self.client.list_tables(dataset_fqn))
+            if dataset_type == DatasetType.STAGING:
+                # Staging has the three DIA tables plus the raw updates table.
+                self.assertEqual(len(tables), 4)
+            elif dataset_type != DatasetType.PROMOTION:
+                # The internal and public datasets each have the three DIA
+                # tables/views plus the five SSO tables/views.
+                self.assertEqual(len(tables), 8)
+            else:
+                # Promotion dataset should have no tables created by default.
+                self.assertEqual(len(tables), 0)
 
 
 if __name__ == "__main__":

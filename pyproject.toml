@@ -24,6 +24,8 @@ keywords = ["lsst"]
 dependencies = [
     "astropy",
     "google-cloud-bigquery",
+    "google-cloud-pubsub",
+    "google-cloud-storage",
     "cloud-sql-python-connector[pg8000]",
     "pyarrow",
     "pydantic >=2,<3",
@@ -47,7 +49,7 @@ test = [
     "pytest >= 3.2",
     "pytest-openfiles >= 0.5.0"
 ]
-postgres = ["psycopg2"]
+postgres = ["psycopg2-binary"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
