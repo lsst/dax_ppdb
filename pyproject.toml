@@ -29,6 +29,7 @@ dependencies = [
     "pydantic >=2,<3",
     "pyyaml >= 5.1",
     "sqlalchemy",
+    "sentry-sdk",
     "lsst-dax-ppdbx-gcp",
     "lsst-felis",
     "lsst-sdm-schemas",
