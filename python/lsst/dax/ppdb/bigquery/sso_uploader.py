@@ -57,9 +57,6 @@ class SSOUploaderConfig(BaseModel):
     bucket_name: str
     """Target bucket for uploading the SSO parquet files."""
 
-    object_prefix: str = "sso"
-    """Prefix for the uploaded objects in the bucket."""
-
     pubsub_topic: str | None = "load-sso-topic"
     """Pub/Sub topic to publish a message to after successful upload."""
 
@@ -73,11 +70,6 @@ class SSOUploaderConfig(BaseModel):
 
     allow_partial_upload: bool = False
     """Whether to allow partial uploads even if some SSO tables are missing."""
-
-    append_unique_prefix: bool = True
-    """Whether to append a unique, time-based path segment to object_prefix
-    for each upload, preventing silent overwrite of a previous run's data.
-    """
 
     @classmethod
     def from_uri(cls, uri: ResourcePathExpression) -> Self:
@@ -220,9 +212,9 @@ class SSOUploader:
             raise SSOUploadError("upload() has already been called on this SSOUploader instance")
         self._uploaded = True
 
-        object_prefix = self.config.object_prefix
-        if self.config.append_unique_prefix:
-            object_prefix = posixpath.join(object_prefix, self._generate_unique_prefix())
+        # A fresh unique prefix per upload prevents silent overwrite of a
+        # previous run's data.
+        object_prefix = self._generate_unique_prefix()
 
         client = Client()
         bucket = client.bucket(self.config.bucket_name)
