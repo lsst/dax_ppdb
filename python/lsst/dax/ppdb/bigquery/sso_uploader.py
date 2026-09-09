@@ -65,8 +65,11 @@ class SSOUploaderConfig(BaseModel):
     default credentials will be used.
     """
 
-    dataset_id: str = Datasets().internal
-    """BigQuery dataset ID associated with the uploaded SSO files."""
+    staging_dataset_id: str = Datasets().staging
+    """BigQuery staging dataset ID associated with the uploaded SSO files."""
+
+    internal_dataset_id: str = Datasets().internal
+    """BigQuery internal dataset ID associated with the uploaded SSO files."""
 
     allow_partial_upload: bool = False
     """Whether to allow partial uploads even if some SSO tables are missing."""
@@ -298,7 +301,8 @@ class SSOUploader:
             "bucket": self.config.bucket_name,
             "object_prefix": object_prefix,
             "uploaded_tables": list(self.file_map.keys()),
-            "dataset_id": self.config.dataset_id,
+            "staging_dataset_id": self.config.staging_dataset_id,
+            "internal_dataset_id": self.config.internal_dataset_id,
         }
 
         try:
