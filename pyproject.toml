@@ -26,6 +26,7 @@ dependencies = [
     "google-cloud-bigquery",
     "google-cloud-pubsub",
     "google-cloud-storage",
+    "google-api-python-client",
     "cloud-sql-python-connector[pg8000]",
     "pyarrow",
     "pydantic >=2,<3",
