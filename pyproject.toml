@@ -24,6 +24,7 @@ keywords = ["lsst"]
 dependencies = [
     "astropy",
     "google-cloud-bigquery",
+    "google-api-python-client",
     "cloud-sql-python-connector[pg8000]",
     "pyarrow",
     "pydantic >=2,<3",
