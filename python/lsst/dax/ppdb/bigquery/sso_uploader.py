@@ -213,7 +213,6 @@ class SSOUploader:
         """
         if self._uploaded:
             raise SSOUploadError("upload() has already been called on this SSOUploader instance")
-        self._uploaded = True
 
         # A fresh unique prefix per upload prevents silent overwrite of a
         # previous run's data.
@@ -247,6 +246,8 @@ class SSOUploader:
         except Exception:
             self._cleanup(bucket, uploaded_object_names)
             raise
+
+        self._uploaded = True
 
     @staticmethod
     def _generate_unique_prefix() -> str:
