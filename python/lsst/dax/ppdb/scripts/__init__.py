@@ -26,3 +26,4 @@ from .replication_list_chunks_apdb import replication_list_chunks_apdb
 from .replication_list_chunks_ppdb import replication_list_chunks_ppdb
 from .replication_run import replication_run
 from .upload_chunks_run import upload_chunks_run
+from .upload_sso_data import upload_sso_data

@@ -1,4 +1,4 @@
-# This file is part of dax_ppdb
+# This file is part of dax_ppdb.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -19,6 +19,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from .constants import *
-from .dataset_builder import *
-from .felis_converter import *
+from lsst.dax.apdb import ApdbTables
+
+__all__ = ["DIA_TABLES", "SSO_TABLES"]
+
+DIA_TABLES: tuple[str, ...] = (
+    ApdbTables.DiaObject.value,
+    ApdbTables.DiaSource.value,
+    ApdbTables.DiaForcedSource.value,
+)
+
+SSO_TABLES: tuple[str, ...] = (
+    "SSSource",
+    "SSObject",
+    "numbered_identifications",
+    "current_identifications",
+    "mpc_orbits",
+)
