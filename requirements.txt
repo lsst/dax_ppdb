@@ -1,11 +1,13 @@
 astropy
 google-cloud-bigquery
+google-cloud-pubsub
+google-cloud-storage
 pyarrow
 pydantic >=2,<3
 pyyaml >= 5.1
 sqlalchemy
 sentry-sdk >=2,<3
-psycopg2
+psycopg2-binary
 cloud-sql-python-connector[pg8000]
 testing.postgresql
 
