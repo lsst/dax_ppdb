@@ -1,18 +1,18 @@
 astropy
+cloud-sql-python-connector[pg8000]
 google-api-python-client
 google-cloud-bigquery
+psycopg2
 pyarrow
 pydantic >=2,<3
 pyyaml >= 5.1
-sqlalchemy
 sentry-sdk >=2,<3
-psycopg2
-cloud-sql-python-connector[pg8000]
+sqlalchemy
 testing.postgresql
 
 lsst-dax-apdb @ git+https://github.com/lsst/dax_apdb@main
-lsst-utils @ git+https://github.com/lsst/utils@main
-lsst-resources[s3] @ git+https://github.com/lsst/resources@main
-lsst-felis @ git+https://github.com/lsst/felis@main
 lsst-dax-ppdbx-gcp @ git+https://github.com/lsst-dm/dax_ppdbx_gcp@main
+lsst-felis @ git+https://github.com/lsst/felis@main
+lsst-resources[s3] @ git+https://github.com/lsst/resources@main
 lsst-sdm-schemas @ git+https://github.com/lsst/sdm_schemas@main
+lsst-utils @ git+https://github.com/lsst/utils@main

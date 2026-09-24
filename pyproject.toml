@@ -23,20 +23,20 @@ classifiers = [
 keywords = ["lsst"]
 dependencies = [
     "astropy",
-    "google-cloud-bigquery",
-    "google-api-python-client",
     "cloud-sql-python-connector[pg8000]",
+    "google-api-python-client",
+    "google-cloud-bigquery",
     "pyarrow",
     "pydantic >=2,<3",
     "pyyaml >= 5.1",
-    "sqlalchemy",
     "sentry-sdk",
+    "sqlalchemy",
+    "lsst-dax-apdb",
     "lsst-dax-ppdbx-gcp",
     "lsst-felis",
+    "lsst-resources",
     "lsst-sdm-schemas",
     "lsst-utils",
-    "lsst-resources",
-    "lsst-dax-apdb",
 ]
 dynamic = ["version"]
 
