@@ -20,6 +20,10 @@ Python API reference
    :include-all-objects:
    :no-inheritance-diagram:
 
+.. automodapi:: lsst.dax.ppdb.gcp
+   :include-all-objects:
+   :no-inheritance-diagram:
+
 .. automodapi:: lsst.dax.ppdb.scripts
    :include-all-objects:
    :no-inheritance-diagram:
