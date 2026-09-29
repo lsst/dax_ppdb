@@ -10,7 +10,7 @@ pyarrow
 pydantic >=2,<3
 pyyaml >= 5.1
 sentry-sdk >=2,<3
-sqlalchemy
+sqlalchemy <2.1
 testing.postgresql
 
 lsst-dax-apdb @ git+https://github.com/lsst/dax_apdb@main
