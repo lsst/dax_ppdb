@@ -18,6 +18,10 @@ extensions = [
 nitpicky = true
 python_api_dir = "dev/internals"
 
+nitpick_ignore = [
+    ["py:class", "cloudevents.http.event.CloudEvent"],
+]
+
 [sphinx.intersphinx.projects]
 astropy = "https://docs.astropy.org/en/stable"
 python = "https://docs.python.org/3"

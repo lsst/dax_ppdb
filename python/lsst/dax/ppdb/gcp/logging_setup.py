@@ -1,4 +1,4 @@
-# This file is part of dax_ppdb
+# This file is part of dax_ppdb.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -19,11 +19,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from .chunk_promoter import *
-from .chunk_uploader import *
-from .manifest import *
-from .ppdb_bigquery import *
-from .ppdb_bigquery_config import *
-from .ppdb_replica_chunk_extended import *
-from .sql_resource import *
-from .table_refs import *
+"""Configuration of the root logger to redirect to Google Cloud Logging."""
+
+import logging
+import os
+
+from google.cloud import logging as cloud_logging
+
+__all__ = ["setup_cloud_logging"]
+
+
+def setup_cloud_logging() -> None:
+    """Set up Cloud Logging and configure the root logger."""
+    cloud_logging.Client().setup_logging()  # Redirects standard logging to Cloud Logging
+    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+    logging.getLogger().setLevel(log_level)
+
+    # Silence noisy warnings from google-auth-httplib2.
+    logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
