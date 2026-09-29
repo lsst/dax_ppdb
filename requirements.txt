@@ -1,6 +1,6 @@
 astropy
 cloud-sql-python-connector[pg8000]
-cloudevents
+cloudevents <2
 google-api-python-client
 google-cloud-bigquery
 google-cloud-pubsub

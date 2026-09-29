@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import posixpath
 import unittest
 from pathlib import Path
@@ -40,6 +41,7 @@ from lsst.dax.ppdb.bigquery import (
 from lsst.dax.ppdb.bigquery.ppdb_bigquery import UpdatableField
 from lsst.dax.ppdb.bigquery.sql_resource import SqlResource
 from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecords
+from lsst.dax.ppdb.gcp import CloudEventLogger
 from lsst.dax.ppdb.replicator import Replicator
 from lsst.dax.ppdb.tests import (
     PostgresMixin,
@@ -51,6 +53,8 @@ from lsst.dax.ppdb.tests import (
     have_valid_google_credentials,
     make_bigquery_config,
 )
+
+_LOG = logging.getLogger(__name__)
 
 
 @unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
@@ -306,7 +310,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
         # Promote all chunks.
         chunks_to_promote = self.ppdb.get_promotable_chunks()
-        promoter = ChunkPromoter(self.ppdb)
+        promoter = ChunkPromoter(self.ppdb, CloudEventLogger(_LOG))
         promoter.promote_chunks(chunks_to_promote)
 
         # Verify staging tables are empty.
@@ -362,7 +366,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
     def test_promote_chunks_empty(self) -> None:
         """Test that promoting an empty list raises NoPromotableChunksError."""
-        promoter = ChunkPromoter(self.ppdb)
+        promoter = ChunkPromoter(self.ppdb, CloudEventLogger(_LOG))
         with self.assertRaises(NoPromotableChunksError):
             promoter.promote_chunks([])
 
