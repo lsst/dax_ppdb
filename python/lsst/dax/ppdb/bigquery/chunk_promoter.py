@@ -29,6 +29,7 @@ __all__ = [
 
 import logging
 from collections.abc import Sequence
+from typing import Any
 
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
@@ -251,7 +252,7 @@ class ChunkPromoter:
         )
 
     def _log_dml_rows_affected(
-        self, job: bigquery.job.QueryJob, event_name: str, message: str, **fields: object
+        self, job: bigquery.job.QueryJob, event_name: str, message: str, **fields: Any
     ) -> None:
         """Log rows affected by a DML job, sourced the same way as
         `_log_bigquery_job` so counts are consistent across job types.

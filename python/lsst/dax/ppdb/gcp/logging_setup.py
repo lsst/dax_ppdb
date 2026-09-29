@@ -29,7 +29,7 @@ from google.cloud import logging as cloud_logging
 __all__ = ["setup_cloud_logging"]
 
 
-def setup_cloud_logging():
+def setup_cloud_logging() -> None:
     """Set up Cloud Logging and configure the root logger."""
     cloud_logging.Client().setup_logging()  # Redirects standard logging to Cloud Logging
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
