@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import unittest
 import uuid
 from collections.abc import Collection, Sequence
@@ -41,6 +42,7 @@ from lsst.dax.ppdb.bigquery import (
 from lsst.dax.ppdb.bigquery.chunk_uploader import ChunkUploader
 from lsst.dax.ppdb.bigquery.updates import UpdateRecords
 from lsst.dax.ppdb.bigquery.updates.updates_manager import UpdatesManager
+from lsst.dax.ppdb.gcp import CloudEventLogger
 from lsst.dax.ppdb.tests._bigquery import (
     PostgresMixin,
     create_bucket,
@@ -238,7 +240,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             load_job.result()
 
         # Apply the updates to the target tables using the UpdatesManager.
-        updates_manager = UpdatesManager(self.ppdb.config)
+        updates_manager = UpdatesManager(self.ppdb.config, CloudEventLogger(logging.getLogger(__name__)))
         replica_chunks = self.ppdb.query_chunks(
             self.ppdb.chunk_table.columns["apdb_replica_chunk"].in_([test_replica_chunk_id])
         )
