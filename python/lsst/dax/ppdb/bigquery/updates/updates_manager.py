@@ -30,6 +30,7 @@ from google.cloud import bigquery
 
 from lsst.dax.apdb.apdbUpdateRecord import ApdbUpdateRecord
 
+from ...gcp import CloudEventLogger
 from ..ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
 from ..ppdb_replica_chunk_extended import PpdbReplicaChunkExtended
 from .expanded_update_record import ExpandedUpdateRecord
@@ -62,6 +63,8 @@ class UpdatesManager:
     ----------
     config
         Configuration for the PPDB BigQuery interface.
+    logger
+        Cloud event logger used to emit structured log events.
     target_dataset_fqn
         Fully qualified name of the dataset containing the target tables to
         merge updates into, or `None` to use the promotion dataset from the
@@ -74,9 +77,11 @@ class UpdatesManager:
     def __init__(
         self,
         config: PpdbBigQueryConfig,
+        logger: CloudEventLogger,
         target_dataset_fqn: str | None = None,
         mergers: Sequence[UpdatesMerger] | None = None,
     ) -> None:
+        self._logger = logger
         self._updates_table_fqn = config.fqn_for(DatasetType.STAGING, "updates")
 
         # Set the merger instances for handling each target table, falling back
@@ -261,13 +266,15 @@ class UpdatesManager:
         updated = dml_stats.updated_row_count
         deleted = dml_stats.deleted_row_count
 
-        _LOG.info(
-            "Finished merging updates into '%s': total=%d, inserted=%d, updated=%d, deleted=%d",
-            target_table_fqn,
-            total,
-            inserted,
-            updated,
-            deleted,
+        self._logger.log_event(
+            logging.INFO,
+            "Finished merging updates into target table",
+            "updates_merge_completed",
+            target_table=target_table_fqn,
+            total=total,
+            inserted=inserted,
+            updated=updated,
+            deleted=deleted,
         )
 
     def cleanup(self) -> None:

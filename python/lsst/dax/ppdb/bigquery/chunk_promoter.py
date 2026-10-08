@@ -95,7 +95,7 @@ class ChunkPromoter:
         self._dataset = self._bq_client.get_dataset(internal_dataset_id)
         self._location = self._dataset.location
         self._table_refs = TableRefs(self.config)
-        self._updates_manager = UpdatesManager(self.config)
+        self._updates_manager = UpdatesManager(self.config, self._logger)
 
         self._promotable_chunks: list[PpdbReplicaChunkExtended] = []
 
