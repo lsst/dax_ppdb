@@ -19,8 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Logging and classification of request submission errors as retryable
-or non-retryable.
+"""Logging and classification of request submission and database errors as
+retryable or non-retryable.
 """
 
 import http.client
@@ -29,13 +29,14 @@ import ssl
 from typing import Any
 
 import httplib2
+import sqlalchemy.exc
 from google.api_core.exceptions import GoogleAPICallError
 from google.auth.exceptions import TransportError
 from googleapiclient.errors import HttpError
 
 from .cloud_event_logger import CloudEventLogger
 
-__all__ = ["handle_request_error"]
+__all__ = ["handle_database_error", "handle_request_error"]
 
 
 def handle_request_error(logger: CloudEventLogger, e: Exception) -> bool:
@@ -99,3 +100,47 @@ def handle_request_error(logger: CloudEventLogger, e: Exception) -> bool:
         **extra_fields,
     )
     return retryable
+
+
+def handle_database_error(logger: CloudEventLogger, e: sqlalchemy.exc.SQLAlchemyError) -> bool:
+    """Log a failed database operation and report whether it is retryable.
+
+    Parameters
+    ----------
+    logger
+        Logger used to report the error.
+    e
+        The exception raised by the failed database operation.
+
+    Returns
+    -------
+    `bool`
+        `True` if the error is retryable, `False` otherwise.
+    """
+    # Transient errors: operational errors (e.g. dropped connections, statement
+    # timeouts, and deadlocks), connection pool timeouts, disconnects, and any
+    # error that invalidated the connection. Other errors, e.g. integrity or
+    # programming errors, are not retryable.
+    if isinstance(
+        e,
+        (
+            sqlalchemy.exc.OperationalError,
+            sqlalchemy.exc.TimeoutError,
+            sqlalchemy.exc.DisconnectionError,
+        ),
+    ) or (isinstance(e, sqlalchemy.exc.DBAPIError) and e.connection_invalidated):
+        logger.log_event(
+            logging.WARNING,
+            "Retryable database error",
+            "retryable_database_error",
+            error=e,
+        )
+        return True
+
+    logger.log_event(
+        logging.ERROR,
+        "Non-retryable database error",
+        "non_retryable_database_error",
+        error=e,
+    )
+    return False
