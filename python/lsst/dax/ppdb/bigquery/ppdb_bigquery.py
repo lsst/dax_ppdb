@@ -34,7 +34,6 @@ from pathlib import Path
 import astropy.time
 import felis
 import sqlalchemy
-from google.cloud import secretmanager
 from google.cloud.sql.connector import Connector
 from sqlalchemy.engine.interfaces import DBAPIConnection
 
@@ -52,7 +51,7 @@ from lsst.dax.apdb.timer import Timer
 
 from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
-from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
+from ..sql import PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, ParquetFileEntry
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
@@ -74,30 +73,6 @@ class UpdatableField(StrEnum):
 
     STATUS = "status"
     GCS_URI = "gcs_uri"
-
-
-class _SecretManagerPasswordProvider(PasswordProvider):
-    """Retrieves a database password from Google Cloud Secret Manager.
-
-    Parameters
-    ----------
-    project_id
-        GCP project that owns the secret.
-    secret_name
-        Name of the secret. Defaults to ``"ppdb-db-password"``.
-    """
-
-    def __init__(self, project_id: str, secret_name: str = "ppdb-db-password") -> None:
-        self._project_id = project_id
-        self._secret_name = secret_name
-
-    def get_password(self) -> str:
-        """Return the password fetched from Secret Manager."""
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{self._project_id}/secrets/{self._secret_name}/versions/latest"
-        _LOG.debug("Retrieving database password from Secret Manager: %s", name)
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
 
 
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
@@ -125,15 +100,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ValueError("Directory for chunk export is not set in configuration.")
 
         # Delegate SQL initialisation (schema load, engine, metadata, version
-        # checks) to the base class, passing the optional password provider.
-        # Whether the Cloud SQL Connector is used is determined from the
-        # environment (see `is_cloudsql_enabled`) inside `make_engine`.
-        password_provider = self._make_password_provider(config.project_id)
-        PpdbSqlBase.__init__(
-            self,
-            config.sql,
-            password_provider=password_provider,
-        )
+        # checks) to the base class. Whether the Cloud SQL Connector is used is
+        # determined from the environment (see `is_cloudsql_enabled`) inside
+        # `make_engine`.
+        PpdbSqlBase.__init__(self, config.sql)
 
         self._config = config
 
@@ -263,8 +233,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         if stage_chunk_topic is not None:
             bq_config.stage_chunk_topic = stage_chunk_topic
 
-        password_provider = cls._make_password_provider(bq_config.project_id)
-        engine = cls.make_engine(bq_config.sql, password_provider=password_provider)
+        engine = cls.make_engine(bq_config.sql)
         cls.make_database(engine, bq_config.sql, sa_metadata, schema_version, db_drop)
 
         return bq_config
@@ -286,12 +255,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         return os.environ.get("CLOUDSQL_ENABLED", "false").lower() == "true"
 
     @classmethod
-    def make_engine(
-        cls,
-        config: PpdbSqlBaseConfig,
-        *,
-        password_provider: PasswordProvider | None = None,
-    ) -> sqlalchemy.engine.Engine:
+    def make_engine(cls, config: PpdbSqlBaseConfig) -> sqlalchemy.engine.Engine:
         """Make a SQLAlchemy engine, optionally using the Cloud SQL Connector.
 
         Whether the Cloud SQL Python Connector is used is determined by the
@@ -307,17 +271,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         - ``CLOUDSQL_IP_TYPE``: IP type used to reach the instance, one of
           ``private`` (default), ``public``, or ``psc``.
 
-        Authentication uses automatic IAM database authentication unless
-        ``password_provider`` is given, in which case password authentication
-        is used.
+        Authentication uses automatic IAM database authentication.
 
         Parameters
         ----------
         config
             Configuration object with SQL parameters.
-        password_provider
-            If provided, the password returned by
-            ``password_provider.get_password()`` is used for authentication.
 
         Returns
         -------
@@ -325,26 +284,16 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             The SQLAlchemy engine.
         """
         if cls.is_cloudsql_enabled():
-            return cls._make_connector_engine(password_provider=password_provider)
-        return super().make_engine(config, password_provider=password_provider)
+            return cls._make_connector_engine()
+        return super().make_engine(config)
 
     @classmethod
-    def _make_connector_engine(
-        cls,
-        *,
-        password_provider: PasswordProvider | None = None,
-    ) -> sqlalchemy.engine.Engine:
+    def _make_connector_engine(cls) -> sqlalchemy.engine.Engine:
         """Create a SQLAlchemy engine using the Cloud SQL Python Connector.
 
         The connection parameters are read from the environment; see
         `make_engine` for the environment variables that are used.
-
-        Parameters
-        ----------
-        password_provider
-            If provided, its password is used for password authentication and
-            automatic IAM database authentication is disabled. If not
-            provided, automatic IAM database authentication is used.
+        Authentication uses automatic IAM database authentication.
 
         Returns
         -------
@@ -382,14 +331,13 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise OSError(
                 f"Invalid CLOUDSQL_IP_TYPE value: {ip_type!r} (expected 'private', 'public', or 'psc')"
             )
-        connect_kwargs: dict[str, str | bool] = {"user": db_user, "db": db_name, "ip_type": ip_type}
-        if password_provider is not None:
-            connect_kwargs["password"] = password_provider.get_password()
-            connect_kwargs["enable_iam_auth"] = False
-            _LOG.info("Using password authentication for Cloud SQL Connector")
-        else:
-            connect_kwargs["enable_iam_auth"] = True
-            _LOG.info("Using IAM authentication for Cloud SQL Connector")
+        connect_kwargs: dict[str, str | bool] = {
+            "user": db_user,
+            "db": db_name,
+            "ip_type": ip_type,
+            "enable_iam_auth": True,
+        }
+        _LOG.info("Using IAM authentication for Cloud SQL Connector")
 
         # Lazy refresh is recommended for serverless environments where CPU may
         # be throttled between requests.
@@ -736,26 +684,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     # ----------------------------------------------------------------------
     # Private helpers
     # ----------------------------------------------------------------------
-
-    @classmethod
-    def _make_password_provider(cls, project_id: str) -> PasswordProvider | None:
-        """Build a password provider from the environment, if configured.
-
-        Parameters
-        ----------
-        project_id
-            Unique identifier of the Google Cloud project with the secrets
-            manager.
-
-        Returns
-        -------
-        PasswordProvider
-            The password provider for the cloud environment.
-        """
-        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
-            _LOG.info("Using Secret Manager to retrieve database password")
-            return _SecretManagerPasswordProvider(project_id)
-        return None
 
     def _generate_manifest(
         self,

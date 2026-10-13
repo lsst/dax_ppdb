@@ -21,12 +21,11 @@
 
 from __future__ import annotations
 
-__all__ = ["PasswordProvider", "PpdbSqlBase"]
+__all__ = ["PpdbSqlBase"]
 
 import logging
 import os
 import sqlite3
-from abc import ABC, abstractmethod
 from collections.abc import Iterable, MutableMapping
 from contextlib import closing
 from typing import Any
@@ -48,26 +47,6 @@ from lsst.dax.apdb.sql import ApdbMetadataSql, ModelToSql
 from lsst.resources import ResourcePath
 
 _LOG = logging.getLogger(__name__)
-
-
-class PasswordProvider(ABC):
-    """Abstract base class for objects that supply a database password.
-
-    Implementations are free to retrieve the password from any source
-    (e.g. environment variables, a secrets manager, a local file) without
-    `PpdbSqlBase` needing to know about the mechanism.
-    """
-
-    @abstractmethod
-    def get_password(self) -> str:
-        """Return the database password.
-
-        Returns
-        -------
-        `str`
-            Plain-text password to embed in the database connection URL.
-        """
-        raise NotImplementedError()
 
 
 class MissingSchemaVersionError(RuntimeError):
@@ -129,9 +108,6 @@ class PpdbSqlBase:
     ----------
     config
         Configuration object.
-    password_provider
-        Optional provider used to inject the database password into the
-        connection URL.
     **engine_kwargs
         Additional keyword arguments forwarded to `make_engine`. Subclasses
         may use these to customize how the engine is created.
@@ -148,17 +124,12 @@ class PpdbSqlBase:
     meta_schema_version_key = "version:schema"
     """Name of the metadata key to store Felis schema version number."""
 
-    def __init__(
-        self,
-        config: PpdbSqlBaseConfig,
-        password_provider: PasswordProvider | None = None,
-        **engine_kwargs: Any,
-    ) -> None:
+    def __init__(self, config: PpdbSqlBaseConfig, **engine_kwargs: Any) -> None:
         self._sa_metadata, self._schema_version = self.read_schema(
             config.felis_path, config.schema_name, config.felis_schema, config.db_url
         )
 
-        self._engine = self.make_engine(config, password_provider=password_provider, **engine_kwargs)
+        self._engine = self.make_engine(config, **engine_kwargs)
         sa_metadata = sqlalchemy.MetaData(schema=config.schema_name)
 
         meta_table = sqlalchemy.schema.Table("metadata", sa_metadata, autoload_with=self._engine)
@@ -187,35 +158,15 @@ class PpdbSqlBase:
         return {"connect_args": conn_args}
 
     @classmethod
-    def make_engine(
-        cls,
-        config: PpdbSqlBaseConfig,
-        *,
-        password_provider: PasswordProvider | None = None,
-    ) -> sqlalchemy.engine.Engine:
+    def make_engine(cls, config: PpdbSqlBaseConfig) -> sqlalchemy.engine.Engine:
         """Make SQLALchemy engine based on configured parameters.
 
         Parameters
         ----------
         config
             Configuration object with SQL parameters.
-        password_provider
-            If provided, the password returned by
-            ``password_provider.get_password()`` is injected into the
-            database URL.  The URL must not already contain a password when
-            this argument is given.
-
-        Raises
-        ------
-        ValueError
-            Raised if ``password_provider`` is given but the URL already
-            contains a password.
         """
         db_url = sqlalchemy.make_url(config.db_url)
-        if password_provider is not None:
-            if db_url.password is not None:
-                raise ValueError("Database URL must not contain a password when password_provider is used.")
-            db_url = db_url.set(password=password_provider.get_password())
         kw = cls._build_connect_args(config)
         engine = sqlalchemy.create_engine(db_url, **kw)
         if engine.dialect.name == "sqlite":

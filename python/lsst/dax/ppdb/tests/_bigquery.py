@@ -136,8 +136,7 @@ def init_bigquery_sql(config: PpdbBigQueryConfig, db_drop: bool = True) -> None:
     sa_metadata, schema_version = PpdbBigQuery.read_schema(
         config.sql.felis_path, config.sql.schema_name, config.sql.felis_schema, config.sql.db_url
     )
-    password_provider = PpdbBigQuery._make_password_provider(config.project_id)
-    engine = PpdbBigQuery.make_engine(config.sql, password_provider=password_provider)
+    engine = PpdbBigQuery.make_engine(config.sql)
     PpdbBigQuery.make_database(engine, config.sql, sa_metadata, schema_version, db_drop)
 
 

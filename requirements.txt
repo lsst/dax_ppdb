@@ -6,7 +6,6 @@ google-auth
 google-cloud-bigquery
 google-cloud-logging
 google-cloud-pubsub
-google-cloud-secret-manager
 google-cloud-storage
 psycopg2-binary
 pyarrow

@@ -30,7 +30,7 @@ import sqlalchemy
 from lsst.dax.ppdb import Ppdb
 from lsst.dax.ppdb.bigquery import ChunkStatus, PpdbBigQuery, PpdbReplicaChunkExtended
 from lsst.dax.ppdb.bigquery.ppdb_bigquery import UpdatableField
-from lsst.dax.ppdb.sql import PasswordProvider, PpdbSqlBaseConfig
+from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
 from lsst.dax.ppdb.tests import PpdbTest
 from lsst.dax.ppdb.tests._bigquery import PostgresMixin, SqliteMixin
 
@@ -331,22 +331,6 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         self.assertEqual(len(result), 0)
 
 
-class _StubPasswordProvider(PasswordProvider):
-    """Password provider returning a fixed password for tests.
-
-    Parameters
-    ----------
-    password
-        Password to return from `get_password`.
-    """
-
-    def __init__(self, password: str = "secret") -> None:
-        self._password = password
-
-    def get_password(self) -> str:
-        return self._password
-
-
 class MakeEngineConnectorTestCase(unittest.TestCase):
     """Tests for Cloud SQL Connector engine creation in `PpdbBigQuery`."""
 
@@ -393,22 +377,6 @@ class MakeEngineConnectorTestCase(unittest.TestCase):
             db="db-name",
             ip_type="private",
             enable_iam_auth=True,
-        )
-
-    def test_password_auth(self) -> None:
-        """A password provider switches from IAM to password authentication."""
-        with mock.patch.dict(os.environ, self.CONNECTOR_ENV, clear=True):
-            create_engine = self._make_engine(password_provider=_StubPasswordProvider("hunter2"))
-
-        create_engine.call_args.kwargs["creator"]()
-        self.connector.connect.assert_called_once_with(
-            "my-project:us-central1:my-instance",
-            "pg8000",
-            user="db-user",
-            db="db-name",
-            ip_type="private",
-            password="hunter2",
-            enable_iam_auth=False,
         )
 
     def test_invalid_environment_raises(self) -> None:
