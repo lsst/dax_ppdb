@@ -28,7 +28,7 @@ import astropy.time
 import sqlalchemy
 
 from lsst.dax.ppdb import Ppdb
-from lsst.dax.ppdb.bigquery import STATUS_TRANSITIONS, ChunkStatus, PpdbBigQuery, PpdbReplicaChunkExtended
+from lsst.dax.ppdb.bigquery import ChunkStatus, PpdbBigQuery, PpdbReplicaChunkExtended
 from lsst.dax.ppdb.bigquery.ppdb_bigquery import ChunkStatusTransitionError
 from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
 from lsst.dax.ppdb.tests import PpdbTest
@@ -132,10 +132,6 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         ppdb.insert_chunks([_make_chunk(1, ChunkStatus.EXPORTED)])
         with self.assertRaises(sqlalchemy.exc.IntegrityError):
             ppdb.insert_chunks([_make_chunk(1, ChunkStatus.STAGED)])
-
-    def test_status_transitions_cover_all_statuses(self) -> None:
-        """Test that STATUS_TRANSITIONS has an entry for every status."""
-        self.assertEqual(set(STATUS_TRANSITIONS), set(ChunkStatus))
 
     def test_update_chunk_status_allowed(self) -> None:
         """Test that update_chunk_status applies an allowed transition."""

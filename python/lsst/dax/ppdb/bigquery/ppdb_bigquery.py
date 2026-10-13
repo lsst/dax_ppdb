@@ -53,7 +53,7 @@ from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, ParquetFileEntry
 from .ppdb_bigquery_config import PpdbBigQueryConfig
-from .ppdb_replica_chunk_extended import STATUS_TRANSITIONS, ChunkStatus, PpdbReplicaChunkExtended
+from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
 
 _LOG = logging.getLogger(__name__)
@@ -64,6 +64,19 @@ _MON = monitor.MonAgent(__name__)
 VERSION = VersionTuple(0, 1, 0)
 """Version for the code defined in this module. This needs to be updated
 (following compatibility rules) when schema produced by this code changes.
+"""
+
+_STATUS_TRANSITIONS: dict[ChunkStatus, frozenset[ChunkStatus]] = {
+    ChunkStatus.EXPORTED: frozenset({ChunkStatus.UPLOADED}),
+    ChunkStatus.UPLOADED: frozenset({ChunkStatus.STAGING}),
+    ChunkStatus.STAGING: frozenset({ChunkStatus.STAGED, ChunkStatus.FAILED}),
+    ChunkStatus.FAILED: frozenset({ChunkStatus.STAGING}),
+    ChunkStatus.STAGED: frozenset({ChunkStatus.PROMOTED}),
+    ChunkStatus.PROMOTED: frozenset(),
+    ChunkStatus.SKIPPED: frozenset(),
+}
+"""Allowed status transitions, mapping each status to the set of statuses a
+chunk in that status may move to.
 """
 
 
@@ -686,7 +699,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
     def update_chunk_status(self, chunk_ids: int | Sequence[int], new_status: ChunkStatus) -> None:
         """Change the status of one or more replica chunks if the transition
-        from each chunk's current status is allowed by `STATUS_TRANSITIONS`.
+        from each chunk's current status is allowed.
 
         Parameters
         ----------
@@ -719,7 +732,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             chunk = self.find_chunk_by_id(chunk_id)
             if chunk is None:
                 raise LookupError(f"Chunk {chunk_id} does not exist")
-            if new_status not in STATUS_TRANSITIONS[chunk.status]:
+            if new_status not in _STATUS_TRANSITIONS[chunk.status]:
                 raise ChunkStatusTransitionError(
                     "Chunk status transition is not allowed",
                     current_status=chunk.status,

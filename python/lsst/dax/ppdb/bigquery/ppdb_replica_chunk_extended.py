@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["STATUS_TRANSITIONS", "ChunkStatus", "PpdbReplicaChunkExtended"]
+__all__ = ["ChunkStatus", "PpdbReplicaChunkExtended"]
 
 import dataclasses
 from dataclasses import dataclass
@@ -56,20 +56,6 @@ class ChunkStatus(StrEnum):
     """Chunk processing failed and an error occurred."""
     SKIPPED = "skipped"
     """Chunk processing is skipped because there is no data to export."""
-
-
-STATUS_TRANSITIONS: dict[ChunkStatus, frozenset[ChunkStatus]] = {
-    ChunkStatus.EXPORTED: frozenset({ChunkStatus.UPLOADED}),
-    ChunkStatus.UPLOADED: frozenset({ChunkStatus.STAGING}),
-    ChunkStatus.STAGING: frozenset({ChunkStatus.STAGED, ChunkStatus.FAILED}),
-    ChunkStatus.FAILED: frozenset({ChunkStatus.STAGING}),
-    ChunkStatus.STAGED: frozenset({ChunkStatus.PROMOTED}),
-    ChunkStatus.PROMOTED: frozenset(),
-    ChunkStatus.SKIPPED: frozenset(),
-}
-"""Allowed status transitions, mapping each status to the set of statuses a
-chunk in that status may move to.
-"""
 
 
 @dataclass(frozen=True)
