@@ -34,7 +34,7 @@ from lsst.dax.apdb.timer import Timer
 
 from ..gcp import DeleteError, Publisher, StorageClient, UploadError
 from .manifest import Manifest
-from .ppdb_bigquery import PpdbBigQuery, UpdatableField
+from .ppdb_bigquery import PpdbBigQuery
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 
@@ -264,13 +264,9 @@ class ChunkUploader:
                 # 3) Update the database record for the chunk, setting status
                 # to 'uploaded' and populating the GCS URI.
                 new_status = ChunkStatus.UPLOADED
-                updated_replica_chunk = replica_chunk.with_new_status(new_status).with_new_gcs_uri(
-                    f"gs://{gcs_uri}"
-                )
                 try:
-                    self._ppdb.update_chunks(
-                        [updated_replica_chunk], fields={UpdatableField.STATUS, UpdatableField.GCS_URI}
-                    )
+                    self._ppdb.update_chunk_gcs_uri(chunk_id, f"gs://{gcs_uri}")
+                    self._ppdb.update_chunk_status(chunk_id, new_status)
                     _LOG.info(
                         "Updated replica chunk %d in database with status '%s' and GCS URI: %s",
                         chunk_id,

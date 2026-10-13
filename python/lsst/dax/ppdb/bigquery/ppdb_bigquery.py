@@ -21,14 +21,13 @@
 
 from __future__ import annotations
 
-__all__ = ["ChunkStatusTransitionError", "PpdbBigQuery", "UpdatableField"]
+__all__ = ["ChunkStatusTransitionError", "PpdbBigQuery"]
 
 import datetime
 import logging
 import os
 import shutil
 from collections.abc import Collection, Iterable, Sequence
-from enum import StrEnum
 from pathlib import Path
 
 import astropy.time
@@ -66,13 +65,6 @@ VERSION = VersionTuple(0, 1, 0)
 """Version for the code defined in this module. This needs to be updated
 (following compatibility rules) when schema produced by this code changes.
 """
-
-
-class UpdatableField(StrEnum):
-    """Chunk fields that are allowed to be updated on existing chunks."""
-
-    STATUS = "status"
-    GCS_URI = "gcs_uri"
 
 
 class ChunkStatusTransitionError(Exception):
@@ -668,99 +660,93 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         with self._engine.begin() as connection:
             connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
 
-    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[UpdatableField]) -> int:
-        """Update one or more existing replica chunks in the
-        ``PpdbReplicaChunk`` table.
-
-        Parameters
-        ----------
-        chunks
-            Replica chunks with updated values. Each chunk must already
-            exist in the table.
-        fields
-            Set of field names to update.
-
-        Raises
-        ------
-        ValueError
-            Raised if ``fields`` is empty or contains invalid field names,
-            or if ``chunks`` is empty.
-        LookupError
-            Raised if any chunk does not exist in the table.
-        """
-        if not chunks:
-            raise ValueError("chunks must not be empty")
-        if not fields:
-            raise ValueError("fields must not be empty")
-        table = self.chunk_table
-        updated_count = 0
-        with self._engine.begin() as connection:
-            for chunk in chunks:
-                row = chunk.to_row()
-                result = connection.execute(
-                    table.update()
-                    .where(table.c.apdb_replica_chunk == chunk.id)
-                    .values(**{k: v for k, v in row.items() if k in fields})
-                )
-                if result.rowcount == 0:
-                    raise LookupError(f"Chunk {chunk.id} does not exist")
-                updated_count += result.rowcount
-        return updated_count
-
-    def update_chunk_status(self, chunk_id: int, new_status: ChunkStatus) -> None:
-        """Change the status of a replica chunk if the transition from its
-        current status is allowed by `STATUS_TRANSITIONS`.
+    def update_chunk_gcs_uri(self, chunk_id: int, gcs_uri: str) -> None:
+        """Set the GCS URI of a replica chunk.
 
         Parameters
         ----------
         chunk_id
             The ID of the replica chunk to update.
+        gcs_uri
+            The GCS URI where the chunk's data is stored.
+
+        Raises
+        ------
+        LookupError
+            Raised if the chunk does not exist in the table.
+        """
+        table = self.chunk_table
+        with self._engine.begin() as connection:
+            result = connection.execute(
+                table.update().where(table.c.apdb_replica_chunk == chunk_id).values(gcs_uri=gcs_uri)
+            )
+        if result.rowcount == 0:
+            raise LookupError(f"Chunk {chunk_id} does not exist")
+
+    def update_chunk_status(self, chunk_ids: int | Sequence[int], new_status: ChunkStatus) -> None:
+        """Change the status of one or more replica chunks if the transition
+        from each chunk's current status is allowed by `STATUS_TRANSITIONS`.
+
+        Parameters
+        ----------
+        chunk_ids
+            The ID of the replica chunk to update, or a sequence of IDs.
         new_status
             The status to set.
 
         Raises
         ------
         LookupError
-            Raised if the chunk does not exist in the table.
+            Raised if a chunk does not exist in the table.
         ChunkStatusTransitionError
-            Raised if the transition from the chunk's current status to
-            ``new_status`` is not allowed.
+            Raised if a chunk cannot move to ``new_status``.
 
         Notes
         -----
-        The update only applies if the status is still the one that was read,
-        so if two callers attempt the same transition concurrently, only one
-        succeeds.
+        All of the chunks are updated in a single transaction, so if any
+        update fails, none of the chunks are changed.
+
+        Each update only applies if the chunk's status is still the one that
+        was read, so if two callers attempt the same transition concurrently,
+        only one succeeds.
         """
-        chunk = self.find_chunk_by_id(chunk_id)
-        if chunk is None:
-            raise LookupError(f"Chunk {chunk_id} does not exist")
+        if isinstance(chunk_ids, int):
+            chunk_ids = [chunk_ids]
 
-        if new_status not in STATUS_TRANSITIONS[chunk.status]:
-            raise ChunkStatusTransitionError(
-                "Chunk status transition is not allowed",
-                current_status=chunk.status,
-                new_status=new_status,
-            )
+        chunks = []
+        for chunk_id in chunk_ids:
+            chunk = self.find_chunk_by_id(chunk_id)
+            if chunk is None:
+                raise LookupError(f"Chunk {chunk_id} does not exist")
+            if new_status not in STATUS_TRANSITIONS[chunk.status]:
+                raise ChunkStatusTransitionError(
+                    "Chunk status transition is not allowed",
+                    current_status=chunk.status,
+                    new_status=new_status,
+                )
+            chunks.append(chunk)
 
-        # Only update if the status is unchanged since it was read. Concurrent
-        # callers, e.g. duplicate Pub/Sub deliveries handled by separate
-        # Cloud Function instances, could otherwise both apply the transition.
         table = self.chunk_table
         with self._engine.begin() as connection:
-            result = connection.execute(
-                table.update()
-                .where(table.c.apdb_replica_chunk == chunk_id)
-                .where(table.c.status == chunk.status.value)
-                .values(status=new_status.value)
-            )
-        if result.rowcount == 0:
-            # Another caller changed the status after it was read.
-            raise ChunkStatusTransitionError(
-                "Chunk status was changed concurrently",
-                current_status=chunk.status,
-                new_status=new_status,
-            )
+            for chunk in chunks:
+                # Only update if the status is unchanged since it was read.
+                # Concurrent callers, e.g. duplicate Pub/Sub deliveries
+                # handled by separate Cloud Function instances, could
+                # otherwise both apply the transition.
+                result = connection.execute(
+                    table.update()
+                    .where(table.c.apdb_replica_chunk == chunk.id)
+                    .where(table.c.status == chunk.status.value)
+                    .values(status=new_status.value)
+                )
+                if result.rowcount == 0:
+                    # Another caller changed the status after it was read.
+                    # Raising here rolls back the whole transaction.
+                    raise ChunkStatusTransitionError(
+                        "Chunk status was changed concurrently",
+                        current_status=chunk.status,
+                        new_status=new_status,
+                    )
 
     # ----------------------------------------------------------------------
     # Private helpers
