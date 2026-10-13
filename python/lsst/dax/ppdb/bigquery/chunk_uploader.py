@@ -29,6 +29,8 @@ import sys
 import time
 from pathlib import Path
 
+import sqlalchemy.exc
+
 from lsst.dax.apdb import monitor
 from lsst.dax.apdb.timer import Timer
 
@@ -293,6 +295,13 @@ class ChunkUploader:
                 # Note (Python 3.11+): annotate without masking the
                 # original error.
                 err.add_note(f"cleanup warning: failed to delete gs://{gcs_uri}: {cleanup_err}")
+            else:
+                # The files are gone, so the chunk's GCS URI should not point
+                # at them.
+                try:
+                    self._ppdb.update_chunk_gcs_uri(chunk_id, None)
+                except (LookupError, sqlalchemy.exc.SQLAlchemyError):
+                    _LOG.warning("Failed to clear GCS URI for chunk %d", chunk_id, exc_info=True)
             raise
 
     def _post_to_stage_chunk_topic(self, gcs_uri: str, chunk_id: int) -> None:

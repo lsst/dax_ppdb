@@ -660,7 +660,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         with self._engine.begin() as connection:
             connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
 
-    def update_chunk_gcs_uri(self, chunk_id: int, gcs_uri: str) -> None:
+    def update_chunk_gcs_uri(self, chunk_id: int, gcs_uri: str | None) -> None:
         """Set the GCS URI of a replica chunk.
 
         Parameters
@@ -668,7 +668,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         chunk_id
             The ID of the replica chunk to update.
         gcs_uri
-            The GCS URI where the chunk's data is stored.
+            The GCS URI where the chunk's data is stored, or `None` to clear
+            it.
 
         Raises
         ------
