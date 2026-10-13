@@ -28,8 +28,8 @@ import astropy.time
 import sqlalchemy
 
 from lsst.dax.ppdb import Ppdb
-from lsst.dax.ppdb.bigquery import ChunkStatus, PpdbBigQuery, PpdbReplicaChunkExtended
-from lsst.dax.ppdb.bigquery.ppdb_bigquery import UpdatableField
+from lsst.dax.ppdb.bigquery import STATUS_TRANSITIONS, ChunkStatus, PpdbBigQuery, PpdbReplicaChunkExtended
+from lsst.dax.ppdb.bigquery.ppdb_bigquery import ChunkStatusTransitionError, UpdatableField
 from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
 from lsst.dax.ppdb.tests import PpdbTest
 from lsst.dax.ppdb.tests._bigquery import PostgresMixin, SqliteMixin
@@ -168,6 +168,43 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         ppdb = self._make_ppdb()
         with self.assertRaises(LookupError):
             ppdb.update_chunks([_make_chunk(99, ChunkStatus.STAGED)], fields={UpdatableField.STATUS})
+
+    def test_status_transitions_cover_all_statuses(self) -> None:
+        """Test that STATUS_TRANSITIONS has an entry for every status."""
+        self.assertEqual(set(STATUS_TRANSITIONS), set(ChunkStatus))
+
+    def test_update_chunk_status_allowed(self) -> None:
+        """Test that update_chunk_status applies an allowed transition."""
+        ppdb = self._make_ppdb()
+        ppdb.insert_chunks([_make_chunk(1, ChunkStatus.UPLOADED)])
+
+        ppdb.update_chunk_status(1, ChunkStatus.STAGING)
+
+        chunk = ppdb.find_chunk_by_id(1)
+        assert chunk is not None
+        self.assertEqual(chunk.status, ChunkStatus.STAGING)
+
+    def test_update_chunk_status_not_allowed(self) -> None:
+        """Test that update_chunk_status refuses a disallowed transition and
+        leaves the status unchanged.
+        """
+        ppdb = self._make_ppdb()
+        ppdb.insert_chunks([_make_chunk(1, ChunkStatus.PROMOTED)])
+
+        with self.assertRaises(ChunkStatusTransitionError) as cm:
+            ppdb.update_chunk_status(1, ChunkStatus.STAGED)
+        self.assertEqual(cm.exception.current_status, ChunkStatus.PROMOTED)
+        self.assertEqual(cm.exception.new_status, ChunkStatus.STAGED)
+
+        chunk = ppdb.find_chunk_by_id(1)
+        assert chunk is not None
+        self.assertEqual(chunk.status, ChunkStatus.PROMOTED)
+
+    def test_update_chunk_status_missing_raises(self) -> None:
+        """Test that update_chunk_status raises on a non-existent chunk ID."""
+        ppdb = self._make_ppdb()
+        with self.assertRaises(LookupError):
+            ppdb.update_chunk_status(99, ChunkStatus.STAGING)
 
     def test_query_chunks_with_filter(self) -> None:
         """Test query_chunks with a WHERE clause."""
