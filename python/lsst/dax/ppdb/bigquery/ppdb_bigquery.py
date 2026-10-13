@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["ConfigValidationError", "PpdbBigQuery", "UpdatableField"]
+__all__ = ["PpdbBigQuery", "UpdatableField"]
 
 import datetime
 import logging
@@ -54,7 +54,7 @@ from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, ParquetFileEntry
-from .ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
+from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
 
@@ -98,10 +98,6 @@ class _SecretManagerPasswordProvider(PasswordProvider):
         _LOG.debug("Retrieving database password from Secret Manager: %s", name)
         response = client.access_secret_version(request={"name": name})
         return response.payload.data.decode("UTF-8")
-
-
-class ConfigValidationError(Exception):
-    """Indicates an error validating the configuration."""
 
 
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
@@ -211,7 +207,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         parq_batch_size: int | None = None,
         parq_compression: str | None = None,
         delete_existing_dirs: bool = False,
-        validate_config: bool = False,
     ) -> PpdbBigQueryConfig:
         """Initialize PPDB database and return configuration object.
 
@@ -244,13 +239,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             Compression codec to use for Parquet output.
         delete_existing_dirs
             If True then delete existing replication staging directories.
-        validate_config
-            If `True`, validate the configuration against GCP resources.
-
-        Raises
-        ------
-        ConfigValidationError
-            Raised if validation of the configuration fails.
         """
         # Create the schema and SQL db for tracking replica chunks; values of
         # None are handled by these methods.
@@ -279,80 +267,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         engine = cls.make_engine(bq_config.sql, password_provider=password_provider)
         cls.make_database(engine, bq_config.sql, sa_metadata, schema_version, db_drop)
 
-        # Validate the config if requested.
-        if validate_config:
-            _LOG.info("validating BigQuery configuration")
-            PpdbBigQuery.validate_config(bq_config)
-            _LOG.info("BigQuery configuration validated successfully")
-
         return bq_config
-
-    @classmethod
-    def validate_config(cls, config: PpdbBigQueryConfig) -> None:
-        """Validate the BigQuery PPDB configuration against GCP resources.
-
-        A number of resources need to be created before the PPDB can be used
-        and this method checks that they exist and are accessible with the
-        current Google Cloud credentials.
-
-        Parameters
-        ----------
-        config
-            Configuration to validate.
-
-        Raises
-        ------
-        ConfigValidationError
-            Raised if the configuration is invalid.
-
-        Notes
-        -----
-        This method does not do any authentication to Google Cloud itself but
-        depends on the environment being set up beforehand with a user
-        account that has the appropriate permissions. This would typically be
-        the identity of whoever is managing the PPDB and its project(s) and
-        running the ``ppdb-cli`` command line interface. By design, a single
-        service account would not have all of the permissions for checking
-        these resources and so should not be used here.
-
-        The best way to configure the environment for the validation will be to
-        ensure that ``GOOGLE_APPLICATION_CREDENTIALS`` is unset and then run
-        ``gcloud auth application-default login`` to set up the default user
-        credentials, which will then be used automatically. There will likely
-        be 403 errors if the permissions are insufficient in either case.
-        """
-        # Check for GCP dependencies and import the necessary modules. Raise an
-        # error with instructions if the module is not found.
-        try:
-            from lsst.dax.ppdbx.gcp.bq import check_dataset_exists
-            from lsst.dax.ppdbx.gcp.gcs import check_bucket_exists
-            from lsst.dax.ppdbx.gcp.pubsub import Publisher
-        except ImportError as e:
-            raise ConfigValidationError(
-                "The lsst.dax.ppdbx.gcp module is required for GCP support.\n"
-                "Please 'pip install' the lsst-dax-ppdbx-gcp package from:\n"
-                "https://github.com/lsst-dm/dax_ppdbx_gcp"
-            ) from e
-
-        # Check existence of the Pub/Sub stage chunk topic.
-        try:
-            Publisher(config.project_id, config.stage_chunk_topic).validate_topic_exists()
-        except Exception as e:
-            raise ConfigValidationError("Failed to validate Pub/Sub topic") from e
-
-        # Check existence of the storage bucket for chunks.
-        try:
-            check_bucket_exists(config.bucket_name)
-        except Exception as e:
-            raise ConfigValidationError("Failed to validate GCS bucket") from e
-
-        # Check existence of the BigQuery dataset.
-        for dataset_type in tuple(DatasetType):
-            dataset_name = config.datasets.name_for(dataset_type)
-            try:
-                check_dataset_exists(config.project_id, dataset_name)
-            except Exception as e:
-                raise ConfigValidationError(f"Failed to validate BigQuery dataset: {dataset_name}") from e
 
     # ----------------------------------------------------------------------
     # Engine creation
