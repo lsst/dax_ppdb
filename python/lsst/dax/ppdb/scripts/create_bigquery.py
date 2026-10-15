@@ -48,7 +48,6 @@ def create_bigquery(
     parq_batch_size: int | None = None,
     parq_compression: str | None = None,
     delete_existing_dirs: bool = False,
-    validate_config: bool = True,
 ) -> None:
     """Create new BigQuery configuration and initialize SQL database.
 
@@ -83,8 +82,6 @@ def create_bigquery(
         Compression codec to use for Parquet output.
     delete_existing_dirs
         If True then delete existing replication staging directories.
-    validate_config
-        If `True`, validate the configuration against GCP resources.
     """
     bq_config = PpdbBigQuery.init_bigquery(
         db_url=db_url,
@@ -100,7 +97,6 @@ def create_bigquery(
         bucket_name=bucket_name,
         object_prefix=object_prefix,
         project_id=project_id,
-        validate_config=validate_config,
     )
     _LOG.info("Created BigQuery configuration: %s", bq_config)
 

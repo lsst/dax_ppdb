@@ -230,9 +230,3 @@ def bigquery_options(parser: argparse.ArgumentParser) -> None:
         metavar="PREFIX",
         required=True,
     )
-    group.add_argument(
-        "--validate-config",
-        help="Enable/disable validation of configuration against GCP resources (enabled by default).",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )

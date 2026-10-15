@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["ConfigValidationError", "PpdbBigQuery", "UpdatableField"]
+__all__ = ["PpdbBigQuery", "UpdatableField"]
 
 import datetime
 import logging
@@ -34,7 +34,6 @@ from pathlib import Path
 import astropy.time
 import felis
 import sqlalchemy
-from google.cloud import secretmanager
 from google.cloud.sql.connector import Connector
 from sqlalchemy.engine.interfaces import DBAPIConnection
 
@@ -52,9 +51,9 @@ from lsst.dax.apdb.timer import Timer
 
 from .._arrow import write_parquet
 from ..ppdb import Ppdb, PpdbReplicaChunk
-from ..sql import PasswordProvider, PpdbSqlBase, PpdbSqlBaseConfig
+from ..sql import PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, ParquetFileEntry
-from .ppdb_bigquery_config import DatasetType, PpdbBigQueryConfig
+from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .updates.update_records import UpdateRecords
 
@@ -74,34 +73,6 @@ class UpdatableField(StrEnum):
 
     STATUS = "status"
     GCS_URI = "gcs_uri"
-
-
-class _SecretManagerPasswordProvider(PasswordProvider):
-    """Retrieves a database password from Google Cloud Secret Manager.
-
-    Parameters
-    ----------
-    project_id
-        GCP project that owns the secret.
-    secret_name
-        Name of the secret. Defaults to ``"ppdb-db-password"``.
-    """
-
-    def __init__(self, project_id: str, secret_name: str = "ppdb-db-password") -> None:
-        self._project_id = project_id
-        self._secret_name = secret_name
-
-    def get_password(self) -> str:
-        """Return the password fetched from Secret Manager."""
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{self._project_id}/secrets/{self._secret_name}/versions/latest"
-        _LOG.debug("Retrieving database password from Secret Manager: %s", name)
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
-
-
-class ConfigValidationError(Exception):
-    """Indicates an error validating the configuration."""
 
 
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
@@ -129,15 +100,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise ValueError("Directory for chunk export is not set in configuration.")
 
         # Delegate SQL initialisation (schema load, engine, metadata, version
-        # checks) to the base class, passing the optional password provider.
-        # Whether the Cloud SQL Connector is used is determined from the
-        # environment (see `is_cloudsql_enabled`) inside `make_engine`.
-        password_provider = self._make_password_provider(config.project_id)
-        PpdbSqlBase.__init__(
-            self,
-            config.sql,
-            password_provider=password_provider,
-        )
+        # checks) to the base class. Whether the Cloud SQL Connector is used is
+        # determined from the environment (see `is_cloudsql_enabled`) inside
+        # `make_engine`.
+        PpdbSqlBase.__init__(self, config.sql)
 
         self._config = config
 
@@ -211,7 +177,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         parq_batch_size: int | None = None,
         parq_compression: str | None = None,
         delete_existing_dirs: bool = False,
-        validate_config: bool = False,
     ) -> PpdbBigQueryConfig:
         """Initialize PPDB database and return configuration object.
 
@@ -244,13 +209,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             Compression codec to use for Parquet output.
         delete_existing_dirs
             If True then delete existing replication staging directories.
-        validate_config
-            If `True`, validate the configuration against GCP resources.
-
-        Raises
-        ------
-        ConfigValidationError
-            Raised if validation of the configuration fails.
         """
         # Create the schema and SQL db for tracking replica chunks; values of
         # None are handled by these methods.
@@ -275,84 +233,10 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         if stage_chunk_topic is not None:
             bq_config.stage_chunk_topic = stage_chunk_topic
 
-        password_provider = cls._make_password_provider(bq_config.project_id)
-        engine = cls.make_engine(bq_config.sql, password_provider=password_provider)
+        engine = cls.make_engine(bq_config.sql)
         cls.make_database(engine, bq_config.sql, sa_metadata, schema_version, db_drop)
 
-        # Validate the config if requested.
-        if validate_config:
-            _LOG.info("validating BigQuery configuration")
-            PpdbBigQuery.validate_config(bq_config)
-            _LOG.info("BigQuery configuration validated successfully")
-
         return bq_config
-
-    @classmethod
-    def validate_config(cls, config: PpdbBigQueryConfig) -> None:
-        """Validate the BigQuery PPDB configuration against GCP resources.
-
-        A number of resources need to be created before the PPDB can be used
-        and this method checks that they exist and are accessible with the
-        current Google Cloud credentials.
-
-        Parameters
-        ----------
-        config
-            Configuration to validate.
-
-        Raises
-        ------
-        ConfigValidationError
-            Raised if the configuration is invalid.
-
-        Notes
-        -----
-        This method does not do any authentication to Google Cloud itself but
-        depends on the environment being set up beforehand with a user
-        account that has the appropriate permissions. This would typically be
-        the identity of whoever is managing the PPDB and its project(s) and
-        running the ``ppdb-cli`` command line interface. By design, a single
-        service account would not have all of the permissions for checking
-        these resources and so should not be used here.
-
-        The best way to configure the environment for the validation will be to
-        ensure that ``GOOGLE_APPLICATION_CREDENTIALS`` is unset and then run
-        ``gcloud auth application-default login`` to set up the default user
-        credentials, which will then be used automatically. There will likely
-        be 403 errors if the permissions are insufficient in either case.
-        """
-        # Check for GCP dependencies and import the necessary modules. Raise an
-        # error with instructions if the module is not found.
-        try:
-            from lsst.dax.ppdbx.gcp.bq import check_dataset_exists
-            from lsst.dax.ppdbx.gcp.gcs import check_bucket_exists
-            from lsst.dax.ppdbx.gcp.pubsub import Publisher
-        except ImportError as e:
-            raise ConfigValidationError(
-                "The lsst.dax.ppdbx.gcp module is required for GCP support.\n"
-                "Please 'pip install' the lsst-dax-ppdbx-gcp package from:\n"
-                "https://github.com/lsst-dm/dax_ppdbx_gcp"
-            ) from e
-
-        # Check existence of the Pub/Sub stage chunk topic.
-        try:
-            Publisher(config.project_id, config.stage_chunk_topic).validate_topic_exists()
-        except Exception as e:
-            raise ConfigValidationError("Failed to validate Pub/Sub topic") from e
-
-        # Check existence of the storage bucket for chunks.
-        try:
-            check_bucket_exists(config.bucket_name)
-        except Exception as e:
-            raise ConfigValidationError("Failed to validate GCS bucket") from e
-
-        # Check existence of the BigQuery dataset.
-        for dataset_type in tuple(DatasetType):
-            dataset_name = config.datasets.name_for(dataset_type)
-            try:
-                check_dataset_exists(config.project_id, dataset_name)
-            except Exception as e:
-                raise ConfigValidationError(f"Failed to validate BigQuery dataset: {dataset_name}") from e
 
     # ----------------------------------------------------------------------
     # Engine creation
@@ -371,12 +255,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         return os.environ.get("CLOUDSQL_ENABLED", "false").lower() == "true"
 
     @classmethod
-    def make_engine(
-        cls,
-        config: PpdbSqlBaseConfig,
-        *,
-        password_provider: PasswordProvider | None = None,
-    ) -> sqlalchemy.engine.Engine:
+    def make_engine(cls, config: PpdbSqlBaseConfig) -> sqlalchemy.engine.Engine:
         """Make a SQLAlchemy engine, optionally using the Cloud SQL Connector.
 
         Whether the Cloud SQL Python Connector is used is determined by the
@@ -392,17 +271,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         - ``CLOUDSQL_IP_TYPE``: IP type used to reach the instance, one of
           ``private`` (default), ``public``, or ``psc``.
 
-        Authentication uses automatic IAM database authentication unless
-        ``password_provider`` is given, in which case password authentication
-        is used.
+        Authentication uses automatic IAM database authentication.
 
         Parameters
         ----------
         config
             Configuration object with SQL parameters.
-        password_provider
-            If provided, the password returned by
-            ``password_provider.get_password()`` is used for authentication.
 
         Returns
         -------
@@ -410,26 +284,16 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             The SQLAlchemy engine.
         """
         if cls.is_cloudsql_enabled():
-            return cls._make_connector_engine(password_provider=password_provider)
-        return super().make_engine(config, password_provider=password_provider)
+            return cls._make_connector_engine()
+        return super().make_engine(config)
 
     @classmethod
-    def _make_connector_engine(
-        cls,
-        *,
-        password_provider: PasswordProvider | None = None,
-    ) -> sqlalchemy.engine.Engine:
+    def _make_connector_engine(cls) -> sqlalchemy.engine.Engine:
         """Create a SQLAlchemy engine using the Cloud SQL Python Connector.
 
         The connection parameters are read from the environment; see
         `make_engine` for the environment variables that are used.
-
-        Parameters
-        ----------
-        password_provider
-            If provided, its password is used for password authentication and
-            automatic IAM database authentication is disabled. If not
-            provided, automatic IAM database authentication is used.
+        Authentication uses automatic IAM database authentication.
 
         Returns
         -------
@@ -467,14 +331,13 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             raise OSError(
                 f"Invalid CLOUDSQL_IP_TYPE value: {ip_type!r} (expected 'private', 'public', or 'psc')"
             )
-        connect_kwargs: dict[str, str | bool] = {"user": db_user, "db": db_name, "ip_type": ip_type}
-        if password_provider is not None:
-            connect_kwargs["password"] = password_provider.get_password()
-            connect_kwargs["enable_iam_auth"] = False
-            _LOG.info("Using password authentication for Cloud SQL Connector")
-        else:
-            connect_kwargs["enable_iam_auth"] = True
-            _LOG.info("Using IAM authentication for Cloud SQL Connector")
+        connect_kwargs: dict[str, str | bool] = {
+            "user": db_user,
+            "db": db_name,
+            "ip_type": ip_type,
+            "enable_iam_auth": True,
+        }
+        _LOG.info("Using IAM authentication for Cloud SQL Connector")
 
         # Lazy refresh is recommended for serverless environments where CPU may
         # be throttled between requests.
@@ -821,26 +684,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     # ----------------------------------------------------------------------
     # Private helpers
     # ----------------------------------------------------------------------
-
-    @classmethod
-    def _make_password_provider(cls, project_id: str) -> PasswordProvider | None:
-        """Build a password provider from the environment, if configured.
-
-        Parameters
-        ----------
-        project_id
-            Unique identifier of the Google Cloud project with the secrets
-            manager.
-
-        Returns
-        -------
-        PasswordProvider
-            The password provider for the cloud environment.
-        """
-        if os.getenv("PPDB_USE_SECRET_MANAGER", "false").lower() == "true":
-            _LOG.info("Using Secret Manager to retrieve database password")
-            return _SecretManagerPasswordProvider(project_id)
-        return None
 
     def _generate_manifest(
         self,

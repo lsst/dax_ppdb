@@ -31,9 +31,8 @@ from pathlib import Path
 
 from lsst.dax.apdb import monitor
 from lsst.dax.apdb.timer import Timer
-from lsst.dax.ppdbx.gcp.gcs import DeleteError, StorageClient, UploadError
-from lsst.dax.ppdbx.gcp.pubsub import Publisher
 
+from ..gcp import DeleteError, Publisher, StorageClient, UploadError
 from .manifest import Manifest
 from .ppdb_bigquery import PpdbBigQuery, UpdatableField
 from .ppdb_bigquery_config import PpdbBigQueryConfig
