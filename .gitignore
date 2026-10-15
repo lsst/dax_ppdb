@@ -30,3 +30,6 @@ pytest_session.txt
 
 # Generated Sphinx API doc
 doc/api
+
+# scratch dir
+.scratch
