@@ -24,17 +24,16 @@
 import logging
 import os
 
-from google.cloud import logging as cloud_logging
+from google.cloud.logging_v2.handlers import StructuredLogHandler, setup_logging
 
 __all__ = ["setup_cloud_logging"]
 
 
 def setup_cloud_logging() -> None:
     """Set up Cloud Logging and configure the root logger."""
-    cloud_logging.Client().setup_logging()  # Redirects standard logging to Cloud Logging
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
-    logging.getLogger().setLevel(log_level)
+    setup_logging(StructuredLogHandler(), log_level=log_level)
 
     # Silence noisy warnings from google-auth-httplib2.
     logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
