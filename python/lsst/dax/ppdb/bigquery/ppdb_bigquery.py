@@ -30,6 +30,8 @@ import shutil
 from collections.abc import Collection, Iterable, Sequence
 from enum import StrEnum
 from pathlib import Path
+from types import TracebackType
+from typing import Self
 
 import astropy.time
 import felis
@@ -88,6 +90,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
     Whether the SQLAlchemy engine uses the Cloud SQL Python Connector is
     controlled by the ``CLOUDSQL_ENABLED`` environment variable; see
     `is_cloudsql_enabled` and `make_engine`.
+
+    Use this interface as a context manager or call `close` when finished
+    to release database connections and the Cloud SQL connector.
     """
 
     # ----------------------------------------------------------------------
@@ -106,6 +111,21 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         PpdbSqlBase.__init__(self, config.sql)
 
         self._config = config
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Release database connections and the Cloud SQL connector."""
+        self._engine.dispose()
 
     @property
     def metadata(self) -> ApdbMetadata:
@@ -273,6 +293,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Authentication uses automatic IAM database authentication.
 
+        The caller must dispose the returned engine when finished.
+
         Parameters
         ----------
         config
@@ -311,7 +333,8 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         recommended for serverless environments such as Cloud Run and Cloud
         Functions where CPU may be throttled between requests. A reference to
         the connector is retained by the returned engine's connection factory,
-        so it remains alive for the lifetime of the engine.
+        so it remains alive until the engine is disposed. Disposal closes
+        the connector after closing pooled database connections.
         """
         instance_connection_name = os.environ.get("CLOUDSQL_INSTANCE_CONNECTION_NAME")
         if not instance_connection_name:
@@ -351,7 +374,14 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             instance_connection_name,
             driver,
         )
-        return sqlalchemy.create_engine(f"postgresql+{driver}://", creator=getconn)
+        engine = sqlalchemy.create_engine(f"postgresql+{driver}://", creator=getconn)
+
+        def close_connector(_: sqlalchemy.engine.Engine) -> None:
+            """Close the cloud sql connector when the engine is cleaned up."""
+            connector.close()
+
+        sqlalchemy.event.listen(engine, "engine_disposed", close_connector, once=True)
+        return engine
 
     # ----------------------------------------------------------------------
     # SQL schema and versioning class methods

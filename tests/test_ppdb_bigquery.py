@@ -356,7 +356,7 @@ class MakeEngineConnectorTestCase(unittest.TestCase):
         """Call ``make_engine`` for the connector path with a patched
         ``create_engine`` and return the ``create_engine`` mock.
         """
-        with mock.patch("sqlalchemy.create_engine") as create_engine:
+        with mock.patch("sqlalchemy.create_engine") as create_engine, mock.patch("sqlalchemy.event.listen"):
             PpdbBigQuery.make_engine(self.config, **kwargs)
         return create_engine
 
