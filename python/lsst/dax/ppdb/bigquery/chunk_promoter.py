@@ -31,13 +31,14 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+import sqlalchemy.exc
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
 from lsst.dax.apdb import ApdbTables
 
 from ..gcp import CloudEventLogger
-from .ppdb_bigquery import PpdbBigQuery, UpdatableField
+from .ppdb_bigquery import ChunkStatusTransitionError, PpdbBigQuery
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .sql_resource import SqlResource
@@ -424,8 +425,31 @@ class ChunkPromoter:
 
     def _mark_chunks_promoted(self) -> None:
         """Mark the replica chunks as promoted in the database."""
-        promoted = [chunk.with_new_status(ChunkStatus.PROMOTED) for chunk in self.promotable_chunks]
-        self._ppdb.update_chunks(promoted, fields={UpdatableField.STATUS})
+        chunk_ids = [chunk.id for chunk in self.promotable_chunks]
+        try:
+            self._ppdb.update_chunk_status(chunk_ids, ChunkStatus.PROMOTED)
+        except ChunkStatusTransitionError as e:
+            # Should not normally occur, as promotable chunks are selected
+            # because they are staged and can be moved to promoted.
+            self._logger.log_event(
+                logging.ERROR,
+                "Chunk status transition to promoted not allowed",
+                "chunk_mark_promoted_failed",
+                error=e,
+                chunk_ids=chunk_ids,
+                current_status=e.current_status,
+                new_status=e.new_status,
+            )
+            raise
+        except (LookupError, sqlalchemy.exc.SQLAlchemyError) as e:
+            self._logger.log_event(
+                logging.ERROR,
+                "Failed to mark chunks as promoted",
+                "chunk_mark_promoted_failed",
+                error=e,
+                chunk_ids=chunk_ids,
+            )
+            raise
 
     def _cleanup(self) -> None:
         """Cleanup state after executing the promotion."""

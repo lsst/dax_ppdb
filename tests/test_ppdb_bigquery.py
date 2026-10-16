@@ -29,7 +29,7 @@ import sqlalchemy
 
 from lsst.dax.ppdb import Ppdb
 from lsst.dax.ppdb.bigquery import ChunkStatus, PpdbBigQuery, PpdbReplicaChunkExtended
-from lsst.dax.ppdb.bigquery.ppdb_bigquery import UpdatableField
+from lsst.dax.ppdb.bigquery.ppdb_bigquery import ChunkStatusTransitionError
 from lsst.dax.ppdb.sql import PpdbSqlBaseConfig
 from lsst.dax.ppdb.tests import PpdbTest
 from lsst.dax.ppdb.tests._bigquery import PostgresMixin, SqliteMixin
@@ -108,53 +108,23 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         with self.assertRaises(ValueError):
             ppdb.insert_chunks([])
 
-    def test_update_chunks(self) -> None:
-        """Test that update_chunks updates an existing chunk."""
+    def test_update_chunk_gcs_uri(self) -> None:
+        """Test that update_chunk_gcs_uri sets only the GCS URI."""
         ppdb = self._make_ppdb()
         ppdb.insert_chunks([_make_chunk(1, ChunkStatus.EXPORTED)])
-        ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields={UpdatableField.STATUS})
 
-        result = ppdb.query_chunks()
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].status, ChunkStatus.STAGED)
+        ppdb.update_chunk_gcs_uri(1, "gs://bucket/path")
 
-    def test_update_chunks_gcs_uri(self) -> None:
-        """Test that update_chunks can update gcs_uri."""
+        chunk = ppdb.find_chunk_by_id(1)
+        assert chunk is not None
+        self.assertEqual(chunk.gcs_uri, "gs://bucket/path")
+        self.assertEqual(chunk.status, ChunkStatus.EXPORTED)
+
+    def test_update_chunk_gcs_uri_missing_raises(self) -> None:
+        """Test that update_chunk_gcs_uri raises on a non-existent chunk ID."""
         ppdb = self._make_ppdb()
-        chunk = _make_chunk(1, ChunkStatus.EXPORTED)
-        ppdb.insert_chunks([chunk])
-        updated = chunk.with_new_gcs_uri("gs://bucket/path")
-        ppdb.update_chunks([updated], fields={UpdatableField.GCS_URI})
-
-        result = ppdb.query_chunks()
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].gcs_uri, "gs://bucket/path")
-        self.assertEqual(result[0].status, ChunkStatus.EXPORTED)
-
-    def test_update_chunks_restricts_fields(self) -> None:
-        """Test that update_chunks only updates the specified fields."""
-        ppdb = self._make_ppdb()
-        chunk = _make_chunk(1, ChunkStatus.EXPORTED)
-        ppdb.insert_chunks([chunk])
-
-        updated = chunk.with_new_status(ChunkStatus.STAGED).with_new_gcs_uri("gs://bucket/path")
-        ppdb.update_chunks([updated], fields={UpdatableField.STATUS})
-
-        result = ppdb.query_chunks()
-        self.assertEqual(result[0].status, ChunkStatus.STAGED)
-        self.assertIsNone(result[0].gcs_uri)
-
-    def test_update_chunks_empty_raises(self) -> None:
-        """Test that update_chunks raises on empty chunks list."""
-        ppdb = self._make_ppdb()
-        with self.assertRaises(ValueError):
-            ppdb.update_chunks([], fields={UpdatableField.STATUS})
-
-    def test_update_chunks_empty_fields_raises(self) -> None:
-        """Test that update_chunks raises on empty fields set."""
-        ppdb = self._make_ppdb()
-        with self.assertRaises(ValueError):
-            ppdb.update_chunks([_make_chunk(1, ChunkStatus.STAGED)], fields=set())
+        with self.assertRaises(LookupError):
+            ppdb.update_chunk_gcs_uri(99, "gs://bucket/path")
 
     def test_insert_chunks_duplicate_raises(self) -> None:
         """Test that insert_chunks raises on duplicate chunk ID."""
@@ -163,11 +133,59 @@ class PpdbBigQueryTestCase(SqliteMixin, unittest.TestCase):
         with self.assertRaises(sqlalchemy.exc.IntegrityError):
             ppdb.insert_chunks([_make_chunk(1, ChunkStatus.STAGED)])
 
-    def test_update_chunks_missing_raises(self) -> None:
-        """Test that update_chunks raises on a non-existent chunk ID."""
+    def test_update_chunk_status_allowed(self) -> None:
+        """Test that update_chunk_status applies an allowed transition."""
+        ppdb = self._make_ppdb()
+        ppdb.insert_chunks([_make_chunk(1, ChunkStatus.UPLOADED)])
+
+        ppdb.update_chunk_status(1, ChunkStatus.STAGING)
+
+        chunk = ppdb.find_chunk_by_id(1)
+        assert chunk is not None
+        self.assertEqual(chunk.status, ChunkStatus.STAGING)
+
+    def test_update_chunk_status_not_allowed(self) -> None:
+        """Test that update_chunk_status refuses a disallowed transition and
+        leaves the status unchanged.
+        """
+        ppdb = self._make_ppdb()
+        ppdb.insert_chunks([_make_chunk(1, ChunkStatus.PROMOTED)])
+
+        with self.assertRaises(ChunkStatusTransitionError) as cm:
+            ppdb.update_chunk_status(1, ChunkStatus.STAGED)
+        self.assertEqual(cm.exception.current_status, ChunkStatus.PROMOTED)
+        self.assertEqual(cm.exception.new_status, ChunkStatus.STAGED)
+
+        chunk = ppdb.find_chunk_by_id(1)
+        assert chunk is not None
+        self.assertEqual(chunk.status, ChunkStatus.PROMOTED)
+
+    def test_update_chunk_status_missing_raises(self) -> None:
+        """Test that update_chunk_status raises on a non-existent chunk ID."""
         ppdb = self._make_ppdb()
         with self.assertRaises(LookupError):
-            ppdb.update_chunks([_make_chunk(99, ChunkStatus.STAGED)], fields={UpdatableField.STATUS})
+            ppdb.update_chunk_status(99, ChunkStatus.STAGING)
+
+    def test_update_chunk_status_multiple(self) -> None:
+        """Test that update_chunk_status updates several chunks at once."""
+        ppdb = self._make_ppdb()
+        ppdb.insert_chunks([_make_chunk(1, ChunkStatus.STAGED), _make_chunk(2, ChunkStatus.STAGED)])
+
+        ppdb.update_chunk_status([1, 2], ChunkStatus.PROMOTED)
+
+        self.assertEqual([c.status for c in ppdb.query_chunks()], [ChunkStatus.PROMOTED] * 2)
+
+    def test_update_chunk_status_multiple_all_or_nothing(self) -> None:
+        """Test that update_chunk_status changes none of the chunks if one of
+        the transitions is not allowed.
+        """
+        ppdb = self._make_ppdb()
+        ppdb.insert_chunks([_make_chunk(1, ChunkStatus.STAGED), _make_chunk(2, ChunkStatus.UPLOADED)])
+
+        with self.assertRaises(ChunkStatusTransitionError):
+            ppdb.update_chunk_status([1, 2], ChunkStatus.PROMOTED)
+
+        self.assertEqual([c.status for c in ppdb.query_chunks()], [ChunkStatus.STAGED, ChunkStatus.UPLOADED])
 
     def test_query_chunks_with_filter(self) -> None:
         """Test query_chunks with a WHERE clause."""

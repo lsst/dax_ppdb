@@ -29,12 +29,14 @@ import sys
 import time
 from pathlib import Path
 
+import sqlalchemy.exc
+
 from lsst.dax.apdb import monitor
 from lsst.dax.apdb.timer import Timer
 
 from ..gcp import DeleteError, Publisher, StorageClient, UploadError
 from .manifest import Manifest
-from .ppdb_bigquery import PpdbBigQuery, UpdatableField
+from .ppdb_bigquery import PpdbBigQuery
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 
@@ -264,13 +266,9 @@ class ChunkUploader:
                 # 3) Update the database record for the chunk, setting status
                 # to 'uploaded' and populating the GCS URI.
                 new_status = ChunkStatus.UPLOADED
-                updated_replica_chunk = replica_chunk.with_new_status(new_status).with_new_gcs_uri(
-                    f"gs://{gcs_uri}"
-                )
                 try:
-                    self._ppdb.update_chunks(
-                        [updated_replica_chunk], fields={UpdatableField.STATUS, UpdatableField.GCS_URI}
-                    )
+                    self._ppdb.update_chunk_gcs_uri(chunk_id, f"gs://{gcs_uri}")
+                    self._ppdb.update_chunk_status(chunk_id, new_status)
                     _LOG.info(
                         "Updated replica chunk %d in database with status '%s' and GCS URI: %s",
                         chunk_id,
@@ -297,6 +295,13 @@ class ChunkUploader:
                 # Note (Python 3.11+): annotate without masking the
                 # original error.
                 err.add_note(f"cleanup warning: failed to delete gs://{gcs_uri}: {cleanup_err}")
+            else:
+                # The files are gone, so the chunk's GCS URI should not point
+                # at them.
+                try:
+                    self._ppdb.update_chunk_gcs_uri(chunk_id, None)
+                except (LookupError, sqlalchemy.exc.SQLAlchemyError):
+                    _LOG.warning("Failed to clear GCS URI for chunk %d", chunk_id, exc_info=True)
             raise
 
     def _post_to_stage_chunk_topic(self, gcs_uri: str, chunk_id: int) -> None:

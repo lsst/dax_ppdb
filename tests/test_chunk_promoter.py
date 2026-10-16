@@ -38,7 +38,6 @@ from lsst.dax.ppdb.bigquery import (
     PpdbBigQuery,
     PpdbReplicaChunkExtended,
 )
-from lsst.dax.ppdb.bigquery.ppdb_bigquery import UpdatableField
 from lsst.dax.ppdb.bigquery.sql_resource import SqlResource
 from lsst.dax.ppdb.bigquery.updates import ExpandedUpdateRecord, UpdateRecords
 from lsst.dax.ppdb.gcp import CloudEventLogger
@@ -131,7 +130,6 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         for chunk in self.ppdb.query_chunks():
             chunk_dir = self.ppdb.config.chunk_dir(chunk.id)
             manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
-            status = ChunkStatus.SKIPPED if manifest.is_empty_chunk else ChunkStatus.UPLOADED
             gcs_prefix = posixpath.join(self.ppdb.config.object_prefix, str(chunk.id))
             gcs_uri = f"gs://{self.config.bucket_name}/{gcs_prefix}"
 
@@ -140,10 +138,10 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
                 blob = self.bucket.blob(f"{gcs_prefix}/{UpdateRecords.PARQUET_FILE_NAME}")
                 blob.upload_from_filename(str(update_records_path))
 
-            self.ppdb.update_chunks(
-                [chunk.with_new_status(status).with_new_gcs_uri(gcs_uri)],
-                fields={UpdatableField.STATUS, UpdatableField.GCS_URI},
-            )
+            # Empty chunks are already marked skipped when they are stored.
+            if not manifest.is_empty_chunk:
+                self.ppdb.update_chunk_gcs_uri(chunk.id, gcs_uri)
+                self.ppdb.update_chunk_status(chunk.id, ChunkStatus.UPLOADED)
 
     def _load_parquet_to_table(self, parquet_path: Path, table_fqn: str) -> None:
         """Load a local parquet file into a BigQuery table, creating the table
@@ -293,7 +291,8 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         # Stage all data chunks, simulating the Dataflow staging step.
         for chunk in data_chunks:
             self._load_chunk_to_staging(chunk)
-            self.ppdb.update_chunks([chunk.with_new_status(ChunkStatus.STAGED)], fields={"status"})
+            self.ppdb.update_chunk_status(chunk.id, ChunkStatus.STAGING)
+            self.ppdb.update_chunk_status(chunk.id, ChunkStatus.STAGED)
 
         # Stage the raw update records into the staging updates table.
         self._load_updates_to_staging()
