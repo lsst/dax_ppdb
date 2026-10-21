@@ -46,6 +46,8 @@ class ChunkStatus(StrEnum):
     """Chunk has been exported from the APDB to a local parquet file."""
     UPLOADED = "uploaded"
     """Chunk has been uploaded to cloud storage."""
+    STAGING = "staging"
+    """Chunk is being copied into the staging tables by a Dataflow job."""
     STAGED = "staged"
     """Chunk data has been copied into the staging tables."""
     PROMOTED = "promoted"
