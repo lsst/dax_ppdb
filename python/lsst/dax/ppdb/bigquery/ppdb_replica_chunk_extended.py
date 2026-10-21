@@ -130,14 +130,14 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         """
         return dataclasses.replace(self, status=new_status)
 
-    def with_new_gcs_uri(self, new_gcs_uri: str) -> PpdbReplicaChunkExtended:
+    def with_new_gcs_uri(self, new_gcs_uri: str | None) -> PpdbReplicaChunkExtended:
         """Create a new `PpdbReplicaChunkExtended` with the same properties as
         this one, but with a different GCS URI.
 
         Parameters
         ----------
         new_gcs_uri
-            The new GCS URI to set.
+            The new GCS URI to set, or `None` to clear it.
 
         Returns
         -------
