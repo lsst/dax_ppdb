@@ -285,7 +285,20 @@ class ChunkUploader:
                 try:
                     self._post_to_stage_chunk_topic(gcs_uri, chunk_id)
                 except Exception as e:
-                    raise ChunkUploadError(chunk_id, "Failed to publish staging message") from e
+                    err = ChunkUploadError(chunk_id, "Failed to publish staging message")
+                    # The status was already set to 'uploaded' above, but the
+                    # uploaded files are deleted below and no staging job will
+                    # run. Reset the status to 'exported' and clear the GCS
+                    # URI so that an attempt will be made to upload the chunk
+                    # on the next pass.
+                    try:
+                        self._ppdb.update_chunks(
+                            [replica_chunk.with_new_status(ChunkStatus.EXPORTED).with_new_gcs_uri(None)],
+                            fields={UpdatableField.STATUS, UpdatableField.GCS_URI},
+                        )
+                    except Exception as reset_err:
+                        err.add_note(f"failed to reset status to exported and clear GCS URI: {reset_err}")
+                    raise err from e
 
         except ChunkUploadError as err:
             try:

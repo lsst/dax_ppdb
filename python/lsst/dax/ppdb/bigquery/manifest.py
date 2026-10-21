@@ -33,6 +33,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from lsst.resources import ResourcePath, ResourcePathExpression
+
 from .updates import UpdateRecords
 
 
@@ -221,3 +223,21 @@ class Manifest(BaseModel):
         """
         data = json.loads(content)
         return cls.model_validate(data)
+
+    @classmethod
+    def from_uri(cls, folder: ResourcePathExpression) -> Manifest:
+        """Load a chunk's manifest from a folder location.
+
+        Parameters
+        ----------
+        folder
+            Location of the folder containing the manifest file, e.g. a
+            ``gs://`` URI.
+
+        Returns
+        -------
+        `Manifest`
+            The loaded manifest object.
+        """
+        manifest_uri = ResourcePath(folder).join(cls.FILE_NAME)
+        return cls.from_json_str(manifest_uri.read().decode("utf-8"))
