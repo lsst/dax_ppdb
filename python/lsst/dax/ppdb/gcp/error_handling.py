@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Logging and classification of request submission and database errors as
+"""Logging and classification of Dataflow job launch and database errors as
 retryable or non-retryable.
 """
 
@@ -36,19 +36,18 @@ from googleapiclient.errors import HttpError
 
 from .cloud_event_logger import CloudEventLogger
 
-__all__ = ["handle_database_error", "handle_request_error"]
+__all__ = ["handle_database_error", "handle_dataflow_launch_error"]
 
 
-def handle_request_error(logger: CloudEventLogger, e: Exception) -> bool:
-    """Log a failed request (e.g. a Dataflow job launch or BigQuery call)
-    and report whether it is retryable.
+def handle_dataflow_launch_error(logger: CloudEventLogger, e: Exception) -> bool:
+    """Log a failed Dataflow job launch and report whether it is retryable.
 
     Parameters
     ----------
     logger
         Logger used to report the error.
     e
-        The exception raised by the failed request.
+        The exception raised by the launch request.
 
     Returns
     -------
@@ -57,7 +56,8 @@ def handle_request_error(logger: CloudEventLogger, e: Exception) -> bool:
     """
     extra_fields: dict[str, Any] = {}
     if isinstance(e, HttpError):
-        # Retryable if the HTTP status code indicates a transient error:
+        # Errors returned by the Dataflow API. Retryable if the HTTP status
+        # code indicates a transient error:
         # - 429 Too Many Requests
         # - 500 Internal Server Error
         # - 503 Service Unavailable
@@ -75,12 +75,12 @@ def handle_request_error(logger: CloudEventLogger, e: Exception) -> bool:
             TransportError,
         ),
     ):
-        # Covers transient network failures, e.g. ConnectionResetError,
-        # TLS errors, truncated responses, DNS lookup failures, and
-        # credential-refresh transport errors.
+        # Transient failures while sending the launch request: other Google
+        # API errors, connection resets, TLS errors, truncated responses, DNS
+        # lookup failures, and credential-refresh transport errors.
         retryable = True
     else:
-        # Other types of submission errors are considered non-retryable.
+        # Any other error is not retryable.
         retryable = False
 
     if retryable:
