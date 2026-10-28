@@ -172,7 +172,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         """
         ppdb_config_uri = os.environ.get("PPDB_CONFIG_URI", None)
         if ppdb_config_uri:
-            logging.info("PPDB_CONFIG_URI: %s", ppdb_config_uri)
+            logging.debug("PPDB_CONFIG_URI: %s", ppdb_config_uri)
         else:
             raise OSError("PPDB_CONFIG_URI is not set in the environment")
         config = PpdbBigQueryConfig.from_uri(ppdb_config_uri)
@@ -360,7 +360,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             "ip_type": ip_type,
             "enable_iam_auth": True,
         }
-        _LOG.info("Using IAM authentication for Cloud SQL Connector")
+        _LOG.debug("Using IAM authentication for Cloud SQL Connector")
 
         # Lazy refresh is recommended for serverless environments where CPU may
         # be throttled between requests.
@@ -369,7 +369,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         def getconn() -> DBAPIConnection:
             return connector.connect(instance_connection_name, driver, **connect_kwargs)
 
-        _LOG.info(
+        _LOG.debug(
             "Creating Cloud SQL Connector engine for %s (driver=%s)",
             instance_connection_name,
             driver,
@@ -507,7 +507,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             # Create manifest for the replica chunk.
             try:
                 manifest = self._generate_manifest(replica_chunk, table_dict, update_records, chunk_dir)
-                _LOG.info("Generated manifest for %s: %s", replica_chunk.id, manifest.model_dump_json())
+                _LOG.debug("Generated manifest for %s: %s", replica_chunk.id, manifest.model_dump_json())
             except Exception:
                 _LOG.exception("Failed to generate manifest for %d", replica_chunk.id)
                 raise
@@ -790,7 +790,7 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             shutil.rmtree(chunk_dir)
 
         chunk_dir.mkdir(parents=True)
-        _LOG.info("Created directory for %s: %s", chunk.id, chunk_dir)
+        _LOG.debug("Created directory for %s: %s", chunk.id, chunk_dir)
 
         return chunk_dir
 

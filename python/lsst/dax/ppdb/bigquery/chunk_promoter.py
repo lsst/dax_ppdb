@@ -192,13 +192,6 @@ class ChunkPromoter:
                     error=e,
                 )
 
-        self._logger.log_event(
-            logging.INFO,
-            "Completed chunk promotion",
-            "chunk_promotion_completed",
-            chunk_count=len(chunks),
-        )
-
     def _run_job(
         self, label: str, sql: str, job_config: bigquery.QueryJobConfig | None = None
     ) -> bigquery.job.QueryJob:
