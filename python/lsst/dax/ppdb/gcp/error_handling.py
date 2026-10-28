@@ -56,12 +56,15 @@ def handle_dataflow_launch_error(logger: CloudEventLogger, e: Exception) -> bool
     """
     extra_fields: dict[str, Any] = {}
     if isinstance(e, HttpError):
-        # Errors returned by the Dataflow API. Retryable if the HTTP status
-        # code indicates a transient error:
+        # Errors returned by the Dataflow API, by HTTP status code.
+        # Retryable:
         # - 429 Too Many Requests
-        # - 500 Internal Server Error
-        # - 503 Service Unavailable
-        retryable = e.resp.status in (429, 500, 503)
+        # - 5xx server errors, such as 500 Internal Server Error and
+        #   503 Service Unavailable
+        # Permanent:
+        # - All other 4xx errors, such as 400 Bad Request, 403 Forbidden and
+        #   404 Not Found
+        retryable = e.resp.status == 429 or e.resp.status >= 500
         extra_fields["http_status"] = e.resp.status
     elif isinstance(
         e,
