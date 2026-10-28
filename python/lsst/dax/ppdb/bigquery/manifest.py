@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["Manifest", "ParquetFileEntry"]
+__all__ = ["InvalidManifestError", "Manifest", "ParquetFileEntry"]
 
 import hashlib
 import json
@@ -31,11 +31,15 @@ from pathlib import Path
 from typing import ClassVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .updates import UpdateRecords
+
+
+class InvalidManifestError(ValueError):
+    """Raised if a manifest file can't be parsed or validated."""
 
 
 def _utc_now() -> datetime:
@@ -238,6 +242,16 @@ class Manifest(BaseModel):
         -------
         `Manifest`
             The loaded manifest object.
+
+        Raises
+        ------
+        InvalidManifestError
+            Raised if the manifest file is not valid UTF-8 text, is not valid
+            JSON, or does not match the manifest model.
         """
         manifest_uri = ResourcePath(folder).join(cls.FILE_NAME)
-        return cls.from_json_str(manifest_uri.read().decode("utf-8"))
+        content = manifest_uri.read()
+        try:
+            return cls.from_json_str(content.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as e:
+            raise InvalidManifestError(f"Invalid manifest {manifest_uri}: {e}") from e
