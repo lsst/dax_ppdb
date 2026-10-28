@@ -54,7 +54,7 @@ class CloudEventLogger:
     ):
         self._logger = logger
         self._cloud_event_id = cloud_event_id
-        self._log_fields = log_fields or {}
+        self._log_fields = log_fields if log_fields is not None else {}
 
     def log_event(
         self,
