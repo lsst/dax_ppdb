@@ -24,6 +24,7 @@ from __future__ import annotations
 __all__ = ["ChunkStatus", "PpdbReplicaChunkExtended"]
 
 import dataclasses
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -46,6 +47,10 @@ class ChunkStatus(StrEnum):
     """Chunk has been exported from the APDB to a local parquet file."""
     UPLOADED = "uploaded"
     """Chunk has been uploaded to cloud storage."""
+    STAGING = "staging"
+    """Chunk is being copied into the staging tables."""
+    RETRYING = "retrying"
+    """Staging hit a transient error and the chunk is waiting to be retried."""
     STAGED = "staged"
     """Chunk data has been copied into the staging tables."""
     PROMOTED = "promoted"
@@ -54,6 +59,45 @@ class ChunkStatus(StrEnum):
     """Chunk processing failed and an error occurred."""
     SKIPPED = "skipped"
     """Chunk processing is skipped because there is no data to export."""
+
+    @property
+    def allowed_from(self) -> frozenset[ChunkStatus]:
+        """Statuses a chunk may change to this status from
+        (`frozenset` [ `ChunkStatus` ]).
+        """
+        return _ALLOWED_FROM[self]
+
+    def can_transition_to(self, new_status: ChunkStatus) -> bool:
+        """Return whether a chunk may change from this status to another.
+
+        Parameters
+        ----------
+        new_status
+            The status to change to.
+
+        Returns
+        -------
+        `bool`
+            `True` if the transition is allowed, `False` otherwise.
+        """
+        return self in new_status.allowed_from
+
+
+# Allowed status changes: each status and the statuses it may be set from.
+# Chunks are created as exported or skipped. A failed chunk is retried by hand
+# by setting it back to exported or uploaded.
+_ALLOWED_FROM: dict[ChunkStatus, frozenset[ChunkStatus]] = {
+    ChunkStatus.EXPORTED: frozenset({ChunkStatus.UPLOADED, ChunkStatus.FAILED}),
+    ChunkStatus.UPLOADED: frozenset({ChunkStatus.EXPORTED, ChunkStatus.FAILED}),
+    ChunkStatus.STAGING: frozenset({ChunkStatus.UPLOADED, ChunkStatus.RETRYING}),
+    ChunkStatus.RETRYING: frozenset({ChunkStatus.STAGING}),
+    ChunkStatus.STAGED: frozenset({ChunkStatus.STAGING}),
+    ChunkStatus.PROMOTED: frozenset({ChunkStatus.STAGED}),
+    ChunkStatus.FAILED: frozenset(
+        {ChunkStatus.EXPORTED, ChunkStatus.UPLOADED, ChunkStatus.STAGING, ChunkStatus.RETRYING}
+    ),
+    ChunkStatus.SKIPPED: frozenset(),
+}
 
 
 @dataclass(frozen=True)
@@ -70,6 +114,17 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     update_count: int = 0
     """Count of APDB update records included in the chunk
     (must be non-negative)."""
+
+    status_time: datetime | None = None
+    """Time of the last status change, or `None` if not recorded."""
+
+    error_message: str | None = None
+    """Reason the chunk failed, set only when the status is ``failed``."""
+
+    bigquery_job_ids: dict[str, str] | None = None
+    """IDs of the BigQuery jobs from the last staging attempt, keyed by table
+    name, plus ``commit`` for the transaction that copied the chunk into the
+    staging tables."""
 
     @property
     def replica_time_dt_utc(self) -> datetime:
@@ -128,14 +183,14 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         """
         return dataclasses.replace(self, status=new_status)
 
-    def with_new_gcs_uri(self, new_gcs_uri: str) -> PpdbReplicaChunkExtended:
+    def with_new_gcs_uri(self, new_gcs_uri: str | None) -> PpdbReplicaChunkExtended:
         """Create a new `PpdbReplicaChunkExtended` with the same properties as
         this one, but with a different GCS URI.
 
         Parameters
         ----------
         new_gcs_uri
-            The new GCS URI to set.
+            The new GCS URI to set, or `None` to clear it.
 
         Returns
         -------
@@ -161,4 +216,9 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             "status": self.status.value,
             "gcs_uri": self.gcs_uri,  # This field can be null.
             "update_count": self.update_count,
+            "status_time": self.status_time if self.status_time is not None else datetime.now(UTC),
+            "error_message": self.error_message,
+            "bigquery_job_ids": (
+                json.dumps(self.bigquery_job_ids) if self.bigquery_job_ids is not None else None
+            ),
         }

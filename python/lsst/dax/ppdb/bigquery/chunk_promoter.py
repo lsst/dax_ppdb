@@ -37,7 +37,8 @@ from google.cloud import bigquery
 from lsst.dax.apdb import ApdbTables
 
 from ..gcp import CloudEventLogger
-from .ppdb_bigquery import PpdbBigQuery, UpdatableField
+from .chunk_tracker import ChunkStatusError, ChunkTracker
+from .ppdb_bigquery import PpdbBigQuery
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 from .sql_resource import SqlResource
@@ -95,6 +96,7 @@ class ChunkPromoter:
         self._dataset = self._bq_client.get_dataset(internal_dataset_id)
         self._location = self._dataset.location
         self._table_refs = TableRefs(self.config)
+        self._tracker = ChunkTracker(ppdb)
         self._updates_manager = UpdatesManager(self.config, self._logger)
 
         self._promotable_chunks: list[PpdbReplicaChunkExtended] = []
@@ -191,13 +193,6 @@ class ChunkPromoter:
                     "chunk_promotion_cleanup_failed",
                     error=e,
                 )
-
-        self._logger.log_event(
-            logging.INFO,
-            "Completed chunk promotion",
-            "chunk_promotion_completed",
-            chunk_count=len(chunks),
-        )
 
     def _run_job(
         self, label: str, sql: str, job_config: bigquery.QueryJobConfig | None = None
@@ -424,8 +419,13 @@ class ChunkPromoter:
 
     def _mark_chunks_promoted(self) -> None:
         """Mark the replica chunks as promoted in the database."""
-        promoted = [chunk.with_new_status(ChunkStatus.PROMOTED) for chunk in self.promotable_chunks]
-        self._ppdb.update_chunks(promoted, fields={UpdatableField.STATUS})
+        chunk_ids = [chunk.id for chunk in self.promotable_chunks]
+        try:
+            self._tracker.update_statuses(chunk_ids, ChunkStatus.PROMOTED)
+        except ChunkStatusError as e:
+            raise ChunkPromotionError(
+                f"Could not mark chunks {chunk_ids} promoted: not all are staged"
+            ) from e
 
     def _cleanup(self) -> None:
         """Cleanup state after executing the promotion."""

@@ -20,6 +20,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from .chunk_promoter import *
+from .chunk_stager import *
+from .chunk_tracker import *
 from .chunk_uploader import *
 from .manifest import *
 from .ppdb_bigquery import *
