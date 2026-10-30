@@ -24,6 +24,7 @@ from __future__ import annotations
 __all__ = ["PpdbBigQuery", "UpdatableField"]
 
 import datetime
+import json
 import logging
 import os
 import shutil
@@ -75,6 +76,8 @@ class UpdatableField(StrEnum):
 
     STATUS = "status"
     GCS_URI = "gcs_uri"
+    ERROR_MESSAGE = "error_message"
+    BIGQUERY_JOB_IDS = "bigquery_job_ids"
 
 
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
@@ -417,8 +420,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         Notes
         -----
         This overrides the base method to add additional columns for
-        ``status``, ``gcs_uri``, and ``update_count`` to the replica chunk
-        table schema.
+        ``status``, ``gcs_uri``, ``update_count``, ``status_time``,
+        ``error_message`` and ``bigquery_job_ids`` to the replica chunk table
+        schema.
         """
         replica_chunk_table = super().create_replica_chunk_table(table_name)
         replica_chunk_table.columns.extend(
@@ -446,6 +450,28 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                     id=f"#{table_name}.update_count",
                     datatype=felis.datamodel.DataType.int,
                     nullable=False,
+                ),
+                # Time of the last status change.
+                schema_model.Column(
+                    name="status_time",
+                    id=f"#{table_name}.status_time",
+                    datatype=felis.datamodel.DataType.timestamp,
+                    nullable=True,
+                ),
+                # Reason the chunk failed, set only when the status is failed.
+                schema_model.Column(
+                    name="error_message",
+                    id=f"#{table_name}.error_message",
+                    datatype=felis.datamodel.DataType.text,
+                    nullable=True,
+                ),
+                # JSON object with the BigQuery job IDs of the last staging
+                # attempt, keyed by table name plus "commit".
+                schema_model.Column(
+                    name="bigquery_job_ids",
+                    id=f"#{table_name}.bigquery_job_ids",
+                    datatype=felis.datamodel.DataType.text,
+                    nullable=True,
                 ),
             ]
         )
@@ -594,6 +620,13 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         status=ChunkStatus(row["status"]),
                         gcs_uri=row["gcs_uri"],
                         update_count=row["update_count"],
+                        status_time=row["status_time"],
+                        error_message=row["error_message"],
+                        bigquery_job_ids=(
+                            json.loads(row["bigquery_job_ids"])
+                            if row["bigquery_job_ids"] is not None
+                            else None
+                        ),
                     )
                 )
         return chunks
@@ -701,15 +734,67 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         with self._engine.begin() as connection:
             for chunk in chunks:
                 row = chunk.to_row()
+                values: dict[str, object] = {k: v for k, v in row.items() if k in fields}
+                if UpdatableField.STATUS in fields:
+                    values["status_time"] = sqlalchemy.func.now()
                 result = connection.execute(
-                    table.update()
-                    .where(table.c.apdb_replica_chunk == chunk.id)
-                    .values(**{k: v for k, v in row.items() if k in fields})
+                    table.update().where(table.c.apdb_replica_chunk == chunk.id).values(**values)
                 )
                 if result.rowcount == 0:
                     raise LookupError(f"Chunk {chunk.id} does not exist")
                 updated_count += result.rowcount
         return updated_count
+
+    def update_chunk_status(
+        self,
+        chunk_ids: Collection[int],
+        status: ChunkStatus,
+        *,
+        expected: Collection[ChunkStatus],
+        **values: object,
+    ) -> bool:
+        """Set the status of one or more replica chunks in a single
+        transaction, only if each chunk's current status is expected.
+
+        Parameters
+        ----------
+        chunk_ids
+            IDs of the replica chunks.
+        status
+            New status.
+        expected
+            Statuses the chunks must currently have for the update to apply.
+        **values
+            Other columns to set, by `UpdatableField` name.
+
+        Returns
+        -------
+        `bool`
+            `True` if every chunk was updated. `False` if any chunk does not
+            exist or does not have an expected status, in which case no chunk
+            is updated.
+
+        Notes
+        -----
+        ``status_time`` is set to the database's current time. Meant to be
+        called by `ChunkTracker`, which decides the expected statuses and the
+        other values.
+        """
+        ids = set(chunk_ids)
+        table = self.chunk_table
+        statement = (
+            table.update()
+            .where(table.c.apdb_replica_chunk.in_(ids))
+            .where(table.c.status.in_([s.value for s in expected]))
+            .values(status=status.value, status_time=sqlalchemy.func.now(), **values)
+        )
+        with self._engine.connect() as connection:
+            with connection.begin() as transaction:
+                result = connection.execute(statement)
+                if result.rowcount != len(ids):
+                    transaction.rollback()
+                    return False
+        return True
 
     # ----------------------------------------------------------------------
     # Private helpers

@@ -109,6 +109,7 @@ def make_bigquery_config(
         replication_dir=replication_dir,
         delete_existing_dirs=delete_existing_dirs,
         datasets=Datasets(
+            landing=f"{test_name}_landing_{unique_id}",
             staging=f"{test_name}_staging_{unique_id}",
             internal=f"{test_name}_internal_{unique_id}",
             promotion=f"{test_name}_promotion_{unique_id}",

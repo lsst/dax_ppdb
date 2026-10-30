@@ -33,8 +33,9 @@ from lsst.dax.apdb import monitor
 from lsst.dax.apdb.timer import Timer
 
 from ..gcp import DeleteError, Publisher, StorageClient, UploadError
+from .chunk_tracker import ChunkStatusError, ChunkTracker
 from .manifest import Manifest
-from .ppdb_bigquery import PpdbBigQuery, UpdatableField
+from .ppdb_bigquery import PpdbBigQuery
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
 
@@ -105,6 +106,7 @@ class ChunkUploader:
     ):
         # Setup interface for accessing replica chunk data.
         self._ppdb = ppdb
+        self._tracker = ChunkTracker(ppdb)
 
         # Set parameters from the command line options or their defaults.
         self._wait_interval = wait_interval
@@ -264,21 +266,16 @@ class ChunkUploader:
                 # 3) Update the database record for the chunk, setting status
                 # to 'uploaded' and populating the GCS URI.
                 new_status = ChunkStatus.UPLOADED
-                updated_replica_chunk = replica_chunk.with_new_status(new_status).with_new_gcs_uri(
-                    f"gs://{gcs_uri}"
-                )
                 try:
-                    self._ppdb.update_chunks(
-                        [updated_replica_chunk], fields={UpdatableField.STATUS, UpdatableField.GCS_URI}
-                    )
-                    _LOG.info(
-                        "Updated replica chunk %d in database with status '%s' and GCS URI: %s",
-                        chunk_id,
-                        new_status,
-                        gcs_uri,
-                    )
+                    self._tracker.update_status(chunk_id, new_status, gcs_uri=f"gs://{gcs_uri}")
                 except Exception as e:
                     raise ChunkUploadError(chunk_id, "Failed to update replica chunk in database") from e
+                _LOG.info(
+                    "Updated replica chunk %d in database with status '%s' and GCS URI: %s",
+                    chunk_id,
+                    new_status,
+                    gcs_uri,
+                )
 
                 # 4) Publish Pub/Sub event to trigger the Dataflow staging
                 # job for the chunk.
@@ -292,13 +289,23 @@ class ChunkUploader:
                     # URI so that an attempt will be made to upload the chunk
                     # on the next pass.
                     try:
-                        self._ppdb.update_chunks(
-                            [replica_chunk.with_new_status(ChunkStatus.EXPORTED).with_new_gcs_uri(None)],
-                            fields={UpdatableField.STATUS, UpdatableField.GCS_URI},
+                        self._tracker.update_status(chunk_id, ChunkStatus.EXPORTED)
+                    except ChunkStatusError:
+                        # The reset was refused because the chunk is no
+                        # longer 'uploaded': staging already picked it up, so
+                        # the message was published despite the error. Keep
+                        # the files.
+                        _LOG.warning(
+                            "Publishing the staging message for %d reported an error, but the chunk is "
+                            "already being staged: %s",
+                            chunk_id,
+                            e,
                         )
                     except Exception as reset_err:
                         err.add_note(f"failed to reset status to exported and clear GCS URI: {reset_err}")
-                    raise err from e
+                        raise err from e
+                    else:
+                        raise err from e
 
         except ChunkUploadError as err:
             try:
