@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import ClassVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -248,10 +248,21 @@ class Manifest(BaseModel):
         InvalidManifestError
             Raised if the manifest file is not valid UTF-8 text, is not valid
             JSON, or does not match the manifest model.
+        FileNotFoundError
+            Raised if the manifest file does not exist.
+        google.api_core.exceptions.GoogleAPIError
+            Raised if Cloud Storage returns an error reading a ``gs://``
+            manifest, such as ``Forbidden`` or ``ServiceUnavailable``, after
+            the storage client's own retries are exhausted. Network errors
+            from the underlying transport, such as a connection reset or a
+            timeout, may also be raised.
         """
         manifest_uri = ResourcePath(folder).join(cls.FILE_NAME)
+        # Read errors are deliberately not caught, so that the caller can tell
+        # transient errors, such as network errors, from permanent ones.
         content = manifest_uri.read()
         try:
             return cls.from_json_str(content.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as e:
+        # All errors that can be raised here are subclasses of ValueError.
+        except ValueError as e:
             raise InvalidManifestError(f"Invalid manifest {manifest_uri}: {e}") from e
