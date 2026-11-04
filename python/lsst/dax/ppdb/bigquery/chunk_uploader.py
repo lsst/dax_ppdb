@@ -281,8 +281,8 @@ class ChunkUploader:
                 except Exception as e:
                     raise ChunkUploadError(chunk_id, "Failed to update replica chunk in database") from e
 
-                # 4) Publish Pub/Sub event to trigger the Dataflow staging
-                # job for the chunk.
+                # 4) Publish a Pub/Sub message to trigger the staging of the
+                # chunk.
                 try:
                     self._post_to_stage_chunk_topic(gcs_uri, chunk_id)
                 except Exception as e:
@@ -315,7 +315,6 @@ class ChunkUploader:
 
     def _post_to_stage_chunk_topic(self, gcs_uri: str, chunk_id: int) -> None:
         message = {
-            "dataset": self.config.datasets.staging,
             "chunk_id": str(chunk_id),
             "folder": f"gs://{gcs_uri}",
         }

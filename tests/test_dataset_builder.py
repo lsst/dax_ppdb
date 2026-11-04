@@ -292,8 +292,8 @@ class StagingDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
         )
         for table in tables:
             if table.table_id == "updates":
-                # The raw updates table is not one of the DIA tables that the
-                # builder adds apdb_replica_chunk to.
+                # The raw updates table is not one of the DIA tables to which
+                # the builder adds apdb_replica_chunk.
                 continue
             chunk_field = next(field for field in table.schema if field.name == "apdb_replica_chunk")
             self.assertEqual(chunk_field.field_type, "INT64")

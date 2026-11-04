@@ -262,13 +262,10 @@ class StagingDatasetBuilder(BaseDatasetBuilder):
 
     def build_tables(self) -> list[bigquery.Table]:
         """Create BigQuery tables for the staging dataset type."""
-        # Get the base DIA table definitions, with geo_point, which is set when
-        # a chunk is staged and copied from staging to the internal tables.
         tables = self._convert_dia_tables()
 
-        # Add the apdb_replica_chunk field to each staging table. The tables
-        # are clustered by apdb_replica_chunk, since staging, promotion and
-        # cleanup all select rows by chunk.
+        # Add the apdb_replica_chunk column to each staging table, and cluster
+        # it by chunk.
         for table in tables:
             chunk_field = _apdb_replica_chunk_field()
             _update_schema_fields(table, chunk_field)
