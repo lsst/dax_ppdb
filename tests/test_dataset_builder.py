@@ -299,6 +299,7 @@ class StagingDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
             chunk_field = next(field for field in table.schema if field.name == "apdb_replica_chunk")
             self.assertEqual(chunk_field.field_type, "INT64")
             self.assertEqual(chunk_field.mode, "REQUIRED")
+            self.assertEqual(table.clustering_fields, ["apdb_replica_chunk"])
 
     def test_adds_geo_point(self) -> None:
         """Test that StagingDatasetBuilder adds the geo_point GEOGRAPHY field

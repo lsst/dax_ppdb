@@ -266,9 +266,13 @@ class StagingDatasetBuilder(BaseDatasetBuilder):
         # a chunk is staged and copied from staging to the internal tables.
         tables = self._convert_dia_tables()
 
-        # Add the apdb_replica_chunk field to each staging table.
+        # Add the apdb_replica_chunk field to each staging table. The tables
+        # are clustered by apdb_replica_chunk, since staging, promotion and
+        # cleanup all select rows by chunk.
         for table in tables:
-            _update_schema_fields(table, _apdb_replica_chunk_field())
+            chunk_field = _apdb_replica_chunk_field()
+            _update_schema_fields(table, chunk_field)
+            table.clustering_fields = [chunk_field.name]
 
         # Add the validityEndMjdTai field to the DiaObject table.
         dia_object_table = next(table for table in tables if table.table_id == ApdbTables.DiaObject.value)
