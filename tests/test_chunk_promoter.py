@@ -188,9 +188,13 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
                 self.bq_client.query(
                     f"ALTER TABLE `{staging_table_fqn}` ADD COLUMN IF NOT EXISTS apdb_replica_chunk INT64"
                 ).result()
+                # The stager sets geo_point when it stages a chunk.
                 self.bq_client.query(
-                    f"UPDATE `{staging_table_fqn}` SET apdb_replica_chunk = {chunk.id} WHERE "
-                    f"apdb_replica_chunk IS NULL"
+                    f"ALTER TABLE `{staging_table_fqn}` ADD COLUMN IF NOT EXISTS geo_point GEOGRAPHY"
+                ).result()
+                self.bq_client.query(
+                    f"UPDATE `{staging_table_fqn}` SET apdb_replica_chunk = {chunk.id}, "
+                    f"geo_point = ST_GEOGPOINT(`ra`, `dec`) WHERE apdb_replica_chunk IS NULL"
                 ).result()
 
     def _load_updates_to_staging(self) -> None:

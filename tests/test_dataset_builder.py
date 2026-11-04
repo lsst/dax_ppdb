@@ -300,6 +300,21 @@ class StagingDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
             self.assertEqual(chunk_field.field_type, "INT64")
             self.assertEqual(chunk_field.mode, "REQUIRED")
 
+    def test_adds_geo_point(self) -> None:
+        """Test that StagingDatasetBuilder adds the geo_point GEOGRAPHY field
+        to the DIA tables.
+        """
+        builder = self._make_builder(StagingDatasetBuilder)
+
+        for table in builder.build_tables():
+            field_names = [field.name for field in table.schema]
+            if table.table_id == "updates":
+                self.assertNotIn("geo_point", field_names)
+                continue
+            geo_point = next(field for field in table.schema if field.name == "geo_point")
+            self.assertEqual(geo_point.field_type, "GEOGRAPHY")
+            self.assertEqual(geo_point.mode, "REQUIRED")
+
 
 class UpdateSchemaFieldsTestCase(unittest.TestCase):
     """Tests for the _update_schema_fields helper."""
