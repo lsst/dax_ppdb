@@ -101,7 +101,6 @@ class DatasetBuilderTestMixin:
         return PpdbBigQueryConfig(
             project_id=project_id,
             bucket_name="test-bucket",
-            object_prefix="data/test",
             replication_dir="/tmp",
             sql=PpdbSqlBaseConfig(db_url="sqlite:///:memory:"),
             datasets=datasets,

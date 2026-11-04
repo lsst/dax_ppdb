@@ -205,8 +205,9 @@ class ChunkUploader:
         except Exception as e:
             raise ChunkUploadError(chunk_id, f"Failed to read manifest file for: {replica_chunk.id}") from e
 
-        # Construct the GCS prefix for this chunk's files.
-        gcs_prefix = posixpath.join(self.config.object_prefix, str(chunk_id))
+        # The chunk's files go in a folder named after its ID at the top of
+        # the bucket, which holds only chunk data.
+        gcs_prefix = str(chunk_id)
 
         # Make a list of parquet files to upload based on the manifest.
         upload_file_list: list[Path] = []

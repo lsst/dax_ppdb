@@ -105,7 +105,6 @@ def make_bigquery_config(
     config = PpdbBigQueryConfig(
         project_id=project_id,
         bucket_name=f"{test_name.lower().replace('_', '-')}-bucket-{unique_id}",
-        object_prefix="data/test",
         replication_dir=replication_dir,
         delete_existing_dirs=delete_existing_dirs,
         datasets=Datasets(

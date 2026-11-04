@@ -186,7 +186,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         db_url: str,
         project_id: str,
         bucket_name: str,
-        object_prefix: str,
         replication_dir: str,
         db_drop: bool,
         *,
@@ -208,8 +207,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             GCP project ID.
         bucket_name
             GCS bucket name to use for Parquet output.
-        object_prefix
-            Object prefix to use in GCS bucket for Parquet output.
         replication_dir
             Directory used for replication staging area.
         db_drop
@@ -243,7 +240,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             replication_dir=replication_dir,
             bucket_name=bucket_name,
             project_id=project_id,
-            object_prefix=object_prefix,
             delete_existing_dirs=delete_existing_dirs,
         )
         if parq_batch_size is not None:

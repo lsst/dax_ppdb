@@ -223,10 +223,3 @@ def bigquery_options(parser: argparse.ArgumentParser) -> None:
         metavar="PROJECT_ID",
         required=True,
     )
-    group.add_argument(
-        "--object-prefix",
-        type=str,
-        help="Base prefix for replication objects in cloud storage.",
-        metavar="PREFIX",
-        required=True,
-    )

@@ -20,7 +20,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import logging
-import posixpath
 import unittest
 from pathlib import Path
 
@@ -132,7 +131,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             chunk_dir = self.ppdb.config.chunk_dir(chunk.id)
             manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
             status = ChunkStatus.SKIPPED if manifest.is_empty_chunk else ChunkStatus.UPLOADED
-            gcs_prefix = posixpath.join(self.ppdb.config.object_prefix, str(chunk.id))
+            gcs_prefix = str(chunk.id)
             gcs_uri = f"gs://{self.config.bucket_name}/{gcs_prefix}"
 
             update_records_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME

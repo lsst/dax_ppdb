@@ -94,10 +94,9 @@ class PpdbBigQueryConfig(PpdbConfig):
     """Google Cloud project ID."""
 
     bucket_name: str
-    """Name of Google Cloud Storage bucket for uploading chunks."""
-
-    object_prefix: str
-    """Base prefix for the object in cloud storage."""
+    """Name of the Google Cloud Storage bucket for uploading chunks. It holds
+    only chunk data: each chunk is uploaded to a folder named after its ID at
+    the top of the bucket."""
 
     replication_dir: str
     """Directory where the exported chunks will be stored."""
