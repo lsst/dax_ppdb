@@ -288,8 +288,7 @@ class ChunkPromoter:
             )
 
             # Build target column list for SQL statement from the internal
-            # table's schema. This includes the geo_point column, which is
-            # copied from staging, where it was set when the chunk was staged.
+            # table's schema. geo_point is copied from staging.
             target_schema = self._bq_client.get_table(internal_table_fqn).schema
             target_names = [target_column.name for target_column in target_schema]
             target_list_sql = ", ".join(f"`{column_name}`" for column_name in target_names)

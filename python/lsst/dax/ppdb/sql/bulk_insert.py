@@ -52,7 +52,7 @@ class BulkInserter(ABC):
         Parameters
         ----------
         table
-            Table to insert data into.
+            Table into which the data is inserted.
         data
             Data to insert into the table.
         chunk_size
