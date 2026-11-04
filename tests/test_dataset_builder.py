@@ -463,7 +463,12 @@ class DatasetBuildManagerTestCase(DatasetBuilderTestMixin, unittest.TestCase):
             f"{call.args[0].project}.{call.args[0].dataset_id}"
             for call in client.create_dataset.call_args_list
         ]
-        expected_fqns = [self.config.fqn_for(dataset_type) for dataset_type in DatasetType]
+        # The landing dataset has no tables, so only Terraform creates it.
+        expected_fqns = [
+            self.config.fqn_for(dataset_type)
+            for dataset_type in DatasetType
+            if dataset_type is not DatasetType.LANDING
+        ]
         self.assertCountEqual(created_fqns, expected_fqns)
 
     def test_create_datasets_conflict_without_exists_ok_raises(self) -> None:
@@ -486,7 +491,8 @@ class DatasetBuildManagerTestCase(DatasetBuilderTestMixin, unittest.TestCase):
         manager._create_datasets()
 
         # Creation should be attempted once per dataset type despite conflicts.
-        self.assertEqual(client.create_dataset.call_count, len(DatasetType))
+        # The landing dataset has no tables, so only Terraform creates it.
+        self.assertEqual(client.create_dataset.call_count, len(DatasetType) - 1)
 
     def test_wraps_conflict_without_exists_ok(self) -> None:
         """Test that Conflict without exists_ok is wrapped as
@@ -700,7 +706,10 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
 
         # Create configuration with unique dataset names for testing.
         suffix = uuid.uuid4().hex[:8]
+        # Every dataset is given a test name, including landing, which isn't
+        # created here, so that drop_datasets can't drop a real dataset.
         self.datasets = Datasets(
+            landing=f"test_dataset_builder_landing_{suffix}",
             internal=f"test_dataset_builder_internal_{suffix}",
             promotion=f"test_dataset_builder_promotion_{suffix}",
             public=f"test_dataset_builder_public_{suffix}",
@@ -726,6 +735,8 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
 
         # The datasets themselves should have been created by build_datasets.
         for dataset_type in DatasetType:
+            if dataset_type is DatasetType.LANDING:
+                continue
             dataset_name = self.datasets.name_for(dataset_type)
             self.client.get_dataset(f"{self.project_id}.{dataset_name}")
 
@@ -857,6 +868,8 @@ class CreateDatasetsTestCase(unittest.TestCase):
         # Verify that the datasets were created in BigQuery with the correct
         # number of tables.
         for dataset_type in DatasetType:
+            if dataset_type is DatasetType.LANDING:
+                continue
             dataset_fqn = self.config.fqn_for(dataset_type)
             self.client.get_dataset(dataset_fqn)
             tables = list(self.client.list_tables(dataset_fqn))

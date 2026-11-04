@@ -48,11 +48,12 @@ class TestExpandedUpdatesTable(unittest.TestCase):
         # Create PPDB BigQuery config for test.
         self.config = make_bigquery_config(test_name="test_expanded_updates_table")
 
+        # Add cleanup for datasets after test. It is added first, so that any
+        # datasets created before a failure are dropped too.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
+
         # Create the BigQuery dataset for the tests.
         create_datasets(self.config, self.dataset_types)
-
-        # Add cleanup for datasets after test.
-        self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
         # Set the FQN of the expanded updates table.
         self.table_fqn = self.config.fqn_for(DatasetType.PROMOTION, "expanded_updates")

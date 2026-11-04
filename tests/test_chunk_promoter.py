@@ -389,11 +389,12 @@ class FillValidityEndTestCase(unittest.TestCase):
         # Create the PPDB BigQuery config.
         self.config = make_bigquery_config(test_name="test_fill_validity_end")
 
+        # Add cleanup of datasets after test. It is added first, so that any
+        # datasets created before a failure are dropped too.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
+
         # Create the datasets.
         create_datasets(self.config, self.dataset_types)
-
-        # Add cleanup of datasets after test.
-        self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
         # Build table FQNs for the test tables.
         self.target_table_fqn = self.config.fqn_for(DatasetType.PROMOTION, "DiaObject")
