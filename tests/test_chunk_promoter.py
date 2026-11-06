@@ -20,7 +20,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import logging
-import posixpath
 import unittest
 from pathlib import Path
 
@@ -132,7 +131,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
             chunk_dir = self.ppdb.config.chunk_dir(chunk.id)
             manifest = Manifest.from_json_file(chunk_dir / Manifest.FILE_NAME)
             status = ChunkStatus.SKIPPED if manifest.is_empty_chunk else ChunkStatus.UPLOADED
-            gcs_prefix = posixpath.join(self.ppdb.config.object_prefix, str(chunk.id))
+            gcs_prefix = str(chunk.id)
             gcs_uri = f"gs://{self.config.bucket_name}/{gcs_prefix}"
 
             update_records_path = chunk_dir / UpdateRecords.PARQUET_FILE_NAME
@@ -188,9 +187,13 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
                 self.bq_client.query(
                     f"ALTER TABLE `{staging_table_fqn}` ADD COLUMN IF NOT EXISTS apdb_replica_chunk INT64"
                 ).result()
+                # The stager sets geo_point when it stages a chunk.
                 self.bq_client.query(
-                    f"UPDATE `{staging_table_fqn}` SET apdb_replica_chunk = {chunk.id} WHERE "
-                    f"apdb_replica_chunk IS NULL"
+                    f"ALTER TABLE `{staging_table_fqn}` ADD COLUMN IF NOT EXISTS geo_point GEOGRAPHY"
+                ).result()
+                self.bq_client.query(
+                    f"UPDATE `{staging_table_fqn}` SET apdb_replica_chunk = {chunk.id}, "
+                    f"geo_point = ST_GEOGPOINT(`ra`, `dec`) WHERE apdb_replica_chunk IS NULL"
                 ).result()
 
     def _load_updates_to_staging(self) -> None:
@@ -386,11 +389,12 @@ class FillValidityEndTestCase(unittest.TestCase):
         # Create the PPDB BigQuery config.
         self.config = make_bigquery_config(test_name="test_fill_validity_end")
 
+        # Add cleanup of datasets after test. It is added first, so that any
+        # datasets created before a failure are dropped too.
+        self.addCleanup(drop_datasets, self.config, self.dataset_types)
+
         # Create the datasets.
         create_datasets(self.config, self.dataset_types)
-
-        # Add cleanup of datasets after test.
-        self.addCleanup(drop_datasets, self.config, self.dataset_types)
 
         # Build table FQNs for the test tables.
         self.target_table_fqn = self.config.fqn_for(DatasetType.PROMOTION, "DiaObject")

@@ -39,6 +39,7 @@ _PPDB_PREFIX = "ppdb"
 class DatasetType(StrEnum):
     """Typed keys for BigQuery dataset categories."""
 
+    LANDING = "landing"
     STAGING = "staging"
     INTERNAL = "internal"
     PROMOTION = "promotion"
@@ -47,6 +48,10 @@ class DatasetType(StrEnum):
 
 class Datasets(BaseModel):
     """Mapping of dataset types to their target names in BigQuery."""
+
+    landing: str = f"{_PPDB_PREFIX}_landing"
+    """Name of the landing dataset where chunk data is loaded and verified
+    before it is copied into the staging dataset."""
 
     staging: str = f"{_PPDB_PREFIX}_staging"
     """Name of the staging dataset used for intermediate storage during
@@ -69,6 +74,8 @@ class Datasets(BaseModel):
         match dataset_type:
             case DatasetType.INTERNAL:
                 return self.internal
+            case DatasetType.LANDING:
+                return self.landing
             case DatasetType.PROMOTION:
                 return self.promotion
             case DatasetType.PUBLIC:
@@ -94,10 +101,9 @@ class PpdbBigQueryConfig(PpdbConfig):
     """Google Cloud project ID."""
 
     bucket_name: str
-    """Name of Google Cloud Storage bucket for uploading chunks."""
-
-    object_prefix: str
-    """Base prefix for the object in cloud storage."""
+    """Name of the Google Cloud Storage bucket for uploading chunks. It holds
+    only chunk data: each chunk is uploaded to a folder named after its ID at
+    the top of the bucket."""
 
     replication_dir: str
     """Directory where the exported chunks will be stored."""
@@ -153,7 +159,7 @@ class PpdbBigQueryConfig(PpdbConfig):
         Parameters
         ----------
         dataset_type
-            Type of dataset to get the name for.
+            Type of the dataset whose name is returned.
         table_name
             Optional table name to include in the fully qualified name.
 

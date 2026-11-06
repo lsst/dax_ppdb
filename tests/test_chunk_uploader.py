@@ -116,7 +116,7 @@ class ChunkUploaderTestCase(PostgresMixin, unittest.TestCase):
         matched_chunk = None
         expected_prefix = None
         for uploaded_chunk in chunks_with_updates:
-            prefix = f"{self.ppdb.config.object_prefix}/{uploaded_chunk.id}"
+            prefix = str(uploaded_chunk.id)
             self.assertEqual(uploaded_chunk.gcs_uri, f"gs://{self.ppdb.config.bucket_name}/{prefix}")
 
             if any(object_name.startswith(prefix + "/") for object_name in update_records_files):

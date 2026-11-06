@@ -28,15 +28,21 @@ import logging
 import ssl
 from typing import Any
 
+import aiohttp
 import httplib2
 import sqlalchemy.exc
 from google.api_core.exceptions import GoogleAPICallError
-from google.auth.exceptions import TransportError
+from google.auth.exceptions import GoogleAuthError, TransportError
 from googleapiclient.errors import HttpError
 
 from .cloud_event_logger import CloudEventLogger
 
-__all__ = ["handle_database_error", "handle_dataflow_launch_error"]
+__all__ = ["DATABASE_ERRORS", "handle_database_error", "handle_dataflow_launch_error"]
+
+# Errors from a database operation. Besides SQLAlchemy's own errors, opening a
+# Cloud SQL connection through the Cloud SQL Python Connector can raise
+# authentication, HTTP and network errors, which SQLAlchemy doesn't wrap.
+DATABASE_ERRORS = (sqlalchemy.exc.SQLAlchemyError, GoogleAuthError, aiohttp.ClientError, OSError)
 
 
 def handle_dataflow_launch_error(logger: CloudEventLogger, e: Exception) -> bool:
@@ -105,7 +111,7 @@ def handle_dataflow_launch_error(logger: CloudEventLogger, e: Exception) -> bool
     return retryable
 
 
-def handle_database_error(logger: CloudEventLogger, e: sqlalchemy.exc.SQLAlchemyError) -> bool:
+def handle_database_error(logger: CloudEventLogger, e: Exception) -> bool:
     """Log a failed database operation and report whether it is retryable.
 
     Parameters
@@ -113,17 +119,14 @@ def handle_database_error(logger: CloudEventLogger, e: sqlalchemy.exc.SQLAlchemy
     logger
         Logger used to report the error.
     e
-        The exception raised by the failed database operation.
+        The exception raised by the failed database operation, one of
+        `DATABASE_ERRORS`.
 
     Returns
     -------
     `bool`
         `True` if the error is retryable, `False` otherwise.
     """
-    # Transient errors: operational errors (e.g. dropped connections, statement
-    # timeouts, and deadlocks), connection pool timeouts, disconnects, and any
-    # error that invalidated the connection. Other errors, e.g. integrity or
-    # programming errors, are not retryable.
     if isinstance(
         e,
         (
@@ -132,18 +135,27 @@ def handle_database_error(logger: CloudEventLogger, e: sqlalchemy.exc.SQLAlchemy
             sqlalchemy.exc.DisconnectionError,
         ),
     ) or (isinstance(e, sqlalchemy.exc.DBAPIError) and e.connection_invalidated):
-        logger.log_event(
-            logging.WARNING,
-            "Retryable database error",
-            "retryable_database_error",
-            error=e,
-        )
-        return True
+        # Operational errors (e.g. dropped connections, statement timeouts and
+        # deadlocks), connection pool timeouts, disconnects, and any error
+        # that invalidated the connection.
+        retryable = True
+    elif isinstance(e, (OSError, TransportError, aiohttp.ClientConnectionError)):
+        # Network and TLS errors while opening a Cloud SQL connection, and
+        # failures to reach the token endpoint.
+        retryable = True
+    elif isinstance(e, aiohttp.ClientResponseError):
+        # Responses from the Cloud SQL Admin API: 429 and 5xx are retryable;
+        # other 4xx, e.g. missing permissions or instance, are not.
+        retryable = e.status == 429 or e.status >= 500
+    else:
+        # Any other error, e.g. integrity or programming errors, or a failed
+        # credential refresh, is not retryable.
+        retryable = False
 
-    logger.log_event(
-        logging.ERROR,
-        "Non-retryable database error",
-        "non_retryable_database_error",
-        error=e,
-    )
-    return False
+    if retryable:
+        logger.log_event(logging.WARNING, "Retryable database error", "retryable_database_error", error=e)
+    else:
+        logger.log_event(
+            logging.ERROR, "Non-retryable database error", "non_retryable_database_error", error=e
+        )
+    return retryable
