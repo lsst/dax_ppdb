@@ -745,9 +745,9 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
         staging_tables = list(self.client.list_tables(f"{self.project_id}.{self.datasets.staging}"))
 
         # Internal and public datasets should have three DIA tables plus the
-        # five SSO tables.
-        self.assertEqual(len(internal_tables), 8)
-        self.assertEqual(len(public_tables), 8)
+        # six SSO tables.
+        self.assertEqual(len(internal_tables), 9)
+        self.assertEqual(len(public_tables), 9)
 
         # Staging has the three DIA tables plus the raw updates table.
         self.assertEqual(len(staging_tables), 4)
@@ -878,8 +878,8 @@ class CreateDatasetsTestCase(unittest.TestCase):
                 self.assertEqual(len(tables), 4)
             elif dataset_type != DatasetType.PROMOTION:
                 # The internal and public datasets each have the three DIA
-                # tables/views plus the five SSO tables/views.
-                self.assertEqual(len(tables), 8)
+                # tables/views plus the six SSO tables/views.
+                self.assertEqual(len(tables), 9)
             else:
                 # Promotion dataset should have no tables created by default.
                 self.assertEqual(len(tables), 0)
