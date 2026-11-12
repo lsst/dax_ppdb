@@ -288,17 +288,11 @@ class ChunkPromoter:
             )
 
             # Build target column list for SQL statement from the internal
-            # table's schema. This will include the geo_point column.
+            # table's schema. geo_point is copied from staging.
             target_schema = self._bq_client.get_table(internal_table_fqn).schema
             target_names = [target_column.name for target_column in target_schema]
             target_list_sql = ", ".join(f"`{column_name}`" for column_name in target_names)
-
-            # Build source column list for SQL statement from the target list,
-            # converting ra/dec to ST_GEOGPOINT for geo_point column.
-            source_list_sql = ", ".join(
-                "ST_GEOGPOINT(s.`ra`, s.`dec`)" if column_name == "geo_point" else f"s.`{column_name}`"
-                for column_name in target_names
-            )
+            source_list_sql = ", ".join(f"s.`{column_name}`" for column_name in target_names)
 
             # Insert staged rows into the promotion table. If the staging
             # and internal schemas do not match, this will fail.

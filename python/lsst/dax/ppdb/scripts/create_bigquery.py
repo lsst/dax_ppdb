@@ -37,7 +37,6 @@ def create_bigquery(
     db_url: str,
     project_id: str,
     bucket_name: str,
-    object_prefix: str,
     replication_dir: str,
     db_drop: bool,
     *,
@@ -61,8 +60,6 @@ def create_bigquery(
         GCP project ID.
     bucket_name
         GCS bucket name to use for Parquet output.
-    object_prefix
-        Object prefix to use in GCS bucket for Parquet output.
     replication_dir
         Directory used for replication staging area.
     db_drop
@@ -95,7 +92,6 @@ def create_bigquery(
         parq_batch_size=parq_batch_size,
         parq_compression=parq_compression,
         bucket_name=bucket_name,
-        object_prefix=object_prefix,
         project_id=project_id,
     )
     _LOG.info("Created BigQuery configuration: %s", bq_config)

@@ -22,6 +22,7 @@ classifiers = [
 ]
 keywords = ["lsst"]
 dependencies = [
+    "aiohttp",
     "astropy",
     "cloud-sql-python-connector[pg8000]",
     "cloudevents <2",

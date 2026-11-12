@@ -38,6 +38,23 @@ class TableRefs:
     def __init__(self, config: PpdbBigQueryConfig):
         self._config = config
 
+    def landing(self, table_name: str, chunk_id: int) -> str:
+        """Return the fully qualified reference to a chunk's landing table.
+
+        Parameters
+        ----------
+        table_name
+            Name of the staging table that the landing table feeds.
+        chunk_id
+            ID of the replica chunk.
+
+        Returns
+        -------
+        `str`
+            Fully qualified landing table reference.
+        """
+        return self._config.fqn_for(DatasetType.LANDING, f"{table_name}_chunk_{chunk_id}")
+
     def staging(self, table_name: str) -> str:
         """Return the fully qualified staging table reference.
 

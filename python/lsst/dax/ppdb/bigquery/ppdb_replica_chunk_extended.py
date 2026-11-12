@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ["ChunkStatus", "PpdbReplicaChunkExtended"]
+__all__ = ["ChunkStatus", "ChunkStatusError", "PpdbReplicaChunkExtended", "UpdatableField"]
 
 import dataclasses
 from dataclasses import dataclass
@@ -47,7 +47,9 @@ class ChunkStatus(StrEnum):
     UPLOADED = "uploaded"
     """Chunk has been uploaded to cloud storage."""
     STAGING = "staging"
-    """Chunk is being copied into the staging tables by a Dataflow job."""
+    """Chunk is being copied into the staging tables."""
+    RETRYING = "retrying"
+    """Staging hit a transient error and the chunk is waiting to be retried."""
     STAGED = "staged"
     """Chunk data has been copied into the staging tables."""
     PROMOTED = "promoted"
@@ -56,6 +58,19 @@ class ChunkStatus(StrEnum):
     """Chunk processing failed and an error occurred."""
     SKIPPED = "skipped"
     """Chunk processing is skipped because there is no data to export."""
+
+
+class UpdatableField(StrEnum):
+    """Chunk fields that are allowed to be updated on existing chunks."""
+
+    STATUS = "status"
+    GCS_URI = "gcs_uri"
+    ERROR_MESSAGE = "error_message"
+    STAGING_JOB_ID = "staging_job_id"
+
+
+class ChunkStatusError(Exception):
+    """Raised when a replica chunk can't be staged from its current status."""
 
 
 @dataclass(frozen=True)
@@ -72,6 +87,17 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
     update_count: int = 0
     """Count of APDB update records included in the chunk
     (must be non-negative)."""
+
+    status_time: datetime | None = None
+    """Time of the last status change, or `None` if not recorded."""
+
+    error_message: str | None = None
+    """Reason the chunk failed, set only when the status is ``failed`` or
+    ``retrying``."""
+
+    staging_job_id: str | None = None
+    """ID of the BigQuery job that copied the chunk into the staging tables in
+    the last staging attempt."""
 
     @property
     def replica_time_dt_utc(self) -> datetime:
@@ -146,6 +172,38 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
         """
         return dataclasses.replace(self, gcs_uri=new_gcs_uri)
 
+    def with_new_error_message(self, new_error_message: str | None) -> PpdbReplicaChunkExtended:
+        """Create a new `PpdbReplicaChunkExtended` with the same properties as
+        this one, but with a different error message.
+
+        Parameters
+        ----------
+        new_error_message
+            The new error message to set, or `None` to clear it.
+
+        Returns
+        -------
+        `PpdbReplicaChunkExtended`
+            The new chunk with the updated error message.
+        """
+        return dataclasses.replace(self, error_message=new_error_message)
+
+    def with_new_staging_job_id(self, new_staging_job_id: str | None) -> PpdbReplicaChunkExtended:
+        """Create a new `PpdbReplicaChunkExtended` with the same properties as
+        this one, but with a different staging job ID.
+
+        Parameters
+        ----------
+        new_staging_job_id
+            The new staging job ID to set, or `None` to clear it.
+
+        Returns
+        -------
+        `PpdbReplicaChunkExtended`
+            The new chunk with the updated staging job ID.
+        """
+        return dataclasses.replace(self, staging_job_id=new_staging_job_id)
+
     def to_row(self) -> dict[str, int | str | datetime | uuid.UUID | None]:
         """Convert to a dictionary of column values for the
         ``PpdbReplicaChunk`` table.
@@ -163,4 +221,7 @@ class PpdbReplicaChunkExtended(PpdbReplicaChunk):
             "status": self.status.value,
             "gcs_uri": self.gcs_uri,  # This field can be null.
             "update_count": self.update_count,
+            "status_time": self.status_time if self.status_time is not None else datetime.now(UTC),
+            "error_message": self.error_message,
+            "staging_job_id": self.staging_job_id,
         }

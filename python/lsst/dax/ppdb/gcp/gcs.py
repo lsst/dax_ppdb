@@ -47,7 +47,7 @@ class StorageClient:
     Parameters
     ----------
     bucket_name
-        The name of the Google Cloud Storage bucket to interact with.
+        The name of the Google Cloud Storage bucket to use.
     """
 
     def __init__(self, bucket_name: str):

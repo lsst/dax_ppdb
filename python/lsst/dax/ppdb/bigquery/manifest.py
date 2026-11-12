@@ -27,7 +27,7 @@ import hashlib
 import json
 import os
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import ClassVar
 from uuid import UUID
 
@@ -185,6 +185,16 @@ class Manifest(BaseModel):
         `False` otherwise (`bool`).
         """
         return UpdateRecords.PARQUET_FILE_NAME in self.files
+
+    @property
+    def table_files(self) -> dict[str, tuple[str, int]]:
+        """Parquet file names and row counts, by the name of the table each
+        file holds (`dict` [ `str`, `tuple` [ `str`, `int` ] ]).
+        """
+        return {
+            PurePosixPath(file_name).stem: (file_name, entry.row_count)
+            for file_name, entry in self.files.items()
+        }
 
     def write_json_file(self, dir_path: Path) -> None:
         """Save the manifest to a JSON file in the specified directory.

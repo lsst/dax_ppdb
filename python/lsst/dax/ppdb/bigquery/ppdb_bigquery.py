@@ -28,7 +28,6 @@ import logging
 import os
 import shutil
 from collections.abc import Collection, Iterable, Sequence
-from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -56,7 +55,12 @@ from ..ppdb import Ppdb, PpdbReplicaChunk
 from ..sql import PpdbSqlBase, PpdbSqlBaseConfig
 from .manifest import Manifest, ParquetFileEntry
 from .ppdb_bigquery_config import PpdbBigQueryConfig
-from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
+from .ppdb_replica_chunk_extended import (
+    ChunkStatus,
+    ChunkStatusError,
+    PpdbReplicaChunkExtended,
+    UpdatableField,
+)
 from .updates.update_records import UpdateRecords
 
 _LOG = logging.getLogger(__name__)
@@ -68,13 +72,6 @@ VERSION = VersionTuple(0, 1, 0)
 """Version for the code defined in this module. This needs to be updated
 (following compatibility rules) when schema produced by this code changes.
 """
-
-
-class UpdatableField(StrEnum):
-    """Chunk fields that are allowed to be updated on existing chunks."""
-
-    STATUS = "status"
-    GCS_URI = "gcs_uri"
 
 
 class PpdbBigQuery(Ppdb, PpdbSqlBase):
@@ -186,7 +183,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         db_url: str,
         project_id: str,
         bucket_name: str,
-        object_prefix: str,
         replication_dir: str,
         db_drop: bool,
         *,
@@ -208,8 +204,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             GCP project ID.
         bucket_name
             GCS bucket name to use for Parquet output.
-        object_prefix
-            Object prefix to use in GCS bucket for Parquet output.
         replication_dir
             Directory used for replication staging area.
         db_drop
@@ -243,7 +237,6 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             replication_dir=replication_dir,
             bucket_name=bucket_name,
             project_id=project_id,
-            object_prefix=object_prefix,
             delete_existing_dirs=delete_existing_dirs,
         )
         if parq_batch_size is not None:
@@ -416,36 +409,57 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
 
         Notes
         -----
-        This overrides the base method to add additional columns for
-        ``status``, ``gcs_uri``, and ``update_count`` to the replica chunk
-        table schema.
+        This overrides the base method to add these columns to the replica
+        chunk table schema:
+
+        - ``status``: the chunk's status in the pipeline, e.g. ``exported``,
+          ``staging`` or ``promoted``.
+        - ``gcs_uri``: the folder in Cloud Storage that holds the chunk's
+          manifest and Parquet files, set when the chunk is uploaded.
+        - ``update_count``: the number of update records in the chunk.
+        - ``status_time``: the time of the last status change.
+        - ``error_message``: why the chunk failed or is being retried, set
+          only when the status is ``failed`` or ``retrying``.
+        - ``staging_job_id``: the ID of the BigQuery job that copied the chunk
+          into the staging tables in the last staging attempt.
         """
         replica_chunk_table = super().create_replica_chunk_table(table_name)
         replica_chunk_table.columns.extend(
             [
-                # Status of the chunk export process (e.g. pending, exported,
-                # skipped).
                 schema_model.Column(
                     name="status",
                     id=f"#{table_name}.status",
                     datatype=felis.datamodel.DataType.string,
                 ),
-                # URI of the chunk data in GCS after it has been uploaded.
-                # This is not a full object path but a prefix ("directory")
-                # under which the manifest and parquet files for the chunk
-                # are located.
                 schema_model.Column(
                     name="gcs_uri",
                     id=f"#{table_name}.gcs_uri",
                     datatype=felis.datamodel.DataType.string,
                     nullable=True,
                 ),
-                # Count of update records included in the chunk.
                 schema_model.Column(
                     name="update_count",
                     id=f"#{table_name}.update_count",
                     datatype=felis.datamodel.DataType.int,
                     nullable=False,
+                ),
+                schema_model.Column(
+                    name="status_time",
+                    id=f"#{table_name}.status_time",
+                    datatype=felis.datamodel.DataType.timestamp,
+                    nullable=True,
+                ),
+                schema_model.Column(
+                    name="error_message",
+                    id=f"#{table_name}.error_message",
+                    datatype=felis.datamodel.DataType.text,
+                    nullable=True,
+                ),
+                schema_model.Column(
+                    name="staging_job_id",
+                    id=f"#{table_name}.staging_job_id",
+                    datatype=felis.datamodel.DataType.text,
+                    nullable=True,
                 ),
             ]
         )
@@ -594,6 +608,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
                         status=ChunkStatus(row["status"]),
                         gcs_uri=row["gcs_uri"],
                         update_count=row["update_count"],
+                        status_time=row["status_time"],
+                        error_message=row["error_message"],
+                        staging_job_id=row["staging_job_id"],
                     )
                 )
         return chunks
@@ -672,7 +689,12 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         with self._engine.begin() as connection:
             connection.execute(table.insert(), [chunk.to_row() for chunk in chunks])
 
-    def update_chunks(self, chunks: Sequence[PpdbReplicaChunkExtended], fields: set[UpdatableField]) -> int:
+    def update_chunks(
+        self,
+        chunks: Sequence[PpdbReplicaChunkExtended],
+        fields: set[UpdatableField],
+        from_statuses: Collection[ChunkStatus] | None = None,
+    ) -> int:
         """Update one or more existing replica chunks in the
         ``PpdbReplicaChunk`` table.
 
@@ -683,6 +705,9 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             exist in the table.
         fields
             Set of field names to update.
+        from_statuses
+            If given, each chunk is updated only if its current status in the
+            table is one of these, checked in the update statement itself.
 
         Raises
         ------
@@ -690,7 +715,15 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
             Raised if ``fields`` is empty or contains invalid field names,
             or if ``chunks`` is empty.
         LookupError
-            Raised if any chunk does not exist in the table.
+            Raised if any chunk does not exist in the table and
+            ``from_statuses`` is not given.
+        ChunkStatusError
+            Raised if ``from_statuses`` is given and any chunk does not exist
+            or does not have one of those statuses.
+
+        Notes
+        -----
+        How conditional status changes are done may be refactored in DM-56938.
         """
         if not chunks:
             raise ValueError("chunks must not be empty")
@@ -701,12 +734,23 @@ class PpdbBigQuery(Ppdb, PpdbSqlBase):
         with self._engine.begin() as connection:
             for chunk in chunks:
                 row = chunk.to_row()
-                result = connection.execute(
-                    table.update()
-                    .where(table.c.apdb_replica_chunk == chunk.id)
-                    .values(**{k: v for k, v in row.items() if k in fields})
-                )
+                # Take only the fields being updated from the chunk.
+                values: dict[str, object] = {k: v for k, v in row.items() if k in fields}
+                # Set the status time from the database clock on a status
+                # change.
+                if UpdatableField.STATUS in fields:
+                    values["status_time"] = sqlalchemy.func.now()
+                # Update the chunk's row by its ID.
+                statement = table.update().where(table.c.apdb_replica_chunk == chunk.id).values(**values)
+                if from_statuses is not None:
+                    statement = statement.where(table.c.status.in_([s.value for s in from_statuses]))
+                result = connection.execute(statement)
                 if result.rowcount == 0:
+                    if from_statuses is not None:
+                        raise ChunkStatusError(
+                            f"Chunk {chunk.id} does not exist or is not in one of the statuses "
+                            f"{sorted(from_statuses)}"
+                        )
                     raise LookupError(f"Chunk {chunk.id} does not exist")
                 updated_count += result.rowcount
         return updated_count

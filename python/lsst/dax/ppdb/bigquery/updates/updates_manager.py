@@ -54,7 +54,7 @@ class UpdatesManager:
     PPDB database.
 
     Raw update records are staged into the ``updates`` table in the staging
-    dataset by the Dataflow staging job. This manager reads those raw records,
+    dataset by the stage chunk function. This manager reads those raw records,
     expands them into field-level rows in the ``expanded_updates`` table in the
     promotion dataset, selects only the latest update for each field into the
     ``latest_only`` table, and finally merges those into the target tables.

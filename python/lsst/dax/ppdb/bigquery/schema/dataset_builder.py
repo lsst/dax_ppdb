@@ -222,6 +222,25 @@ class DatasetBuilder(ABC):
             dataset_fqn=self._config.fqn_for(self.dataset_type),
         )
 
+    def _convert_dia_tables(self, table_names: Sequence[str] = DIA_TABLES) -> list[bigquery.Table]:
+        """Convert DIA tables to BigQuery table objects, and add the geo_point
+        column to each.
+
+        Parameters
+        ----------
+        table_names
+            Names of the DIA tables to convert.
+
+        Returns
+        -------
+        `list` [`google.cloud.bigquery.Table`]
+            BigQuery table objects for the DIA tables.
+        """
+        tables = self._convert_tables(table_names)
+        for table in tables:
+            _update_schema_fields(table, _geo_point_field())
+        return tables
+
 
 class BaseDatasetBuilder(DatasetBuilder):
     """Base implementation of DatasetBuilder with no-op optional methods."""
@@ -243,12 +262,14 @@ class StagingDatasetBuilder(BaseDatasetBuilder):
 
     def build_tables(self) -> list[bigquery.Table]:
         """Create BigQuery tables for the staging dataset type."""
-        # Get the base DIA table definitions.
-        tables = self._convert_tables(DIA_TABLES)
+        tables = self._convert_dia_tables()
 
-        # Add the apdb_replica_chunk field to each staging table.
+        # Add the apdb_replica_chunk column to each staging table, and cluster
+        # it by chunk.
         for table in tables:
-            _update_schema_fields(table, _apdb_replica_chunk_field())
+            chunk_field = _apdb_replica_chunk_field()
+            _update_schema_fields(table, chunk_field)
+            table.clustering_fields = [chunk_field.name]
 
         # Add the validityEndMjdTai field to the DiaObject table.
         dia_object_table = next(table for table in tables if table.table_id == ApdbTables.DiaObject.value)
@@ -275,15 +296,11 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
     dataset_type = DatasetType.INTERNAL
 
     def _build_dia_tables(self) -> list[bigquery.Table]:
-        # Convert the base DIA tables.
-        tables = self._convert_tables(DIA_TABLES)
+        tables = self._convert_dia_tables()
 
-        # Add an internal geography column for spatial query optimization to
-        # each internal DIA table and set clustering on that column.
+        # Cluster each internal DIA table by geo_point for spatial queries.
         for table in tables:
-            geo_point_field = _geo_point_field()
-            _update_schema_fields(table, geo_point_field)
-            table.clustering_fields = [geo_point_field.name]
+            table.clustering_fields = ["geo_point"]
 
         # Add the validityEndMjdTai field to the DiaObject table.
         dia_object_table = next(table for table in tables if table.table_id == ApdbTables.DiaObject.value)
@@ -353,12 +370,10 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
         excludes validityEndMjdTai from DiaObject, so no column removal is
         needed here.
         """
-        (dia_object_table,) = self._convert_tables([ApdbTables.DiaObject.value])
+        (dia_object_table,) = self._convert_dia_tables([ApdbTables.DiaObject.value])
 
-        # Add geography column and clustering for spatial query optimization.
-        geo_point_field = _geo_point_field()
-        _update_schema_fields(dia_object_table, geo_point_field)
-        dia_object_table.clustering_fields = [geo_point_field.name]
+        # Cluster by geo_point for spatial queries.
+        dia_object_table.clustering_fields = ["geo_point"]
 
         return [dia_object_table]
 
