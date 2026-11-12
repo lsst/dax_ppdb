@@ -19,5 +19,5 @@ testing.postgresql
 lsst-dax-apdb @ git+https://github.com/lsst/dax_apdb@main
 lsst-felis @ git+https://github.com/lsst/felis@main
 lsst-resources[s3] @ git+https://github.com/lsst/resources@main
-lsst-sdm-schemas @ git+https://github.com/lsst/sdm_schemas@main
+lsst-sdm-schemas @ git+https://github.com/lsst/sdm_schemas@tickets/DM-55375
 lsst-utils @ git+https://github.com/lsst/utils@main
