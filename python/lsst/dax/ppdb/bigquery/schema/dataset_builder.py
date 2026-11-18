@@ -351,6 +351,9 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
         public_dataset_fqn = self._config.fqn_for(self.dataset_type)
         internal_dataset_fqn = self._config.fqn_for(DatasetType.INTERNAL)
         column_names = [column.name for column in self._converter.find_table(table_name).columns]
+        # The DIA views include geo_point for spatial queries from TAP.
+        if table_name in DIA_TABLES:
+            column_names.append("geo_point")
         column_list = ", ".join(f"`{column_name}`" for column_name in column_names)
 
         view = bigquery.Table(f"{public_dataset_fqn}.{table_name}")

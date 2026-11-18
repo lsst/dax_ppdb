@@ -203,10 +203,13 @@ class PublicDatasetBuilderTestCase(DatasetBuilderTestMixin, unittest.TestCase):
             # Views must always have a materialized SQL query.
             self.assertTrue(view.view_query and view.view_query.strip())
 
-            # Validate that all columns from the source table are included in
-            # the view and that the expected source table is used.
+            # Validate that all columns from the source table, and geo_point
+            # for the DIA views, are included in the view and that the
+            # expected source table is used.
             table = self.converter.find_table(view_name)
             column_names = [f"`{column.name}`" for column in table.columns]
+            if view_name in DIA_TABLES:
+                column_names.append("`geo_point`")
             expected_columns = ", ".join(column_names)
             expected_query = f"SELECT {expected_columns} FROM `{internal_dataset_fqn}.{view_name}`"
             self.assertEqual(
@@ -761,11 +764,12 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
         self.assertNotIn("validityEndMjdTai", public_dia_object_field_names)
         self.assertIn("geo_point", public_dia_object_field_names)
 
-        # Public dataset should have views with fully qualified columns and
-        # correct FROM clauses.
+        # Public dataset should have views with fully qualified columns,
+        # geo_point and correct FROM clauses.
         for table in (ApdbTables.DiaSource, ApdbTables.DiaForcedSource):
             public_view = self.client.get_table(f"{self.project_id}.{self.datasets.public}.{table.value}")
             self.assertEqual(public_view.table_type, "VIEW")
+            self.assertIn("geo_point", [field.name for field in public_view.schema])
             assert public_view.view_query is not None
             self.assertIn(
                 f"FROM `{self.project_id}.{self.datasets.internal}.{table.value}`",
