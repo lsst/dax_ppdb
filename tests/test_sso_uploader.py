@@ -33,11 +33,11 @@ import yaml
 from google.api_core.exceptions import GoogleAPIError
 
 from lsst.dax.ppdb.bigquery.schema.constants import SSO_TABLES
-from lsst.dax.ppdb.bigquery.sso_uploader import (
+from lsst.dax.ppdb.bigquery.sso.uploader import (
     _PUBSUB_TOPIC,
-    SSOUploader,
-    SSOUploaderConfig,
-    SSOUploadError,
+    Uploader,
+    UploaderConfig,
+    UploadError,
 )
 from lsst.dax.ppdb.cli import ppdb_cli
 from lsst.dax.ppdb.tests._bigquery import (
@@ -52,9 +52,9 @@ _TEST_UNIQUE_PREFIX = "20260902T000000000"
 
 
 def _make_file_map(directory: Path, table_names: Iterable[str]) -> dict[str, Path]:
-    """Make a file_map for SSOUploader pointing at empty dummy files.
+    """Make a file_map for Uploader pointing at empty dummy files.
 
-    The files are empty placeholders since SSOUploader only checks for file
+    The files are empty placeholders since Uploader only checks for file
     existence and does not read or parse the file contents.
     """
     file_map = {}
@@ -66,7 +66,7 @@ def _make_file_map(directory: Path, table_names: Iterable[str]) -> dict[str, Pat
 
 
 class SSOUploaderValidationTestCase(unittest.TestCase):
-    """Test validation of the arguments passed to the SSOUploader
+    """Test validation of the arguments passed to the Uploader
     constructor.
     """
 
@@ -83,11 +83,11 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map["NotATable"] = Path(self.tempdir.name) / "NotATable.parquet"
         file_map["NotATable"].touch()
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
         )
-        with self.assertRaises(SSOUploadError):
-            SSOUploader(config, file_map)
+        with self.assertRaises(UploadError):
+            Uploader(config, file_map)
 
     def test_missing_file(self) -> None:
         """Test that a file_map pointing at a nonexistent file is
@@ -95,11 +95,11 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map[SSO_TABLES[0]] = Path(self.tempdir.name) / "does_not_exist.parquet"
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
         )
-        with self.assertRaises(SSOUploadError):
-            SSOUploader(config, file_map)
+        with self.assertRaises(UploadError):
+            Uploader(config, file_map)
 
     def test_duplicate_paths(self) -> None:
         """Test that a file_map with two tables pointing at the same file
@@ -107,39 +107,39 @@ class SSOUploaderValidationTestCase(unittest.TestCase):
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
         file_map[SSO_TABLES[1]] = file_map[SSO_TABLES[0]]
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
         )
-        with self.assertRaises(SSOUploadError):
-            SSOUploader(config, file_map)
+        with self.assertRaises(UploadError):
+            Uploader(config, file_map)
 
     def test_missing_tables_rejected_when_partial_upload_disallowed(self) -> None:
         """Test that a file_map missing some SSO tables is rejected when
         allow_partial_upload is False.
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES[:-1])
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             allow_partial_upload=False,
         )
-        with self.assertRaises(SSOUploadError):
-            SSOUploader(config, file_map)
+        with self.assertRaises(UploadError):
+            Uploader(config, file_map)
 
     def test_missing_tables_allowed_when_partial_upload_allowed(self) -> None:
         """Test that a file_map missing some SSO tables is accepted when
         allow_partial_upload is True.
         """
         file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES[:-1])
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             allow_partial_upload=True,
         )
-        uploader = SSOUploader(config, file_map)
+        uploader = Uploader(config, file_map)
         self.assertEqual(uploader._file_map, file_map)
 
 
 class SSOUploaderConfigTestCase(unittest.TestCase):
-    """Test loading SSOUploaderConfig from a YAML file."""
+    """Test loading UploaderConfig from a YAML file."""
 
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -152,13 +152,13 @@ class SSOUploaderConfigTestCase(unittest.TestCase):
         yaml_path = Path(self.tempdir.name) / "config.yaml"
         yaml_path.write_text(yaml.safe_dump({"bucket_name": _TEST_BUCKET_NAME}))
 
-        config = SSOUploaderConfig.from_uri(yaml_path)
+        config = UploaderConfig.from_uri(yaml_path)
 
         self.assertEqual(config.bucket_name, _TEST_BUCKET_NAME)
 
 
 class SSOUploaderFromDirectoryTestCase(unittest.TestCase):
-    """Test that SSOUploader.from_directory() correctly scans a directory
+    """Test that Uploader.from_directory() correctly scans a directory
     for conventionally named parquet files.
     """
 
@@ -176,11 +176,11 @@ class SSOUploaderFromDirectoryTestCase(unittest.TestCase):
         file_map = _make_file_map(directory, SSO_TABLES)
         (directory / "not_a_table.parquet").touch()
         (directory / "README.txt").touch()
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
         )
 
-        uploader = SSOUploader.from_directory(directory, config)
+        uploader = Uploader.from_directory(directory, config)
 
         self.assertEqual(uploader._file_map, file_map)
 
@@ -190,29 +190,29 @@ class SSOUploaderFromDirectoryTestCase(unittest.TestCase):
         """
         directory = Path(self.tempdir.name)
         _make_file_map(directory, SSO_TABLES[:-1])
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
             allow_partial_upload=False,
         )
 
-        with self.assertRaises(SSOUploadError):
-            SSOUploader.from_directory(directory, config)
+        with self.assertRaises(UploadError):
+            Uploader.from_directory(directory, config)
 
     def test_rejects_non_directory_path(self) -> None:
         """Test that a non-directory path is rejected."""
         not_a_directory = Path(self.tempdir.name) / "not_a_directory.parquet"
         not_a_directory.touch()
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=_TEST_BUCKET_NAME,
         )
 
-        with self.assertRaises(SSOUploadError):
-            SSOUploader.from_directory(not_a_directory, config)
+        with self.assertRaises(UploadError):
+            Uploader.from_directory(not_a_directory, config)
 
 
 @unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
 class SSOUploaderUploadTestCase(unittest.TestCase):
-    """Test that SSOUploader correctly uploads SSO parquet files to Google
+    """Test that Uploader correctly uploads SSO parquet files to Google
     Cloud Storage and publishes a Pub/Sub message on completion.
     """
 
@@ -231,15 +231,15 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
 
         The Pub/Sub publisher is mocked to avoid depending on a real topic.
         """
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=self.config.bucket_name,
         )
-        uploader = SSOUploader(config, self.file_map)
+        uploader = Uploader(config, self.file_map)
         mock_future = Mock()
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):
@@ -256,19 +256,19 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
 
         The Pub/Sub publisher is mocked to avoid depending on a real topic.
         """
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=self.config.bucket_name,
         )
-        uploader = SSOUploader(config, self.file_map)
+        uploader = Uploader(config, self.file_map)
 
         _, project_id = google.auth.default()
         expected_topic_path = f"projects/{project_id}/topics/{_PUBSUB_TOPIC}"
 
         mock_future = Mock()
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):
@@ -296,27 +296,27 @@ class SSOUploaderUploadTestCase(unittest.TestCase):
         """Test that calling upload() a second time on the same instance
         raises, since each instance is meant to be used for a single upload.
         """
-        config = SSOUploaderConfig(
+        config = UploaderConfig(
             bucket_name=self.config.bucket_name,
         )
-        uploader = SSOUploader(config, self.file_map)
+        uploader = Uploader(config, self.file_map)
         mock_future = Mock()
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):
             mock_publisher_cls.return_value.publish.return_value = mock_future
             uploader.upload()
 
-        with self.assertRaises(SSOUploadError):
+        with self.assertRaises(UploadError):
             uploader.upload()
 
 
 class SSOUploaderUniquePrefixTestCase(unittest.TestCase):
-    """Test that SSOUploader always uploads under a unique, time-based path
+    """Test that Uploader always uploads under a unique, time-based path
     segment.
 
     The Google Cloud Storage and Pub/Sub clients are mocked so these tests
@@ -335,11 +335,11 @@ class SSOUploaderUniquePrefixTestCase(unittest.TestCase):
         bucket.blob.side_effect = lambda name: self.blobs_by_name.setdefault(name, Mock())
         self.bucket = bucket
 
-    def _make_uploader(self) -> SSOUploader:
-        config = SSOUploaderConfig(
+    def _make_uploader(self) -> Uploader:
+        config = UploaderConfig(
             bucket_name=self.config.bucket_name,
         )
-        return SSOUploader(config, self.file_map)
+        return Uploader(config, self.file_map)
 
     def test_upload_uses_unique_prefix(self) -> None:
         """Test that a unique path segment is used as the object prefix for
@@ -350,10 +350,10 @@ class SSOUploaderUniquePrefixTestCase(unittest.TestCase):
         uploader = self._make_uploader()
         mock_future = Mock()
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls,
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):
@@ -372,12 +372,12 @@ class SSOUploaderUniquePrefixTestCase(unittest.TestCase):
         uploader = self._make_uploader()
         mock_future = Mock()
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ) as mock_generate_prefix,
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
         ):
             mock_client_cls.return_value.bucket.return_value = self.bucket
             mock_publisher_cls.return_value.publish.return_value = mock_future
@@ -392,7 +392,7 @@ class SSOUploaderUniquePrefixTestCase(unittest.TestCase):
 
 
 class SSOUploaderCleanupTestCase(unittest.TestCase):
-    """Test that SSOUploader deletes previously uploaded files from Google
+    """Test that Uploader deletes previously uploaded files from Google
     Cloud Storage when an upload or publish operation fails.
 
     The Google Cloud Storage and Pub/Sub clients are mocked so these tests
@@ -414,11 +414,11 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
         bucket.blob.side_effect = lambda name: self.blobs_by_name[name]
         self.bucket = bucket
 
-    def _make_uploader(self) -> SSOUploader:
-        config = SSOUploaderConfig(
+    def _make_uploader(self) -> Uploader:
+        config = UploaderConfig(
             bucket_name=self.config.bucket_name,
         )
-        return SSOUploader(config, self.file_map)
+        return Uploader(config, self.file_map)
 
     def test_upload_failure_cleans_up_previously_uploaded_files(self) -> None:
         """Test that files uploaded before an upload failure are deleted
@@ -431,14 +431,14 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
 
         uploader = self._make_uploader()
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):
             mock_client_cls.return_value.bucket.return_value = self.bucket
-            with self.assertRaises(SSOUploadError):
+            with self.assertRaises(UploadError):
                 uploader.upload()
 
         self.blobs_by_name[self.object_names[0]].delete.assert_called_once()
@@ -454,17 +454,17 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
         uploader = self._make_uploader()
 
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls,
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):
             mock_client_cls.return_value.bucket.return_value = self.bucket
             mock_publisher_cls.return_value.publish.side_effect = GoogleAPIError("Publish failed")
 
-            with self.assertRaises(SSOUploadError):
+            with self.assertRaises(UploadError):
                 uploader.upload()
 
         for name in self.object_names:
@@ -483,14 +483,14 @@ class SSOUploaderCleanupTestCase(unittest.TestCase):
 
         uploader = self._make_uploader()
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.Client") as mock_client_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):
             mock_client_cls.return_value.bucket.return_value = self.bucket
-            with self.assertRaises(SSOUploadError) as cm:
+            with self.assertRaises(UploadError) as cm:
                 uploader.upload()
 
         self.assertIn("Upload failed", str(cm.exception.__cause__))
@@ -530,9 +530,9 @@ class UploadSSODataCLITestCase(unittest.TestCase):
 
         mock_future = Mock()
         with (
-            patch("lsst.dax.ppdb.bigquery.sso_uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
             patch(
-                "lsst.dax.ppdb.bigquery.sso_uploader.SSOUploader._generate_unique_prefix",
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):

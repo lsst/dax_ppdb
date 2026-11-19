@@ -22,7 +22,7 @@
 import logging
 from pathlib import Path
 
-from ..bigquery.sso_uploader import SSOUploader, SSOUploaderConfig
+from ..bigquery.sso.uploader import Uploader, UploaderConfig
 
 _LOG = logging.getLogger(__name__)
 
@@ -37,8 +37,8 @@ def upload_sso_data(config: str, directory: str) -> None:
     directory
         Path to the directory containing the SSO parquet files.
     """
-    sso_config = SSOUploaderConfig.from_uri(config)
-    uploader = SSOUploader.from_directory(Path(directory), sso_config)
+    sso_config = UploaderConfig.from_uri(config)
+    uploader = Uploader.from_directory(Path(directory), sso_config)
     _LOG.info("Starting SSO data upload from directory: %s", directory)
     uploader.upload()
     _LOG.info("SSO data upload complete.")

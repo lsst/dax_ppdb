@@ -37,23 +37,23 @@ from pydantic import BaseModel
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
-from .schema.constants import SSO_TABLES
+from ..schema.constants import SSO_TABLES
 
-__all__ = ["SSOUploadError", "SSOUploader", "SSOUploaderConfig"]
+__all__ = ["UploadError", "Uploader", "UploaderConfig"]
 
 _LOG = logging.getLogger(__name__)
 
 _PUBSUB_TOPIC = "load-sso-topic"
 
 
-class SSOUploadError(RuntimeError):
+class UploadError(RuntimeError):
     """Raised when uploading an SSO parquet file to Google Cloud Storage
     fails.
     """
 
 
-class SSOUploaderConfig(BaseModel):
-    """Configuration for the SSOUploader class."""
+class UploaderConfig(BaseModel):
+    """Configuration for the Uploader class."""
 
     bucket_name: str
     """Target bucket for uploading the SSO parquet files."""
@@ -80,7 +80,7 @@ class SSOUploaderConfig(BaseModel):
         return cls(**config_data)
 
 
-class SSOUploader:
+class Uploader:
     """Class to upload SSO data to Google Cloud Storage for ingest into
     BigQuery.
 
@@ -94,7 +94,7 @@ class SSOUploader:
 
     def __init__(
         self,
-        config: SSOUploaderConfig,
+        config: UploaderConfig,
         file_map: Mapping[str, Path],
     ) -> None:
         self._file_map = file_map
@@ -103,15 +103,15 @@ class SSOUploader:
         try:
             self._check_file_map(self._file_map, allow_partial_upload=config.allow_partial_upload)
         except ValueError as e:
-            raise SSOUploadError(f"Invalid file_map: {e}") from e
+            raise UploadError(f"Invalid file_map: {e}") from e
 
     @classmethod
     def from_directory(
         cls,
         directory: Path,
-        config: SSOUploaderConfig,
+        config: UploaderConfig,
     ) -> Self:
-        """Build an SSOUploader by scanning a directory for parquet files
+        """Build an Uploader by scanning a directory for parquet files
         named `{table_name}.parquet` for each table in SSO_TABLES.
 
         Parameters
@@ -122,7 +122,7 @@ class SSOUploader:
             Configuration for the SSO uploader.
         """
         if not directory.is_dir():
-            raise SSOUploadError(f"Provided path is not a directory: {directory}")
+            raise UploadError(f"Provided path is not a directory: {directory}")
         file_map = {
             table_name: path
             for table_name in SSO_TABLES
@@ -175,7 +175,7 @@ class SSOUploader:
 
         Raises
         ------
-        SSOUploadError
+        UploadError
             Raised if this uploader instance has already run once, if
             uploading a file fails, or if publishing the Pub/Sub message
             fails. Any files uploaded during a failed attempt are removed
@@ -183,11 +183,11 @@ class SSOUploader:
 
         Notes
         -----
-        This method may only be called once per SSOUploader instance.
-        Subsequent calls will raise an SSOUploadError.
+        This method may only be called once per Uploader instance.
+        Subsequent calls will raise an UploadError.
         """
         if self._uploaded:
-            raise SSOUploadError("upload() has already been called on this SSOUploader instance")
+            raise UploadError("upload() has already been called on this Uploader instance")
 
         # A fresh unique prefix per upload prevents silent overwrite of a
         # previous run's data.
@@ -206,12 +206,12 @@ class SSOUploader:
                     # Guard against overwriting an existing object.
                     blob.upload_from_filename(str(file_path), if_generation_match=0)
                 except PreconditionFailed as e:
-                    raise SSOUploadError(
+                    raise UploadError(
                         f"Object already exists at gs://{self._config.bucket_name}/{object_name}; "
                         "a naming collision occurred for this upload prefix"
                     ) from e
                 except (GoogleAPIError, OSError) as e:
-                    raise SSOUploadError(
+                    raise UploadError(
                         f"Failed to upload {file_path} to gs://{self._config.bucket_name}/{object_name}"
                     ) from e
                 uploaded_object_names.append(object_name)
@@ -272,7 +272,7 @@ class SSOUploader:
 
         Raises
         ------
-        SSOUploadError
+        UploadError
             Raised if publishing the message fails.
         """
         message_data = {
@@ -287,7 +287,7 @@ class SSOUploader:
             if project_id is None:
                 # If the project ID could not be determined from the default
                 # credentials, raise an error.
-                raise SSOUploadError(
+                raise UploadError(
                     "Google Cloud project ID could not be determined from the config or default credentials"
                 )
             publisher = pubsub_v1.PublisherClient()
@@ -296,6 +296,6 @@ class SSOUploader:
             future.result()  # Wait for the publish call to complete.
             _LOG.info("Published message to Pub/Sub topic %s: %s", _PUBSUB_TOPIC, message_data)
         except (GoogleAPIError, GoogleAuthError) as e:
-            raise SSOUploadError(
+            raise UploadError(
                 f"Failed to publish message to Pub/Sub topic {_PUBSUB_TOPIC}: {message_data}"
             ) from e
