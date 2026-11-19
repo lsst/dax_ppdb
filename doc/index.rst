@@ -13,4 +13,5 @@ available on `PyPI <https://pypi.org/>`__ as ``lsst-dax-ppdb``.
    :maxdepth: 2
    :hidden:
 
+   user/sso-data
    dev/internals

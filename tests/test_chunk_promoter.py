@@ -61,7 +61,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
     """Integration test for the ChunkPromoter promotion workflow.
 
     Uses fill_apdb + Replicator to generate test data, then loads parquet files
-    directly into BigQuery prod and staging tables (simulating the Dataflow
+    directly into BigQuery prod and staging tables (simulating chunk
     staging). Only the parquet file containing update records is uploaded to
     GCS, as it is read directly during the promotion process.
     """
@@ -176,8 +176,8 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
     def _load_chunk_to_staging(self, chunk: PpdbReplicaChunkExtended) -> None:
         """Load a chunk's parquet files into staging tables and add the
-        ``apdb_replica_chunk`` column, simulating the Dataflow staging step.
-        This mocks the cloud function which stages the data using Dataflow.
+        ``apdb_replica_chunk`` column, simulating the stage_chunk cloud
+        function.
         """
         for table_name in self.TABLE_NAMES:
             staging_table_fqn = self.config.fqn_for(DatasetType.STAGING, table_name)
@@ -198,7 +198,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
     def _load_updates_to_staging(self) -> None:
         """Load each chunk's updates parquet into the staging ``updates``
-        table, simulating the Dataflow staging of the updates file.
+        table, simulating the staging of the updates file.
         """
         updates_table_fqn = self.config.fqn_for(DatasetType.STAGING, "updates")
         for chunk in self.ppdb.query_chunks():
@@ -293,7 +293,7 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         # Create empty internal tables from parquet data.
         self._create_empty_internal_tables(data_chunks[0])
 
-        # Stage all data chunks, simulating the Dataflow staging step.
+        # Stage all data chunks, simulating chunk staging.
         for chunk in data_chunks:
             self._load_chunk_to_staging(chunk)
             self.ppdb.update_chunks([chunk.with_new_status(ChunkStatus.STAGED)], fields={"status"})

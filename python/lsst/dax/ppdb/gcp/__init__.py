@@ -24,5 +24,6 @@ from .cloudrun import *
 from .error_handling import *
 from .gcs import *
 from .logging_setup import *
+from .project import *
 from .pubsub import *
 from .sentry import *

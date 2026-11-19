@@ -22,513 +22,417 @@
 import json
 import os
 import posixpath
+import re
 import tempfile
 import unittest
 from collections.abc import Iterable
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import google.auth
+import pyarrow
 import yaml
-from google.api_core.exceptions import GoogleAPIError
+from google.api_core.exceptions import DeadlineExceeded, GoogleAPIError
+from pyarrow import parquet
 
 from lsst.dax.ppdb.bigquery.schema.constants import SSO_TABLES
+from lsst.dax.ppdb.bigquery.sso.manifest import Manifest
 from lsst.dax.ppdb.bigquery.sso.uploader import (
-    _PUBSUB_TOPIC,
     Uploader,
     UploaderConfig,
     UploadError,
 )
 from lsst.dax.ppdb.cli import ppdb_cli
-from lsst.dax.ppdb.tests._bigquery import (
+from lsst.dax.ppdb.tests import (
     create_bucket,
     delete_bucket,
     have_valid_google_credentials,
     make_bigquery_config,
 )
 
-_TEST_BUCKET_NAME = "test-bucket"
+_TEST_BUCKET_NAME = "sso-upload-bucket"
+_TEST_PROJECT_ID = "ppdb-test-project"
 _TEST_UNIQUE_PREFIX = "20260902T000000000"
 
 
-def _make_file_map(directory: Path, table_names: Iterable[str]) -> dict[str, Path]:
-    """Make a file_map for Uploader pointing at empty dummy files.
+def _write_parquet(path: Path, row_count: int = 3) -> None:
+    """Write a small parquet file with an ``ssObjectId`` column."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table = pyarrow.table({"ssObjectId": list(range(21165641428803584, 21165641428803584 + row_count))})
+    parquet.write_table(table, path)
 
-    The files are empty placeholders since Uploader only checks for file
-    existence and does not read or parse the file contents.
+
+def _make_file_map(directory: Path, table_names: Iterable[str]) -> dict[str, list[Path]]:
+    """Make a file_map for Uploader with one parquet file per table,
+    named ``<table>.parquet``.
     """
     file_map = {}
     for table_name in table_names:
         path = directory / f"{table_name}.parquet"
-        path.touch()
-        file_map[table_name] = path
+        _write_parquet(path)
+        file_map[table_name] = [path]
     return file_map
 
 
-class SSOUploaderValidationTestCase(unittest.TestCase):
-    """Test validation of the arguments passed to the Uploader
+def _make_config(bucket_name: str, table_names: Iterable[str] = SSO_TABLES) -> UploaderConfig:
+    """Make an `UploaderConfig` listing one ``<table>.parquet`` file per
+    table.
+    """
+    return UploaderConfig(
+        bucket_name=bucket_name,
+        files={table_name: f"{table_name}.parquet" for table_name in table_names},
+    )
+
+
+def _part_name(table_name: str, index: int = 0) -> str:
+    """Return the object name of a table's uploaded parquet file."""
+    return posixpath.join(_TEST_UNIQUE_PREFIX, table_name, f"part-{index:05d}.parquet")
+
+
+def _received_result(object_prefix: str, status: str) -> Mock:
+    """Return a pulled Pub/Sub message holding a load result.
+
+    Parameters
+    ----------
+    object_prefix
+        Prefix of the result's upload.
+    status
+        ``succeeded`` or ``failed``.
+
+    Returns
+    -------
+    `unittest.mock.Mock`
+        The received message, with its ack ID and data.
+    """
+    result = {"object_prefix": object_prefix, "status": status}
+    if status == "succeeded":
+        result["job_id"] = f"load_sso_replace_{object_prefix}"
+    else:
+        result["error"] = "row count in internal table SSObject does not match the manifest"
+    received = Mock()
+    received.ack_id = f"ack-{object_prefix}"
+    received.message.data = json.dumps(result).encode("utf-8")
+    return received
+
+
+class UploaderValidationTestCase(unittest.TestCase):
+    """Test validation of the file_map passed to the Uploader
     constructor.
     """
 
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
+        self.directory = Path(self.tempdir.name)
+        self.config = _make_config(_TEST_BUCKET_NAME)
 
-        self.config = make_bigquery_config(test_name="test_sso_uploader_validation")
+        # Patch the project lookup, which needs Google Cloud credentials.
+        patcher = patch("lsst.dax.ppdb.bigquery.sso.uploader.get_project_id", return_value=_TEST_PROJECT_ID)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    def test_invalid_table_name(self) -> None:
-        """Test that a file_map with an unrecognized table name is
-        rejected.
+    def test_invalid_file_map_rejected(self) -> None:
+        """Test that a file_map is rejected, with an error saying why, when it
+        has no tables, or a table is unknown, has a missing file, a directory
+        or no files, shares a file with another table, or is missing.
         """
-        file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
-        file_map["NotATable"] = Path(self.tempdir.name) / "NotATable.parquet"
-        file_map["NotATable"].touch()
-        config = UploaderConfig(
-            bucket_name=_TEST_BUCKET_NAME,
-        )
-        with self.assertRaises(UploadError):
-            Uploader(config, file_map)
+        # Set up a valid file_map, plus a file for a table that isn't an SSO
+        # table.
+        valid = _make_file_map(self.directory, SSO_TABLES)
+        dia_object_path = self.directory / "DiaObject.parquet"
+        _write_parquet(dia_object_path)
 
-    def test_missing_file(self) -> None:
-        """Test that a file_map pointing at a nonexistent file is
-        rejected.
-        """
-        file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
-        file_map[SSO_TABLES[0]] = Path(self.tempdir.name) / "does_not_exist.parquet"
-        config = UploaderConfig(
-            bucket_name=_TEST_BUCKET_NAME,
-        )
-        with self.assertRaises(UploadError):
-            Uploader(config, file_map)
+        # Make an invalid file_map for each case, with the error it should
+        # give.
+        cases = {
+            "no tables": ({}, "no SSO tables to upload"),
+            "unknown table": ({**valid, "DiaObject": [dia_object_path]}, "Invalid SSO table name: DiaObject"),
+            "missing file": (
+                {**valid, "SSObservation": [self.directory / "SSObservation_missing.parquet"]},
+                "Parquet file does not exist",
+            ),
+            "directory": (
+                {**valid, "SSObservation": [self.directory]},
+                "Parquet path for SSO table SSObservation is a directory",
+            ),
+            "no files": (
+                {**valid, "SSObservation": []},
+                "No parquet files found for SSO table: SSObservation",
+            ),
+            "file in two tables": (
+                {**valid, "SSObject": valid["SSObservation"]},
+                "Duplicate parquet file paths",
+            ),
+            "missing table": (
+                {name: paths for name, paths in valid.items() if name != "mpc_orbits"},
+                "Missing parquet files for SSO tables",
+            ),
+        }
 
-    def test_duplicate_paths(self) -> None:
-        """Test that a file_map with two tables pointing at the same file
-        is rejected.
-        """
-        file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
-        file_map[SSO_TABLES[1]] = file_map[SSO_TABLES[0]]
-        config = UploaderConfig(
-            bucket_name=_TEST_BUCKET_NAME,
-        )
-        with self.assertRaises(UploadError):
-            Uploader(config, file_map)
-
-    def test_missing_tables_rejected_when_partial_upload_disallowed(self) -> None:
-        """Test that a file_map missing some SSO tables is rejected when
-        allow_partial_upload is False.
-        """
-        file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES[:-1])
-        config = UploaderConfig(
-            bucket_name=_TEST_BUCKET_NAME,
-            allow_partial_upload=False,
-        )
-        with self.assertRaises(UploadError):
-            Uploader(config, file_map)
+        # Check that the uploader rejects each one with its error.
+        for case, (file_map, message) in cases.items():
+            with self.subTest(case), self.assertRaisesRegex(UploadError, message):
+                Uploader(self.config, file_map)
 
     def test_missing_tables_allowed_when_partial_upload_allowed(self) -> None:
         """Test that a file_map missing some SSO tables is accepted when
         allow_partial_upload is True.
         """
-        file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES[:-1])
-        config = UploaderConfig(
-            bucket_name=_TEST_BUCKET_NAME,
-            allow_partial_upload=True,
-        )
+        # Leave out the last table, and allow partial uploads.
+        file_map = _make_file_map(self.directory, SSO_TABLES[:-1])
+        config = self.config.model_copy(update={"allow_partial_upload": True})
+
+        # Check that the uploader keeps the file_map as given.
         uploader = Uploader(config, file_map)
         self.assertEqual(uploader._file_map, file_map)
 
-
-class SSOUploaderConfigTestCase(unittest.TestCase):
-    """Test loading UploaderConfig from a YAML file."""
-
-    def setUp(self) -> None:
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tempdir.cleanup)
-
-    def test_from_uri(self) -> None:
-        """Test that configuration values are correctly loaded from a YAML
-        file referenced by URI.
+    def test_upload_refused_for_bad_parquet_file(self) -> None:
+        """Test that the upload fails before writing anything when one of
+        its files isn't a valid parquet file, even if it's the last one.
         """
-        yaml_path = Path(self.tempdir.name) / "config.yaml"
-        yaml_path.write_text(yaml.safe_dump({"bucket_name": _TEST_BUCKET_NAME}))
+        # Replace the last table's file with one that isn't parquet.
+        file_map = _make_file_map(self.directory, SSO_TABLES)
+        last_table = list(file_map)[-1]
+        file_map[last_table][0].write_text("not a parquet file")
 
-        config = UploaderConfig.from_uri(yaml_path)
+        # Check that the upload fails, naming the table.
+        with self.assertRaisesRegex(UploadError, f"Invalid parquet file for SSO table {last_table}"):
+            Uploader(self.config, file_map).upload()
 
-        self.assertEqual(config.bucket_name, _TEST_BUCKET_NAME)
+    def test_upload_refused_for_empty_parquet_file(self) -> None:
+        """Test that the upload fails before writing anything when one of
+        its files has no rows, naming the file.
+        """
+        # Replace SSObject's file with an empty one.
+        file_map = _make_file_map(self.directory, SSO_TABLES)
+        empty_path = file_map["SSObject"][0]
+        _write_parquet(empty_path, row_count=0)
+
+        # Check that the upload fails, naming the empty file.
+        with self.assertRaisesRegex(UploadError, re.escape(f"{empty_path}: the file has no rows")):
+            Uploader(self.config, file_map).upload()
 
 
-class SSOUploaderFromDirectoryTestCase(unittest.TestCase):
-    """Test that Uploader.from_directory() correctly scans a directory
-    for conventionally named parquet files.
+class UploaderFromDirectoryTestCase(unittest.TestCase):
+    """Test that Uploader.from_directory() finds each table's files from
+    the configured paths and patterns.
     """
 
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
+        self.directory = Path(self.tempdir.name)
 
-        self.config = make_bigquery_config(test_name="test_sso_uploader_from_directory")
+        # Patch the project lookup, which needs Google Cloud credentials.
+        patcher = patch("lsst.dax.ppdb.bigquery.sso.uploader.get_project_id", return_value=_TEST_PROJECT_ID)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    def test_scans_directory_for_all_tables(self) -> None:
-        """Test that all SSO tables are found and unrelated files are
-        ignored when scanning the directory.
+    def test_files_and_patterns(self) -> None:
+        """Test that single files, an absolute path, a path under ``~`` and a
+        pattern are found, the pattern's files sorted by path, and unrelated
+        files ignored.
         """
-        directory = Path(self.tempdir.name)
-        file_map = _make_file_map(directory, SSO_TABLES)
-        (directory / "not_a_table.parquet").touch()
-        (directory / "README.txt").touch()
-        config = UploaderConfig(
-            bucket_name=_TEST_BUCKET_NAME,
-        )
+        # Write one file per table, with SSObservation instead as three files
+        # created out of order, plus unrelated files.
+        file_map = _make_file_map(self.directory, SSO_TABLES)
+        ssobservation_paths = [
+            self.directory / "SSObservation" / f"part-{index}.parquet" for index in (2, 0, 1)
+        ]
+        for path in ssobservation_paths:
+            _write_parquet(path)
+        _write_parquet(self.directory / "DiaObject.parquet")
+        (self.directory / "README.txt").touch()
 
-        uploader = Uploader.from_directory(directory, config)
+        # Write mpc_orbits outside the directory, to list by absolute path.
+        other_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(other_dir.cleanup)
+        mpc_orbits_path = Path(other_dir.name) / "mpc_orbits.parquet"
+        _write_parquet(mpc_orbits_path)
 
+        # Write current_identifications in a separate home directory, to list
+        # under ~.
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        current_identifications_path = Path(home.name) / "current_identifications.parquet"
+        _write_parquet(current_identifications_path)
+
+        # Configure the SSObservation pattern, the absolute mpc_orbits path and
+        # the current_identifications path under ~.
+        config = _make_config(_TEST_BUCKET_NAME)
+        config.files["SSObservation"] = "SSObservation/*.parquet"
+        config.files["mpc_orbits"] = str(mpc_orbits_path)
+        config.files["current_identifications"] = "~/current_identifications.parquet"
+
+        # Build the uploader from the directory, with HOME set to the home
+        # directory.
+        with patch.dict(os.environ, {"HOME": home.name}):
+            uploader = Uploader.from_directory(self.directory, config)
+
+        # Check that each table has its configured files, SSObservation's in
+        # order.
+        file_map["SSObservation"] = sorted(ssobservation_paths)
+        file_map["mpc_orbits"] = [mpc_orbits_path]
+        file_map["current_identifications"] = [current_identifications_path]
         self.assertEqual(uploader._file_map, file_map)
-
-    def test_missing_tables_rejected_when_partial_upload_disallowed(self) -> None:
-        """Test that a directory missing some SSO table files is rejected
-        when allow_partial_upload is False.
-        """
-        directory = Path(self.tempdir.name)
-        _make_file_map(directory, SSO_TABLES[:-1])
-        config = UploaderConfig(
-            bucket_name=_TEST_BUCKET_NAME,
-            allow_partial_upload=False,
-        )
-
-        with self.assertRaises(UploadError):
-            Uploader.from_directory(directory, config)
 
     def test_rejects_non_directory_path(self) -> None:
         """Test that a non-directory path is rejected."""
-        not_a_directory = Path(self.tempdir.name) / "not_a_directory.parquet"
+        # Make a path to a file instead of a directory.
+        not_a_directory = self.directory / "SSObservation.parquet"
         not_a_directory.touch()
-        config = UploaderConfig(
-            bucket_name=_TEST_BUCKET_NAME,
-        )
 
+        # Check that building the uploader fails.
         with self.assertRaises(UploadError):
-            Uploader.from_directory(not_a_directory, config)
+            Uploader.from_directory(not_a_directory, _make_config(_TEST_BUCKET_NAME))
 
 
-@unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
-class SSOUploaderUploadTestCase(unittest.TestCase):
-    """Test that Uploader correctly uploads SSO parquet files to Google
-    Cloud Storage and publishes a Pub/Sub message on completion.
+class UploaderWaitTestCase(unittest.TestCase):
+    """Test Uploader.wait_for_load, with the Google Cloud Storage and Pub/Sub
+    clients mocked.
     """
 
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
 
-        self.config = make_bigquery_config(test_name="test_sso_uploader")
-        self.bucket = create_bucket(self.config)
-        self.addCleanup(delete_bucket, self.bucket)
-
-        self.file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
-
-    def test_upload_uploads_files_to_gcs(self) -> None:
-        """Test that files are uploaded to GCS.
-
-        The Pub/Sub publisher is mocked to avoid depending on a real topic.
-        """
-        config = UploaderConfig(
-            bucket_name=self.config.bucket_name,
-        )
-        uploader = Uploader(config, self.file_map)
-        mock_future = Mock()
-        with (
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+        # Patch the clients so the upload goes to a fake, empty bucket, and
+        # patch the project lookup and the upload prefix.
+        patchers = [
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client"),
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient"),
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.get_project_id", return_value=_TEST_PROJECT_ID),
             patch(
                 "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
-        ):
-            mock_publisher_cls.return_value.publish.return_value = mock_future
-            uploader.upload()
-
-        for table_name in SSO_TABLES:
-            blob = self.bucket.blob(f"{_TEST_UNIQUE_PREFIX}/{table_name}.parquet")
-            self.assertTrue(blob.exists(), f"Expected {table_name}.parquet to be uploaded")
-
-    def test_upload_with_pubsub_topic(self) -> None:
-        """Test that files are uploaded to GCS and that a Pub/Sub message is
-        published on completion.
-
-        The Pub/Sub publisher is mocked to avoid depending on a real topic.
-        """
-        config = UploaderConfig(
-            bucket_name=self.config.bucket_name,
-        )
-        uploader = Uploader(config, self.file_map)
-
-        _, project_id = google.auth.default()
-        expected_topic_path = f"projects/{project_id}/topics/{_PUBSUB_TOPIC}"
-
-        mock_future = Mock()
-        with (
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
-            patch(
-                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
-                return_value=_TEST_UNIQUE_PREFIX,
-            ),
-        ):
-            mock_publisher = mock_publisher_cls.return_value
-            mock_publisher.topic_path.return_value = expected_topic_path
-            mock_publisher.publish.return_value = mock_future
-
-            uploader.upload()
-
-        for table_name in SSO_TABLES:
-            blob = self.bucket.blob(f"{_TEST_UNIQUE_PREFIX}/{table_name}.parquet")
-            self.assertTrue(blob.exists(), f"Expected {table_name}.parquet to be uploaded")
-
-        mock_publisher.topic_path.assert_called_once_with(project_id, _PUBSUB_TOPIC)
-        mock_future.result.assert_called_once()
-
-        published_topic, published_bytes = mock_publisher.publish.call_args[0]
-        self.assertEqual(published_topic, expected_topic_path)
-        message = json.loads(published_bytes.decode("utf-8"))
-        self.assertEqual(message["bucket"], self.config.bucket_name)
-        self.assertEqual(message["object_prefix"], _TEST_UNIQUE_PREFIX)
-        self.assertEqual(set(message["uploaded_tables"]), set(SSO_TABLES))
-
-    def test_upload_raises_if_called_twice(self) -> None:
-        """Test that calling upload() a second time on the same instance
-        raises, since each instance is meant to be used for a single upload.
-        """
-        config = UploaderConfig(
-            bucket_name=self.config.bucket_name,
-        )
-        uploader = Uploader(config, self.file_map)
-        mock_future = Mock()
-        with (
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
-            patch(
-                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
-                return_value=_TEST_UNIQUE_PREFIX,
-            ),
-        ):
-            mock_publisher_cls.return_value.publish.return_value = mock_future
-            uploader.upload()
-
-        with self.assertRaises(UploadError):
-            uploader.upload()
-
-
-class SSOUploaderUniquePrefixTestCase(unittest.TestCase):
-    """Test that Uploader always uploads under a unique, time-based path
-    segment.
-
-    The Google Cloud Storage and Pub/Sub clients are mocked so these tests
-    do not require valid Google credentials.
-    """
-
-    def setUp(self) -> None:
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tempdir.cleanup)
-
-        self.config = make_bigquery_config(test_name="test_sso_uploader_unique_prefix")
-        self.file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
-
-        self.blobs_by_name: dict[str, Mock] = {}
-        bucket = Mock()
-        bucket.blob.side_effect = lambda name: self.blobs_by_name.setdefault(name, Mock())
-        self.bucket = bucket
-
-    def _make_uploader(self) -> Uploader:
-        config = UploaderConfig(
-            bucket_name=self.config.bucket_name,
-        )
-        return Uploader(config, self.file_map)
-
-    def test_upload_uses_unique_prefix(self) -> None:
-        """Test that a unique path segment is used as the object prefix for
-        every uploaded file.
-
-        The Pub/Sub publisher is mocked to avoid depending on a real topic.
-        """
-        uploader = self._make_uploader()
-        mock_future = Mock()
-        with (
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
-            patch(
-                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
-                return_value=_TEST_UNIQUE_PREFIX,
-            ),
-        ):
-            mock_client_cls.return_value.bucket.return_value = self.bucket
-            mock_publisher_cls.return_value.publish.return_value = mock_future
-            uploader.upload()
-
-        for table_name in SSO_TABLES:
-            object_name = posixpath.join(_TEST_UNIQUE_PREFIX, f"{table_name}.parquet")
-            self.blobs_by_name[object_name].upload_from_filename.assert_called_once()
-
-    def test_unique_prefix_consistent_across_files_and_message(self) -> None:
-        """Test that all uploaded files and the Pub/Sub message share the
-        same unique prefix generated during a single upload() call.
-        """
-        uploader = self._make_uploader()
-        mock_future = Mock()
-        with (
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
-            patch(
-                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
-                return_value=_TEST_UNIQUE_PREFIX,
-            ) as mock_generate_prefix,
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
-        ):
-            mock_client_cls.return_value.bucket.return_value = self.bucket
-            mock_publisher_cls.return_value.publish.return_value = mock_future
-
-            uploader.upload()
-
-        mock_generate_prefix.assert_called_once()
-
-        _, published_bytes = mock_publisher_cls.return_value.publish.call_args[0]
-        message = json.loads(published_bytes.decode("utf-8"))
-        self.assertEqual(message["object_prefix"], _TEST_UNIQUE_PREFIX)
-
-
-class SSOUploaderCleanupTestCase(unittest.TestCase):
-    """Test that Uploader deletes previously uploaded files from Google
-    Cloud Storage when an upload or publish operation fails.
-
-    The Google Cloud Storage and Pub/Sub clients are mocked so these tests
-    do not require valid Google credentials.
-    """
-
-    def setUp(self) -> None:
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tempdir.cleanup)
-
-        self.config = make_bigquery_config(test_name="test_sso_uploader_cleanup")
-        self.file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
-        self.object_names = [
-            posixpath.join(_TEST_UNIQUE_PREFIX, f"{table_name}.parquet") for table_name in self.file_map
         ]
-        self.blobs_by_name = {name: Mock() for name in self.object_names}
+        started = []
+        for patcher in patchers:
+            started.append(patcher.start())
+            self.addCleanup(patcher.stop)
+        mock_client_cls = started[0]
+        mock_client_cls.return_value.bucket.return_value.list_blobs.return_value = []
 
-        bucket = Mock()
-        bucket.blob.side_effect = lambda name: self.blobs_by_name[name]
-        self.bucket = bucket
+        # Set up an uploader with one file per table.
+        file_map = _make_file_map(Path(self.tempdir.name), SSO_TABLES)
+        self.uploader = Uploader(_make_config(_TEST_BUCKET_NAME), file_map)
 
-    def _make_uploader(self) -> Uploader:
-        config = UploaderConfig(
-            bucket_name=self.config.bucket_name,
-        )
-        return Uploader(config, self.file_map)
-
-    def test_upload_failure_cleans_up_previously_uploaded_files(self) -> None:
-        """Test that files uploaded before an upload failure are deleted
-        from GCS, and that files after the failure are never attempted.
+    def test_wait_for_load(self) -> None:
+        """Test that waiting for the load skips results for other uploads
+        and returns the transaction's job ID from this upload's result.
         """
-        failing_object_name = self.object_names[1]
-        self.blobs_by_name[failing_object_name].upload_from_filename.side_effect = GoogleAPIError(
-            "Upload failed"
-        )
+        # Upload the files.
+        self.uploader.upload()
 
-        uploader = self._make_uploader()
-        with (
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
-            patch(
-                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
-                return_value=_TEST_UNIQUE_PREFIX,
-            ),
-        ):
-            mock_client_cls.return_value.bucket.return_value = self.bucket
-            with self.assertRaises(UploadError):
-                uploader.upload()
+        # Make the subscription return an old result for another upload,
+        # then this upload's result.
+        with patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.SubscriberClient") as mock_subscriber_cls:
+            subscriber = mock_subscriber_cls.return_value
+            subscriber.pull.side_effect = [
+                Mock(received_messages=[_received_result("20260901T000000000", "succeeded")]),
+                Mock(received_messages=[_received_result(_TEST_UNIQUE_PREFIX, "succeeded")]),
+            ]
 
-        self.blobs_by_name[self.object_names[0]].delete.assert_called_once()
-        self.blobs_by_name[failing_object_name].delete.assert_not_called()
-        for name in self.object_names[2:]:
-            self.blobs_by_name[name].upload_from_filename.assert_not_called()
-            self.blobs_by_name[name].delete.assert_not_called()
+            # Check that the wait returns this upload's job ID, after
+            # acknowledging both results.
+            job_id = self.uploader.wait_for_load()
+        self.assertEqual(job_id, f"load_sso_replace_{_TEST_UNIQUE_PREFIX}")
+        self.assertEqual(subscriber.acknowledge.call_count, 2)
 
-    def test_publish_failure_cleans_up_uploaded_files(self) -> None:
-        """Test that all uploaded files are deleted from GCS when
-        publishing the Pub/Sub message fails.
+    def test_wait_for_failed_load(self) -> None:
+        """Test that waiting for a load that failed raises with its
+        error.
         """
-        uploader = self._make_uploader()
+        # Upload the files.
+        self.uploader.upload()
 
-        with (
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
-            patch(
-                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
-                return_value=_TEST_UNIQUE_PREFIX,
-            ),
-        ):
-            mock_client_cls.return_value.bucket.return_value = self.bucket
-            mock_publisher_cls.return_value.publish.side_effect = GoogleAPIError("Publish failed")
+        # Make the subscription return a failed result for this upload.
+        with patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.SubscriberClient") as mock_subscriber_cls:
+            mock_subscriber_cls.return_value.pull.return_value = Mock(
+                received_messages=[_received_result(_TEST_UNIQUE_PREFIX, "failed")]
+            )
 
-            with self.assertRaises(UploadError):
-                uploader.upload()
+            # Check that the wait raises with the load's error.
+            with self.assertRaisesRegex(UploadError, "failed: row count in internal table SSObject"):
+                self.uploader.wait_for_load()
 
-        for name in self.object_names:
-            self.blobs_by_name[name].upload_from_filename.assert_called_once()
-            self.blobs_by_name[name].delete.assert_called_once()
+    def test_wait_for_load_times_out(self) -> None:
+        """Test that waiting raises when no result arrives in time."""
+        # Upload the files.
+        self.uploader.upload()
 
-    def test_cleanup_failure_does_not_mask_original_error(self) -> None:
-        """Test that an error while deleting an uploaded file during cleanup
-        is logged but does not prevent the original error from being raised.
-        """
-        failing_object_name = self.object_names[1]
-        self.blobs_by_name[failing_object_name].upload_from_filename.side_effect = GoogleAPIError(
-            "Upload failed"
-        )
-        self.blobs_by_name[self.object_names[0]].delete.side_effect = GoogleAPIError("Delete failed")
+        # Make every pull return nothing before its deadline.
+        with patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.SubscriberClient") as mock_subscriber_cls:
+            mock_subscriber_cls.return_value.pull.side_effect = DeadlineExceeded("Deadline exceeded")
 
-        uploader = self._make_uploader()
-        with (
-            patch("lsst.dax.ppdb.bigquery.sso.uploader.Client") as mock_client_cls,
-            patch(
-                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
-                return_value=_TEST_UNIQUE_PREFIX,
-            ),
-        ):
-            mock_client_cls.return_value.bucket.return_value = self.bucket
-            with self.assertRaises(UploadError) as cm:
-                uploader.upload()
+            # Check that the wait gives up with an error.
+            with self.assertRaisesRegex(UploadError, "No load result"):
+                self.uploader.wait_for_load(timedelta(milliseconds=100))
 
-        self.assertIn("Upload failed", str(cm.exception.__cause__))
-        self.blobs_by_name[self.object_names[0]].delete.assert_called_once()
+    def test_wait_for_load_read_error(self) -> None:
+        """Test that waiting raises when the load results can't be read."""
+        # Upload the files.
+        self.uploader.upload()
+
+        # Make pulling from the subscription fail, e.g. without permission.
+        with patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.SubscriberClient") as mock_subscriber_cls:
+            mock_subscriber_cls.return_value.pull.side_effect = GoogleAPIError(
+                "403 User not authorized to perform this action"
+            )
+
+            # Check that the wait raises.
+            with self.assertRaisesRegex(UploadError, "Failed to read the load results"):
+                self.uploader.wait_for_load()
+
+    def test_wait_without_upload(self) -> None:
+        """Test that waiting before anything is uploaded raises."""
+        # Check that the wait is refused.
+        with self.assertRaisesRegex(UploadError, r"Call upload\(\) first"):
+            self.uploader.wait_for_load()
 
 
 @unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
 class UploadSSODataCLITestCase(unittest.TestCase):
-    """Integration test for the ``ppdb-cli upload-sso-data`` command."""
+    """Integration test for the ``ppdb-cli upload-sso-data`` command,
+    against Google Cloud Storage.
+    """
 
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
 
+        # Set up a bucket for the upload.
         self.config = make_bigquery_config(test_name="test_cli_upload_sso_data")
         self.bucket = create_bucket(self.config)
         self.addCleanup(delete_bucket, self.bucket)
 
-        _make_file_map(Path(self.tempdir.name), SSO_TABLES)
-
+        # Set up one file per table, with SSObservation split into two files,
+        # and a config listing them.
+        directory = Path(self.tempdir.name)
+        self.file_map = _make_file_map(
+            directory, [table_name for table_name in SSO_TABLES if table_name != "SSObservation"]
+        )
+        self.file_map["SSObservation"] = [
+            directory / "SSObservation" / f"part-{index}.parquet" for index in (0, 1)
+        ]
+        _write_parquet(self.file_map["SSObservation"][0], row_count=4)
+        _write_parquet(self.file_map["SSObservation"][1], row_count=2)
+        uploader_config = _make_config(self.config.bucket_name)
+        uploader_config.files["SSObservation"] = "SSObservation/*.parquet"
         self.config_path = os.path.join(self.tempdir.name, "sso_uploader_config.yaml")
         with open(self.config_path, "w") as config_file:
-            yaml.dump(
-                {
-                    "bucket_name": self.config.bucket_name,
-                },
-                config_file,
-            )
+            yaml.dump(uploader_config.model_dump(), config_file)
 
     def test_upload_sso_data(self) -> None:
-        """Test that ``ppdb-cli upload-sso-data`` uploads SSO parquet files
-        from a directory to Google Cloud Storage.
+        """Test that ``ppdb-cli upload-sso-data`` uploads each table's files as
+        numbered parts, then a manifest that can be read back from the bucket,
+        and publishes a message with the bucket and prefix.
 
         The Pub/Sub publisher is mocked to avoid depending on a real topic.
         """
-        argv = ["upload-sso-data", self.config_path, "--directory", self.tempdir.name]
-
-        mock_future = Mock()
+        # Run the command.
+        argv = ["upload-sso-data", self.config_path, self.tempdir.name, "--no-wait"]
         with (
             patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
             patch(
@@ -536,12 +440,57 @@ class UploadSSODataCLITestCase(unittest.TestCase):
                 return_value=_TEST_UNIQUE_PREFIX,
             ),
         ):
-            mock_publisher_cls.return_value.publish.return_value = mock_future
             ppdb_cli.main(argv)
 
-        for table_name in SSO_TABLES:
-            blob = self.bucket.blob(f"{_TEST_UNIQUE_PREFIX}/{table_name}.parquet")
-            self.assertTrue(blob.exists(), f"Expected {table_name}.parquet to be uploaded")
+        # Check that each table's parts are in the bucket, SSObservation's as
+        # part-00000 and part-00001.
+        for table_name, paths in self.file_map.items():
+            for index in range(len(paths)):
+                self.assertTrue(self.bucket.blob(_part_name(table_name, index)).exists())
+
+        # Check that the manifest reads back from the bucket and lists each
+        # part with its source path and row count.
+        manifest = Manifest.from_uri(f"gs://{self.config.bucket_name}/{_TEST_UNIQUE_PREFIX}")
+        self.assertEqual(set(manifest.tables), set(SSO_TABLES))
+        for table_name, paths in self.file_map.items():
+            entries = list(manifest.tables[table_name].values())
+            self.assertEqual([entry.source_path for entry in entries], [str(path) for path in paths])
+        ssobservation = manifest.tables["SSObservation"]
+        self.assertEqual([entry.row_count for entry in ssobservation.values()], [4, 2])
+
+        # Check that the message holds only the bucket and the prefix.
+        _, published_bytes = mock_publisher_cls.return_value.publish.call_args[0]
+        message = json.loads(published_bytes.decode("utf-8"))
+        self.assertEqual(message, {"bucket": self.config.bucket_name, "object_prefix": _TEST_UNIQUE_PREFIX})
+
+    def test_upload_refused_when_prefix_holds_objects(self) -> None:
+        """Test that ``ppdb-cli upload-sso-data`` fails without writing
+        anything when the upload prefix already holds an object in the
+        bucket.
+
+        The Pub/Sub publisher is mocked to avoid depending on a real topic.
+        """
+        # Put an object from another upload under the prefix.
+        existing_name = _part_name("SSObject")
+        self.bucket.blob(existing_name).upload_from_string(b"other upload")
+
+        # Run the command with the same prefix, and check that it fails.
+        argv = ["upload-sso-data", self.config_path, self.tempdir.name, "--no-wait"]
+        with (
+            patch("lsst.dax.ppdb.bigquery.sso.uploader.pubsub_v1.PublisherClient") as mock_publisher_cls,
+            patch(
+                "lsst.dax.ppdb.bigquery.sso.uploader.Uploader._generate_unique_prefix",
+                return_value=_TEST_UNIQUE_PREFIX,
+            ),
+            self.assertRaisesRegex(UploadError, "already holds objects"),
+        ):
+            ppdb_cli.main(argv)
+
+        # Check that only the other upload's object is under the prefix, and
+        # that nothing was published.
+        names = [blob.name for blob in self.bucket.list_blobs(prefix=f"{_TEST_UNIQUE_PREFIX}/")]
+        self.assertEqual(names, [existing_name])
+        mock_publisher_cls.return_value.publish.assert_not_called()
 
 
 if __name__ == "__main__":

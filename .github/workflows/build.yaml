@@ -12,6 +12,9 @@ jobs:
   build_and_test:
     runs-on: ubuntu-latest
     strategy:
+      # Let every Python version finish, since a cancelled run skips the
+      # tests' cleanup and leaves their datasets and buckets in dev.
+      fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
 
