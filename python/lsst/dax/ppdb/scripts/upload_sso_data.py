@@ -22,13 +22,14 @@
 import logging
 from pathlib import Path
 
-from ..bigquery.sso_uploader import SSOUploader, SSOUploaderConfig
+from ..bigquery.sso.uploader import Uploader, UploaderConfig
 
 _LOG = logging.getLogger(__name__)
 
 
-def upload_sso_data(config: str, directory: str) -> None:
-    """Upload SSO parquet files from a directory to Google Cloud Storage.
+def upload_sso_data(config: str, directory: str, wait: bool) -> None:
+    """Upload SSO parquet files from a directory to Google Cloud Storage,
+    and wait for them to be loaded.
 
     Parameters
     ----------
@@ -36,9 +37,19 @@ def upload_sso_data(config: str, directory: str) -> None:
         URI to the YAML configuration file for the SSO uploader.
     directory
         Path to the directory containing the SSO parquet files.
+    wait
+        Whether to wait for the load to finish.
     """
-    sso_config = SSOUploaderConfig.from_uri(config)
-    uploader = SSOUploader.from_directory(Path(directory), sso_config)
+    sso_config = UploaderConfig.from_uri(config)
+    uploader = Uploader.from_directory(Path(directory), sso_config)
     _LOG.info("Starting SSO data upload from directory: %s", directory)
     uploader.upload()
     _LOG.info("SSO data upload complete.")
+    if not wait:
+        return
+    _LOG.info(
+        "Waiting up to %d minutes for the SSO data to be loaded.",
+        Uploader.WAIT_TIMEOUT.total_seconds() // 60,
+    )
+    job_id = uploader.wait_for_load()
+    _LOG.info("SSO data loaded by BigQuery job %s.", job_id)

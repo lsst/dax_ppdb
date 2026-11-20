@@ -117,13 +117,17 @@ def _create_datasets(subparsers: argparse._SubParsersAction) -> None:
 
 def _upload_sso_data(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
-        "upload-sso-data", help="Upload SSO parquet files to Google Cloud Storage and trigger BigQuery load."
+        "upload-sso-data", help="Upload SSO parquet files to Cloud Storage and wait for the BigQuery load."
     )
     parser.add_argument("config", help="URI to the YAML configuration file for the SSO uploader.")
     parser.add_argument(
-        "--directory",
-        help="Directory containing the SSO parquet files.",
-        metavar="DIRECTORY",
-        default=".",
+        "directory",
+        help="Directory containing the SSO parquet files. Relative paths in the configuration are under it.",
+    )
+    parser.add_argument(
+        "--no-wait",
+        dest="wait",
+        action="store_false",
+        help="Exit once the files are uploaded, without waiting for the load.",
     )
     parser.set_defaults(method=scripts.upload_sso_data)

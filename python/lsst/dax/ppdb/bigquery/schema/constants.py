@@ -30,9 +30,10 @@ DIA_TABLES: tuple[str, ...] = (
 )
 
 SSO_TABLES: tuple[str, ...] = (
-    "SSSource",
+    "SSObservation",
+    "NearbySSO",
     "SSObject",
-    "numbered_identifications",
-    "current_identifications",
     "mpc_orbits",
+    "current_identifications",
+    "numbered_identifications",
 )

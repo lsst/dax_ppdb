@@ -19,22 +19,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Logging and classification of Dataflow job launch and database errors as
-retryable or non-retryable.
+"""Logging and classification of database errors as retryable or
+non-retryable.
 """
 
-__all__ = ["DATABASE_ERRORS", "NETWORK_ERRORS", "handle_database_error", "handle_dataflow_launch_error"]
+__all__ = ["DATABASE_ERRORS", "NETWORK_ERRORS", "handle_database_error"]
 
-import http.client
 import logging
-import ssl
-from typing import Any
 
 import aiohttp
-import httplib2
 import requests
 import sqlalchemy.exc
-from google.api_core.exceptions import GoogleAPICallError, RetryError
+from google.api_core.exceptions import RetryError
 from google.auth.exceptions import GoogleAuthError, TransportError
 from google.cloud.sql.connector.exceptions import (
     AutoIAMAuthNotSupported,
@@ -45,7 +41,6 @@ from google.cloud.sql.connector.exceptions import (
     IncompatibleDriverError,
     RefreshNotValidError,
 )
-from googleapiclient.errors import HttpError
 
 from .cloud_event_logger import CloudEventLogger
 
@@ -76,72 +71,6 @@ NETWORK_ERRORS = (
     requests.exceptions.ConnectionError,
     requests.exceptions.Timeout,
 )
-
-
-def handle_dataflow_launch_error(logger: CloudEventLogger, e: Exception) -> bool:
-    """Log a failed Dataflow job launch and report whether it is retryable.
-
-    Parameters
-    ----------
-    logger
-        Logger used to report the error.
-    e
-        The exception raised by the launch request.
-
-    Returns
-    -------
-    `bool`
-        `True` if the error is retryable, `False` otherwise.
-    """
-    extra_fields: dict[str, Any] = {}
-    if isinstance(e, HttpError):
-        # Errors returned by the Dataflow API, by HTTP status code.
-        # Retryable:
-        # - 429 Too Many Requests
-        # - 5xx server errors, such as 500 Internal Server Error and
-        #   503 Service Unavailable
-        # Permanent:
-        # - All other 4xx errors, such as 400 Bad Request, 403 Forbidden and
-        #   404 Not Found
-        retryable = e.resp.status == 429 or e.resp.status >= 500
-        extra_fields["http_status"] = e.resp.status
-    elif isinstance(
-        e,
-        (
-            GoogleAPICallError,
-            ConnectionError,
-            TimeoutError,
-            ssl.SSLError,
-            http.client.HTTPException,
-            httplib2.ServerNotFoundError,
-            TransportError,
-        ),
-    ):
-        # Transient failures while sending the launch request: other Google
-        # API errors, connection resets, TLS errors, truncated responses, DNS
-        # lookup failures, and credential-refresh transport errors.
-        retryable = True
-    else:
-        # Any other error is not retryable.
-        retryable = False
-
-    if retryable:
-        level = logging.WARNING
-        log_message = "Retryable error in request"
-        event_name = "retryable_error"
-    else:
-        level = logging.ERROR
-        log_message = "Non-retryable error in request"
-        event_name = "non_retryable_error"
-
-    logger.log_event(
-        level,
-        log_message,
-        event_name,
-        error=e,
-        **extra_fields,
-    )
-    return retryable
 
 
 def handle_database_error(logger: CloudEventLogger, e: Exception) -> bool:

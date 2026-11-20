@@ -225,7 +225,7 @@ class UpdatesManagerTestCase(PostgresMixin, unittest.TestCase):
             ).run()
 
         # Stage the raw update records into the staging updates table,
-        # simulating the Dataflow staging of the updates file.
+        # simulating the staging of the updates file.
         staging_client = bigquery.Client()
         updates_parquet = self.ppdb.config.chunk_dir(test_replica_chunk_id) / UpdateRecords.PARQUET_FILE_NAME
         with open(updates_parquet, "rb") as f:

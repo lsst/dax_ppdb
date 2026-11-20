@@ -12,6 +12,10 @@ Python API reference
    :include-all-objects:
    :no-inheritance-diagram:
 
+.. automodapi:: lsst.dax.ppdb.bigquery.sso
+   :include-all-objects:
+   :no-inheritance-diagram:
+
 .. automodapi:: lsst.dax.ppdb.bigquery.updates
    :include-all-objects:
    :no-inheritance-diagram:

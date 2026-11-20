@@ -2,7 +2,6 @@ aiohttp
 astropy
 cloud-sql-python-connector[pg8000]
 cloudevents <2
-google-api-python-client
 google-auth
 google-cloud-bigquery
 google-cloud-logging
