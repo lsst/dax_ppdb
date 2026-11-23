@@ -382,63 +382,29 @@ class SearchIndexTestCase(DatasetBuilderTestMixin, unittest.TestCase):
 
         self.assertEqual(definition.index_name, "DiaObject_diaObjectId_insertTime_idx")
 
-    def test_executes_expected_query(self) -> None:
-        """Test that _create_search_indexes executes expected BigQuery SQL."""
-        manager = self._make_manager()
-
-        definition = SearchIndexDefinition(
-            table_name=ApdbTables.DiaObject.value,
-            field_data_types=(("diaObjectId", SearchIndexDataType.INT64),),
-        )
-        builder = Mock(spec=DatasetBuilder)
-        builder.build_search_indexes.return_value = [definition]
+    def test_create_search_indexes_executes_expected_query(self) -> None:
+        """Test that create_search_indexes runs the expected BigQuery SQL for
+        the public DiaObject index and waits for it.
+        """
+        # Mock BigQuery client that returns a mock query job.
         query_job = Mock()
-        client = self._inject_mock_client(manager)
+        client = Mock()
         client.query.return_value = query_job
 
-        manager._create_search_indexes(builder, DatasetType.PUBLIC)
+        PublicDatasetBuilder.create_search_indexes(client, self.config)
 
-        # Query execution should block until completion.
-        query_job.result.assert_called_once_with()
+        # The query should run once and block until completion.
         client.query.assert_called_once()
-        sql = client.query.call_args.args[0]
+        query_job.result.assert_called_once_with()
 
         # Generated SQL should target the expected index, table, and data type.
-        self.assertIn("CREATE SEARCH INDEX DiaObject_diaObjectId_idx", sql)
+        sql = client.query.call_args.args[0]
+        self.assertIn("CREATE SEARCH INDEX IF NOT EXISTS DiaObject_diaObjectId_idx", sql)
         self.assertIn(
             f"ON `{self.config.fqn_for(DatasetType.PUBLIC)}.{ApdbTables.DiaObject.value}`(diaObjectId)",
             sql,
         )
         self.assertIn("OPTIONS (data_types = ['INT64']);", sql)
-
-    def test_conflict_respects_exists_ok(self) -> None:
-        """Test that _create_search_indexes handles conflicts per exists_ok."""
-        definition = SearchIndexDefinition(
-            table_name=ApdbTables.DiaObject.value,
-            field_data_types=(("diaObjectId", SearchIndexDataType.INT64),),
-        )
-        builder = Mock(spec=DatasetBuilder)
-        builder.build_search_indexes.return_value = [definition]
-
-        manager = self._make_manager()
-
-        query_job = Mock()
-        query_job.result.side_effect = Conflict("already exists")
-        client = self._inject_mock_client(manager)
-        client.query.return_value = query_job
-
-        with self.assertRaisesRegex(DatasetBuilderError, r"Search index already exists"):
-            manager._create_search_indexes(builder, DatasetType.PUBLIC)
-
-        exists_ok_manager = self._make_manager(exists_ok=True)
-
-        exists_ok_client = Mock()
-        exists_ok_query_job = Mock()
-        exists_ok_query_job.result.side_effect = Conflict("already exists")
-        exists_ok_client.query.return_value = exists_ok_query_job
-        exists_ok_manager._client = exists_ok_client
-
-        exists_ok_manager._create_search_indexes(builder, DatasetType.PUBLIC)
 
 
 class DatasetBuildManagerTestCase(DatasetBuilderTestMixin, unittest.TestCase):
@@ -683,15 +649,12 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
 
     def _make_integration_manager(self, exists_ok: bool = False) -> DatasetBuildManager:
         """Create a DatasetBuildManager configured for integration tests."""
-        manager = DatasetBuildManager(
+        return DatasetBuildManager(
             config=self.config,
             schema=self.schema,
             exists_ok=exists_ok,
+            create_search_indexes=_SEARCH_INDEXES_ENABLED,
         )
-        if not _SEARCH_INDEXES_ENABLED:
-            for builder in manager._builders.values():
-                builder.build_search_indexes = Mock(return_value=[])
-        return manager
 
     def _list_search_indexes(self, dataset_name: str) -> list[tuple[str, str]]:
         """List search indexes as (table_name, index_name) pairs."""
@@ -825,15 +788,24 @@ class DatasetBuilderBigQueryTestCase(unittest.TestCase):
         "Set DAX_PPDB_TESTS_SEARCH_INDEXES_ENABLED=1 to run search index integration tests",
     )
     def test_build_datasets_creates_search_indexes(self) -> None:
-        """Test that build_datasets creates search indexes."""
+        """Test that build_datasets creates exactly the expected search
+        indexes in each dataset.
+        """
         manager = self._make_integration_manager()
         manager.build_datasets()
 
-        internal_indexes = self._list_search_indexes(self.datasets.internal)
-        public_indexes = self._list_search_indexes(self.datasets.public)
-
-        self.assertGreaterEqual(len(internal_indexes), 3)
-        self.assertGreaterEqual(len(public_indexes), 1)
+        # The internal DIA tables and the public DiaObject table should each
+        # have a diaObjectId search index, and no other dataset any index.
+        expected_indexes = {
+            self.datasets.internal: {
+                (table_name, f"{table_name}_diaObjectId_idx") for table_name in DIA_TABLES
+            },
+            self.datasets.public: {(ApdbTables.DiaObject.value, "DiaObject_diaObjectId_idx")},
+            self.datasets.staging: set(),
+            self.datasets.promotion: set(),
+        }
+        for dataset_name, expected in expected_indexes.items():
+            self.assertEqual(set(self._list_search_indexes(dataset_name)), expected)
 
 
 @unittest.skipIf(not have_valid_google_credentials(), "Missing valid Google credentials")
