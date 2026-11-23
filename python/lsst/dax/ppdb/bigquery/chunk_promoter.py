@@ -40,6 +40,7 @@ from ..gcp import CloudEventLogger
 from .ppdb_bigquery import PpdbBigQuery, UpdatableField
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
+from .schema.dataset_builder import InternalDatasetBuilder, PublicDatasetBuilder
 from .sql_resource import SqlResource
 from .table_refs import TableRefs
 from .updates.updates_manager import UpdatesManager
@@ -177,6 +178,9 @@ class ChunkPromoter:
 
             # Mark the chunks promoted in the database.
             self._mark_chunks_promoted()
+
+            # Recreate the search indexes that the table copies dropped.
+            self._recreate_search_indexes()
 
         except Exception as e:
             raise ChunkPromotionError("Chunk promotion failed") from e
@@ -413,6 +417,37 @@ class ChunkPromoter:
         """Mark the replica chunks as promoted in the database."""
         promoted = [chunk.with_new_status(ChunkStatus.PROMOTED) for chunk in self.promotable_chunks]
         self._ppdb.update_chunks(promoted, fields={UpdatableField.STATUS})
+
+    def _recreate_search_indexes(self) -> None:
+        """Recreate the search indexes on the internal tables and the public
+        DiaObject table.
+
+        Notes
+        -----
+        Copying a promotion table over an internal table, and recreating the
+        public DiaObject table, drops their search indexes. A failure here is
+        logged and not raised, because the chunks are already promoted. A
+        missing index only slows queries, and the next promotion recreates
+        it. Each dataset is handled separately, so a failure in one doesn't
+        stop the other's indexes from being recreated.
+        """
+        for builder in (InternalDatasetBuilder, PublicDatasetBuilder):
+            try:
+                builder.create_search_indexes(self._bq_client, self.config)
+                self._logger.log_event(
+                    logging.INFO,
+                    "Recreated search indexes",
+                    "search_indexes_recreated",
+                    dataset_type=builder.dataset_type.value,
+                )
+            except Exception as e:
+                self._logger.log_event(
+                    logging.ERROR,
+                    "Search index recreation failed",
+                    "search_index_recreation_failed",
+                    error=e,
+                    dataset_type=builder.dataset_type.value,
+                )
 
     def _cleanup(self) -> None:
         """Cleanup state after executing the promotion."""
