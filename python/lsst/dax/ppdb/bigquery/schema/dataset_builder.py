@@ -186,8 +186,9 @@ class DatasetBuilder(ABC):
         """
         raise NotImplementedError("build_views() must be implemented by subclasses of DatasetBuilder.")
 
+    @classmethod
     @abstractmethod
-    def build_search_indexes(self) -> list[SearchIndexDefinition]:
+    def build_search_indexes(cls) -> list[SearchIndexDefinition]:
         """Build search indexes for a dataset type.
 
         Returns
@@ -198,6 +199,45 @@ class DatasetBuilder(ABC):
         raise NotImplementedError(
             "build_search_indexes() must be implemented by subclasses of DatasetBuilder."
         )
+
+    @classmethod
+    def create_search_indexes(cls, client: bigquery.Client, config: PpdbBigQueryConfig) -> None:
+        """Create the search indexes for a dataset type in BigQuery.
+
+        This method is generic. It creates the indexes from
+        `build_search_indexes`, so subclasses don't override it.
+
+        Parameters
+        ----------
+        client
+            The BigQuery client used to run the index statements.
+        config
+            The PPDB BigQuery configuration containing the dataset names.
+
+        Notes
+        -----
+        Each index is created with ``IF NOT EXISTS``, so an index that already
+        exists is left unchanged. All the statements are submitted before
+        any is waited on, so they run concurrently. BigQuery populates each
+        index in the background after its statement completes.
+        """
+        dataset_fqn = config.fqn_for(cls.dataset_type)
+        jobs = []
+        for definition in cls.build_search_indexes():
+            field_names = ", ".join(field_name for field_name, _ in definition.field_data_types)
+            data_types = ", ".join(f"'{data_type.value}'" for _, data_type in definition.field_data_types)
+            jobs.append(
+                client.query(
+                    f"""CREATE SEARCH INDEX IF NOT EXISTS {definition.index_name}
+                    ON `{dataset_fqn}.{definition.table_name}`({field_names})
+                    OPTIONS (data_types = [{data_types}]);
+                    """
+                )
+            )
+
+        # Wait for all the index statements to complete.
+        for job in jobs:
+            job.result()
 
     def _convert_tables(self, table_names: Sequence[str]) -> list[bigquery.Table]:
         """Convert a list of Felis table names to BigQuery table objects.
@@ -251,7 +291,8 @@ class BaseDatasetBuilder(DatasetBuilder):
     def build_views(self) -> list[bigquery.Table]:
         return []
 
-    def build_search_indexes(self) -> list[SearchIndexDefinition]:
+    @classmethod
+    def build_search_indexes(cls) -> list[SearchIndexDefinition]:
         return []
 
 
@@ -312,7 +353,8 @@ class InternalDatasetBuilder(BaseDatasetBuilder):
         """Create BigQuery tables for the internal dataset type."""
         return self._build_dia_tables() + self._convert_tables(SSO_TABLES)
 
-    def build_search_indexes(self) -> list[SearchIndexDefinition]:
+    @classmethod
+    def build_search_indexes(cls) -> list[SearchIndexDefinition]:
         """Create search indexes for the internal dataset type."""
         return [
             SearchIndexDefinition(
@@ -387,7 +429,8 @@ class PublicDatasetBuilder(BaseDatasetBuilder):
             for table_name in (ApdbTables.DiaSource.value, ApdbTables.DiaForcedSource.value, *SSO_TABLES)
         ]
 
-    def build_search_indexes(self) -> list[SearchIndexDefinition]:
+    @classmethod
+    def build_search_indexes(cls) -> list[SearchIndexDefinition]:
         """Create search indexes for the public dataset type."""
         return [
             SearchIndexDefinition(
@@ -409,7 +452,8 @@ class DatasetBuildManager:
         The Felis schema object containing table definitions.
     exists_ok
         If True, do not fail if a BigQuery table or view already exists; skip
-        creating it.
+        creating it. Search indexes are always created with ``IF NOT
+        EXISTS``, so an existing index is skipped either way.
     configure_authorized_views
         If True, configure internal dataset access entries for public
         authorized views after build.
@@ -490,10 +534,9 @@ class DatasetBuildManager:
                 if dataset_type is DatasetType.PUBLIC:
                     public_views.extend(views)
 
-                # Build the search index definitions for this dataset type and
-                # then create them in BigQuery.
+                # Create the search indexes for this dataset type in BigQuery.
                 if self._create_search_indexes_enabled:
-                    self._create_search_indexes(builder=builder, dataset_type=dataset_type)
+                    builder.create_search_indexes(self._client, self._config)
         except DatasetBuilderError:
             raise
         except Exception as e:
@@ -558,32 +601,6 @@ class DatasetBuildManager:
                     f"{resource_kind.capitalize()} {resource.table_id!r} already exists."
                 ) from e
             _LOG.debug("Created %s: %s", resource_kind, resource.table_id)
-
-    def _create_search_indexes(
-        self,
-        builder: DatasetBuilder,
-        dataset_type: DatasetType,
-    ) -> None:
-        """Create search indexes for a dataset type."""
-        dataset_fqn = self._config.fqn_for(dataset_type)
-        for definition in builder.build_search_indexes():
-            field_names = ", ".join(field_name for field_name, _ in definition.field_data_types)
-            data_types = ", ".join(f"'{data_type.value}'" for _, data_type in definition.field_data_types)
-            try:
-                self._client.query(
-                    f"""CREATE SEARCH INDEX {definition.index_name}
-                    ON `{dataset_fqn}.{definition.table_name}`({field_names})
-                    OPTIONS (data_types = [{data_types}]);
-                    """
-                ).result()  # Wait for the operation to complete.
-            except Conflict as e:
-                if self._exists_ok:
-                    _LOG.info(
-                        "Search index already exists for %s and exists_ok=True; skipping.",
-                        dataset_type.value,
-                    )
-                    continue
-                raise DatasetBuilderError("Search index already exists.") from e
 
     def _configure_authorized_views(self, public_views: list[bigquery.Table]) -> None:
         """Configure authorized view access entries on the internal dataset for
