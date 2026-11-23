@@ -22,6 +22,7 @@
 import logging
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from google.cloud import bigquery
@@ -51,6 +52,7 @@ from lsst.dax.ppdb.tests import (
     fill_apdb,
     have_valid_google_credentials,
     make_bigquery_config,
+    search_indexes_enabled,
 )
 
 _LOG = logging.getLogger(__name__)
@@ -284,7 +286,8 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
     def test_promote_chunks(self) -> None:
         """Test that promote_chunks moves staged data into prod, applies
-        update records, cleans up tmp tables, and marks chunks PROMOTED.
+        update records, cleans up tmp tables, marks chunks PROMOTED, and
+        recreates the search indexes when they are enabled for tests.
         """
         all_chunks = self.ppdb.query_chunks()
         data_chunks = [c for c in all_chunks if c.status == ChunkStatus.UPLOADED]
@@ -311,10 +314,15 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         # Expand update records before promotion for later verification.
         expanded_updates = self._get_expanded_updates()
 
-        # Promote all chunks.
+        # Promote all chunks, recreating the search indexes only when they
+        # are enabled for tests.
         chunks_to_promote = self.ppdb.get_promotable_chunks()
         promoter = ChunkPromoter(self.ppdb, CloudEventLogger(_LOG))
-        promoter.promote_chunks(chunks_to_promote)
+        if search_indexes_enabled():
+            promoter.promote_chunks(chunks_to_promote)
+        else:
+            with patch.object(ChunkPromoter, "_recreate_search_indexes"):
+                promoter.promote_chunks(chunks_to_promote)
 
         # Verify staging tables are empty.
         for table_name in self.TABLE_NAMES:
@@ -366,6 +374,22 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
 
         # Verify no promotable chunks remain after promotion.
         self.assertEqual(self.ppdb.get_promotable_chunks(), [])
+
+        # Verify the diaObjectId search indexes exist on the internal DIA
+        # tables and the public DiaObject table, when enabled for tests.
+        if search_indexes_enabled():
+            expected_indexes = {
+                DatasetType.INTERNAL: {
+                    (table_name, f"{table_name}_diaObjectId_idx") for table_name in self.TABLE_NAMES
+                },
+                DatasetType.PUBLIC: {(ApdbTables.DiaObject.value, "DiaObject_diaObjectId_idx")},
+            }
+            for dataset_type, expected in expected_indexes.items():
+                dataset_fqn = self.config.fqn_for(dataset_type)
+                rows = self.bq_client.query(
+                    f"SELECT table_name, index_name FROM `{dataset_fqn}.INFORMATION_SCHEMA.SEARCH_INDEXES`"
+                ).result()
+                self.assertEqual({(row.table_name, row.index_name) for row in rows}, expected)
 
     def test_promote_chunks_empty(self) -> None:
         """Test that promoting an empty list raises NoPromotableChunksError."""
