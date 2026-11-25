@@ -33,3 +33,6 @@ doc/api
 
 # scratch dir
 .scratch
+
+# uv lock file
+uv.lock
