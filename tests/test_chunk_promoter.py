@@ -315,14 +315,16 @@ class ChunkPromoterTestCase(PostgresMixin, unittest.TestCase):
         expanded_updates = self._get_expanded_updates()
 
         # Promote all chunks, recreating the search indexes only when they
-        # are enabled for tests.
+        # are enabled for tests. Publishing is mocked, so the promotion
+        # doesn't trigger the exports subscribed to promotion-succeeded.
         chunks_to_promote = self.ppdb.get_promotable_chunks()
         promoter = ChunkPromoter(self.ppdb, CloudEventLogger(_LOG))
-        if search_indexes_enabled():
-            promoter.promote_chunks(chunks_to_promote)
-        else:
-            with patch.object(ChunkPromoter, "_recreate_search_indexes"):
+        with patch.object(ChunkPromoter, "_publish_success"):
+            if search_indexes_enabled():
                 promoter.promote_chunks(chunks_to_promote)
+            else:
+                with patch.object(ChunkPromoter, "_recreate_search_indexes"):
+                    promoter.promote_chunks(chunks_to_promote)
 
         # Verify staging tables are empty.
         for table_name in self.TABLE_NAMES:

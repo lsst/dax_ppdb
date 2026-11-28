@@ -29,14 +29,15 @@ __all__ = [
 
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import GoogleAPIError, NotFound
 from google.cloud import bigquery
 
 from lsst.dax.apdb import ApdbTables
 
-from ..gcp import CloudEventLogger
+from ..gcp import CloudEventLogger, Publisher
 from .ppdb_bigquery import PpdbBigQuery, UpdatableField
 from .ppdb_bigquery_config import PpdbBigQueryConfig
 from .ppdb_replica_chunk_extended import ChunkStatus, PpdbReplicaChunkExtended
@@ -44,6 +45,9 @@ from .schema.dataset_builder import InternalDatasetBuilder, PublicDatasetBuilder
 from .sql_resource import SqlResource
 from .table_refs import TableRefs
 from .updates.updates_manager import UpdatesManager
+
+# Pub/Sub topic for the message published after each successful promotion.
+_RESULT_TOPIC = "promotion-succeeded"
 
 
 class NoPromotableChunksError(Exception):
@@ -69,6 +73,9 @@ class ChunkPromoter:
         Cloud event logger used to emit structured log events.
     table_names
         Table names to promote or None to use a default set.
+    result_topic
+        Name of the Pub/Sub topic for the message published after each
+        successful promotion.
     """
 
     _DEFAULT_TABLE_NAMES = (
@@ -84,6 +91,7 @@ class ChunkPromoter:
         ppdb: PpdbBigQuery,
         logger: CloudEventLogger,
         table_names: Sequence[str] | None = None,
+        result_topic: str = _RESULT_TOPIC,
     ):
         self._ppdb = ppdb
         self._logger = logger
@@ -97,6 +105,7 @@ class ChunkPromoter:
         self._location = self._dataset.location
         self._table_refs = TableRefs(self.config)
         self._updates_manager = UpdatesManager(self.config, self._logger)
+        self._publisher = Publisher(self.config.project_id, result_topic)
 
         self._promotable_chunks: list[PpdbReplicaChunkExtended] = []
 
@@ -125,6 +134,10 @@ class ChunkPromoter:
     def promote_chunks(self, chunks: list[PpdbReplicaChunkExtended]) -> None:
         """Promote APDB replica chunks into production by executing a series of
         steps in BigQuery.
+
+        After every step succeeds, a message with the promotion's time is
+        published to the result topic. Nothing is published if a step fails
+        or ``chunks`` is empty.
 
         Parameters
         ----------
@@ -184,6 +197,8 @@ class ChunkPromoter:
 
         except Exception as e:
             raise ChunkPromotionError("Chunk promotion failed") from e
+        else:
+            self._publish_success(datetime.now(UTC))
         finally:
             # Always execute the cleanup, even if there were errors.
             try:
@@ -195,6 +210,31 @@ class ChunkPromoter:
                     "chunk_promotion_cleanup_failed",
                     error=e,
                 )
+
+    def _publish_success(self, promotion_time: datetime) -> None:
+        """Publish the message for a successful promotion.
+
+        Parameters
+        ----------
+        promotion_time
+            Time the promotion finished, in UTC.
+
+        Notes
+        -----
+        A failure to publish is logged, not raised, because the promotion is
+        already saved. The message can then be published again by hand.
+        """
+        message = {"promotion_time": promotion_time.strftime("%Y-%m-%dT%H:%M:%SZ")}
+        try:
+            self._publisher.publish(message).result()
+        except (GoogleAPIError, TimeoutError) as e:
+            self._logger.log_event(
+                logging.ERROR,
+                "Failed to publish the promotion message",
+                "promotion_message_not_published",
+                error=e,
+                pubsub_message=message,
+            )
 
     def _run_job(
         self, label: str, sql: str, job_config: bigquery.QueryJobConfig | None = None
